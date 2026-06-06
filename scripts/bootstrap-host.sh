@@ -52,7 +52,7 @@ log "Активный сетевой интерфейс хоста: $ACTIVE_IFAC
 # 4. Установка зависимостей
 log "Установка необходимых пакетов (curl, iptables, bridge-utils)..."
 apt-get update
-apt-get install -y curl iptables bridge-utils jq lsvpn net-tools openssl
+apt-get install -y curl iptables bridge-utils jq net-tools openssl
 
 # 5. Установка K3s (Kubernetes)
 log "Установка K3s (легковесный Kubernetes)..."
