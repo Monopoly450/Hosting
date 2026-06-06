@@ -191,10 +191,10 @@ const App = () => {
         </div>
         
         {/* Кнопки переключения вкладок */}
-        <div style={{ display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.25)', padding: '4px', borderRadius: '0px', border: '1px solid var(--border-color)' }}>
+        <div style={{ display: 'flex', gap: '8px', background: 'rgba(0, 0, 0, 0.04)', padding: '4px', borderRadius: '0px', border: '1px solid var(--border-color)' }}>
           <button 
             className={`btn btn-sm ${activeTab === 'dashboard' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'dashboard' ? '#000' : 'var(--text-primary)', borderRadius: '0px' }}
+            style={{ color: activeTab === 'dashboard' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
             onClick={() => setActiveTab('dashboard')}
           >
             <LayoutDashboard size={14} />
@@ -202,7 +202,7 @@ const App = () => {
           </button>
           <button 
             className={`btn btn-sm ${activeTab === 'vms' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'vms' ? '#000' : 'var(--text-primary)', borderRadius: '0px' }}
+            style={{ color: activeTab === 'vms' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
             onClick={() => setActiveTab('vms')}
           >
             <Activity size={14} />
@@ -210,7 +210,7 @@ const App = () => {
           </button>
           <button 
             className={`btn btn-sm ${activeTab === 'images' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'images' ? '#000' : 'var(--text-primary)', borderRadius: '0px' }}
+            style={{ color: activeTab === 'images' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
             onClick={() => setActiveTab('images')}
           >
             <FolderOpen size={14} />
@@ -218,7 +218,7 @@ const App = () => {
           </button>
           <button 
             className={`btn btn-sm ${activeTab === 'external' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'external' ? '#000' : 'var(--text-primary)', borderRadius: '0px' }}
+            style={{ color: activeTab === 'external' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
             onClick={() => setActiveTab('external')}
           >
             <Link2 size={14} />
@@ -226,7 +226,7 @@ const App = () => {
           </button>
           <button 
             className={`btn btn-sm ${activeTab === 'docker' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'docker' ? '#000' : 'var(--text-primary)', borderRadius: '0px' }}
+            style={{ color: activeTab === 'docker' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
             onClick={() => setActiveTab('docker')}
           >
             <Shield size={14} />
