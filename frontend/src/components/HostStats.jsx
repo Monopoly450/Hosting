@@ -141,7 +141,7 @@ const HostStats = ({ onMetricsLoaded }) => {
                 <XAxis dataKey="time" hide />
                 <YAxis domain={[0, 100]} tickLine={false} axisLine={false} style={{ fontSize: '10px', fill: 'var(--text-muted)' }} />
                 <Tooltip 
-                  contentStyle={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)', borderRadius: '8px' }}
+                  contentStyle={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)', borderRadius: '0px' }}
                   labelStyle={{ color: 'var(--text-secondary)' }}
                 />
                 <Area type="monotone" dataKey="cpu" name="CPU %" stroke="var(--primary)" fillOpacity={1} fill="url(#colorCpu)" strokeWidth={2} />

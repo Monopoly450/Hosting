@@ -128,7 +128,7 @@ const ImageManager = ({ onImagesChanged }) => {
           <div 
             style={{
               border: `2px dashed ${dragActive ? 'var(--primary)' : 'var(--border-color)'}`,
-              borderRadius: '12px',
+              borderRadius: '0px',
               padding: '40px',
               textAlign: 'center',
               cursor: 'pointer',
@@ -207,7 +207,7 @@ const ImageManager = ({ onImagesChanged }) => {
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     padding: '16px',
-                    borderRadius: '10px',
+                    borderRadius: '0px',
                     background: 'rgba(255, 255, 255, 0.02)',
                     border: '1px solid var(--border-color)'
                   }}

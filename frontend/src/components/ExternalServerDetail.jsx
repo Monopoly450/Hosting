@@ -99,7 +99,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
             padding: '16px',
             background: 'rgba(255, 255, 255, 0.02)',
             border: '1px solid var(--border-color)',
-            borderRadius: '12px',
+            borderRadius: '0px',
             fontSize: '0.85rem'
           }}>
             <div>ОС: <strong style={{ color: 'var(--text-primary)' }}>{data.os_name}</strong></div>
@@ -270,7 +270,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
                     textAlign: 'center',
                     color: 'var(--text-muted)',
                     border: '1px dashed var(--border-color)',
-                    borderRadius: '10px'
+                    borderRadius: '0px'
                   }}>
                     Служба Docker не установлена на этом сервере.
                   </div>
@@ -280,7 +280,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
                     textAlign: 'center',
                     color: 'var(--text-muted)',
                     border: '1px dashed var(--border-color)',
-                    borderRadius: '10px'
+                    borderRadius: '0px'
                   }}>
                     Нет запущенных Docker-контейнеров на этом хосте.
                   </div>

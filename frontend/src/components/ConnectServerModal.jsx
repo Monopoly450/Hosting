@@ -65,7 +65,7 @@ const ConnectServerModal = ({ onClose, onSuccess }) => {
             padding: '12px',
             background: 'rgba(0, 168, 255, 0.05)',
             border: '1px solid var(--border-color)',
-            borderRadius: '8px',
+            borderRadius: '0px',
             fontSize: '0.8rem',
             color: 'var(--text-secondary)'
           }}>

@@ -113,6 +113,8 @@ const App = () => {
     if (activeTab === 'dashboard') {
       fetchVMs();
       fetchCustomImages();
+    } else if (activeTab === 'vms') {
+      fetchVMs();
     } else if (activeTab === 'images') {
       fetchCustomImages();
     } else if (activeTab === 'external') {
@@ -189,18 +191,26 @@ const App = () => {
         </div>
         
         {/* Кнопки переключения вкладок */}
-        <div style={{ display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.25)', padding: '4px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+        <div style={{ display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.25)', padding: '4px', borderRadius: '0px', border: '1px solid var(--border-color)' }}>
           <button 
             className={`btn btn-sm ${activeTab === 'dashboard' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'dashboard' ? '#000' : 'var(--text-primary)' }}
+            style={{ color: activeTab === 'dashboard' ? '#000' : 'var(--text-primary)', borderRadius: '0px' }}
             onClick={() => setActiveTab('dashboard')}
           >
             <LayoutDashboard size={14} />
-            Дашборд ВМ
+            Дашборд
+          </button>
+          <button 
+            className={`btn btn-sm ${activeTab === 'vms' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ color: activeTab === 'vms' ? '#000' : 'var(--text-primary)', borderRadius: '0px' }}
+            onClick={() => setActiveTab('vms')}
+          >
+            <Activity size={14} />
+            Виртуальные машины
           </button>
           <button 
             className={`btn btn-sm ${activeTab === 'images' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'images' ? '#000' : 'var(--text-primary)' }}
+            style={{ color: activeTab === 'images' ? '#000' : 'var(--text-primary)', borderRadius: '0px' }}
             onClick={() => setActiveTab('images')}
           >
             <FolderOpen size={14} />
@@ -208,7 +218,7 @@ const App = () => {
           </button>
           <button 
             className={`btn btn-sm ${activeTab === 'external' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'external' ? '#000' : 'var(--text-primary)' }}
+            style={{ color: activeTab === 'external' ? '#000' : 'var(--text-primary)', borderRadius: '0px' }}
             onClick={() => setActiveTab('external')}
           >
             <Link2 size={14} />
@@ -216,7 +226,7 @@ const App = () => {
           </button>
           <button 
             className={`btn btn-sm ${activeTab === 'docker' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'docker' ? '#000' : 'var(--text-primary)' }}
+            style={{ color: activeTab === 'docker' ? '#000' : 'var(--text-primary)', borderRadius: '0px' }}
             onClick={() => setActiveTab('docker')}
           >
             <Shield size={14} />
@@ -235,217 +245,215 @@ const App = () => {
       {/* Основной контент */}
       <main className="main-content">
         
-        {/* Вкладка 1: Дашборд ВМ */}
+        {/* Вкладка 1: Дашборд */}
         {activeTab === 'dashboard' && (
           <div className="dashboard-grid">
-            
-            {/* Левая панель */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-              <HostStats />
+            <HostStats />
 
-              {/* Форма создания ВМ */}
-              <div className="card">
-                <div className="card-title">
-                  <Plus className="logo-icon" size={20} />
-                  <span>Создать виртуальную машину</span>
-                </div>
+            {/* Форма создания ВМ */}
+            <div className="card">
+              <div className="card-title">
+                <Plus className="logo-icon" size={20} />
+                <span>Создать виртуальную машину</span>
+              </div>
+              
+              <form onSubmit={handleCreateVM} className="create-form">
                 
-                <form onSubmit={handleCreateVM} className="create-form">
-                  
-                  {/* Селектор ОС */}
+                {/* Селектор ОС */}
+                <div className="form-group">
+                  <span className="form-label">Тип операционной системы</span>
+                  <div className="template-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+                    <div 
+                      className={`template-option ${osType === 'ubuntu' ? 'selected' : ''}`}
+                      onClick={() => !formLoading && setOsType('ubuntu')}
+                      style={{ padding: '12px 6px' }}
+                    >
+                      <span className="template-icon" style={{ fontSize: '1.5rem' }}>🐧</span>
+                      <span className="template-name" style={{ fontSize: '0.8rem' }}>Ubuntu Cloud</span>
+                    </div>
+                    <div 
+                      className={`template-option ${osType === 'windows' ? 'selected' : ''}`}
+                      onClick={() => !formLoading && setOsType('windows')}
+                      style={{ padding: '12px 6px' }}
+                    >
+                      <span className="template-icon" style={{ fontSize: '1.5rem' }}>🪟</span>
+                      <span className="template-name" style={{ fontSize: '0.8rem' }}>Windows ISO</span>
+                    </div>
+                    <div 
+                      className={`template-option ${osType === 'custom' ? 'selected' : ''}`}
+                      onClick={() => !formLoading && setOsType('custom')}
+                      style={{ padding: '12px 6px' }}
+                    >
+                      <span className="template-icon" style={{ fontSize: '1.5rem' }}>💿</span>
+                      <span className="template-name" style={{ fontSize: '0.8rem' }}>Свой образ</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Название */}
+                <div className="form-group">
+                  <label className="form-label" htmlFor="vm-name">Имя виртуалки</label>
+                  <input 
+                    id="vm-name"
+                    type="text" 
+                    className="form-input" 
+                    placeholder="e.g. database-node-01"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    disabled={formLoading}
+                  />
+                  <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                    Только латинские строчные буквы, цифры и дефис (например: `my-server-1`).
+                  </small>
+                </div>
+
+                {/* Список кастомных образов */}
+                {osType === 'custom' && (
                   <div className="form-group">
-                    <span className="form-label">Тип операционной системы</span>
-                    <div className="template-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-                      <div 
-                        className={`template-option ${osType === 'ubuntu' ? 'selected' : ''}`}
-                        onClick={() => !formLoading && setOsType('ubuntu')}
-                        style={{ padding: '12px 6px' }}
-                      >
-                        <span className="template-icon" style={{ fontSize: '1.5rem' }}>🐧</span>
-                        <span className="template-name" style={{ fontSize: '0.8rem' }}>Ubuntu Cloud</span>
+                    <label className="form-label" htmlFor="custom-image-select">Выберите загруженный образ</label>
+                    {customImages.length === 0 ? (
+                      <div style={{ fontSize: '0.8rem', color: 'var(--danger)', padding: '6px 0' }}>
+                        Нет загруженных образов! Пожалуйста, сначала загрузите файл на вкладке "Образы дисков".
                       </div>
-                      <div 
-                        className={`template-option ${osType === 'windows' ? 'selected' : ''}`}
-                        onClick={() => !formLoading && setOsType('windows')}
-                        style={{ padding: '12px 6px' }}
-                      >
-                        <span className="template-icon" style={{ fontSize: '1.5rem' }}>🪟</span>
-                        <span className="template-name" style={{ fontSize: '0.8rem' }}>Windows ISO</span>
-                      </div>
-                      <div 
-                        className={`template-option ${osType === 'custom' ? 'selected' : ''}`}
-                        onClick={() => !formLoading && setOsType('custom')}
-                        style={{ padding: '12px 6px' }}
-                      >
-                        <span className="template-icon" style={{ fontSize: '1.5rem' }}>💿</span>
-                        <span className="template-name" style={{ fontSize: '0.8rem' }}>Свой образ</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Название */}
-                  <div className="form-group">
-                    <label className="form-label" htmlFor="vm-name">Имя виртуалки</label>
-                    <input 
-                      id="vm-name"
-                      type="text" 
-                      className="form-input" 
-                      placeholder="e.g. database-node-01"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      required
-                      disabled={formLoading}
-                    />
-                    <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
-                      Только латинские строчные буквы, цифры и дефис (например: `my-server-1`).
-                    </small>
-                  </div>
-
-                  {/* Список кастомных образов */}
-                  {osType === 'custom' && (
-                    <div className="form-group">
-                      <label className="form-label" htmlFor="custom-image-select">Выберите загруженный образ</label>
-                      {customImages.length === 0 ? (
-                        <div style={{ fontSize: '0.8rem', color: 'var(--danger)', padding: '6px 0' }}>
-                          Нет загруженных образов! Пожалуйста, сначала загрузите файл на вкладке "Образы дисков".
-                        </div>
-                      ) : (
-                        <select 
-                          id="custom-image-select"
-                          className="form-input form-select"
-                          value={selectedCustomImage}
-                          onChange={(e) => setSelectedCustomImage(e.target.value)}
-                          disabled={formLoading}
-                        >
-                          {customImages.map((img) => (
-                            <option key={img.filename} value={img.filename}>
-                              {img.filename} ({img.size_gb > 1 ? `${img.size_gb} GB` : `${img.size_mb} MB`})
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  )}
-
-                  {/* CPU Слайдер */}
-                  <div className="slider-container">
-                    <div className="slider-header">
-                      <span>Выделено CPU</span>
-                      <span className="slider-value">{cpuCores} Cores</span>
-                    </div>
-                    <input 
-                      type="range" 
-                      min="1" 
-                      max="8" 
-                      className="range-input"
-                      value={cpuCores}
-                      onChange={(e) => setCpuCores(parseInt(e.target.value))}
-                      disabled={formLoading}
-                    />
-                  </div>
-
-                  {/* RAM Слайдер */}
-                  <div className="slider-container">
-                    <div className="slider-header">
-                      <span>Выделено RAM</span>
-                      <span className="slider-value">{memoryGb} GB</span>
-                    </div>
-                    <input 
-                      type="range" 
-                      min="1" 
-                      max="32" 
-                      className="range-input"
-                      value={memoryGb}
-                      onChange={(e) => setMemoryGb(parseInt(e.target.value))}
-                      disabled={formLoading}
-                    />
-                  </div>
-
-                  {/* Disk Слайдер */}
-                  <div className="slider-container">
-                    <div className="slider-header">
-                      <span>Объем жесткого диска</span>
-                      <span className="slider-value">{diskGb} GB</span>
-                    </div>
-                    <input 
-                      type="range" 
-                      min="10" 
-                      max="200" 
-                      step="10"
-                      className="range-input"
-                      value={diskGb}
-                      onChange={(e) => setDiskGb(parseInt(e.target.value))}
-                      disabled={formLoading}
-                    />
-                  </div>
-
-                  {/* Windows ISO URL */}
-                  {osType === 'windows' && (
-                    <div className="form-group">
-                      <label className="form-label" htmlFor="win-iso-url">Собственная ссылка на ISO (необязательно)</label>
-                      <input 
-                        id="win-iso-url"
-                        type="url" 
-                        className="form-input"
-                        value={isoUrl}
-                        onChange={(e) => setIsoUrl(e.target.value)}
-                        placeholder="Оставьте пустым для Windows Server 2022"
+                    ) : (
+                      <select 
+                        id="custom-image-select"
+                        className="form-input form-select"
+                        value={selectedCustomImage}
+                        onChange={(e) => setSelectedCustomImage(e.target.value)}
                         disabled={formLoading}
-                      />
-                    </div>
-                  )}
+                      >
+                        {customImages.map((img) => (
+                          <option key={img.filename} value={img.filename}>
+                            {img.filename} ({img.size_gb > 1 ? `${img.size_gb} GB` : `${img.size_mb} MB`})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
 
-                  <button 
-                    type="submit" 
-                    className="btn btn-primary"
-                    style={{ width: '100%', marginTop: '10px' }}
-                    disabled={formLoading || (osType === 'custom' && customImages.length === 0)}
-                  >
-                    {formLoading ? <span className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} /> : <Plus size={16} />}
-                    Создать виртуальную машину
-                  </button>
-                </form>
-              </div>
-            </div>
-
-            {/* Список ВМ */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div className="vms-section-header">
-                <h2 style={{ fontSize: '1.4rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <Activity className="logo-icon" size={22} />
-                  Ваши виртуальные машины
-                </h2>
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  Всего развернуто: {vms.length}
-                </span>
-              </div>
-
-              {loading && vms.length === 0 ? (
-                <div className="card" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px' }}>
-                  <div className="spinner"></div>
+                {/* CPU Слайдер */}
+                <div className="slider-container">
+                  <div className="slider-header">
+                    <span>Выделено CPU</span>
+                    <span className="slider-value">{cpuCores} Cores</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="1" 
+                    max="8" 
+                    className="range-input"
+                    value={cpuCores}
+                    onChange={(e) => setCpuCores(parseInt(e.target.value))}
+                    disabled={formLoading}
+                  />
                 </div>
-              ) : vms.length === 0 ? (
-                <div className="empty-state">
-                  <span className="empty-state-icon">🖥️</span>
-                  <h3>Виртуальных машин нет</h3>
-                  <p style={{ maxWidth: '350px', textAlign: 'center', fontSize: '0.9rem' }}>
-                    Создайте виртуалку с индивидуальными ресурсами слева или загрузите собственные образы во вкладке "Образы дисков".
-                  </p>
+
+                {/* RAM Слайдер */}
+                <div className="slider-container">
+                  <div className="slider-header">
+                    <span>Выделено RAM</span>
+                    <span className="slider-value">{memoryGb} GB</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="1" 
+                    max="32" 
+                    className="range-input"
+                    value={memoryGb}
+                    onChange={(e) => setMemoryGb(parseInt(e.target.value))}
+                    disabled={formLoading}
+                  />
                 </div>
-              ) : (
-                <div className="vms-grid">
-                  {vms.map((vm) => (
-                    <VMCard 
-                      key={vm.name} 
-                      vm={vm} 
-                      onActionSuccess={fetchVMs}
-                      onOpenConsole={(name) => setOpenConsoleName(name)}
-                      onOpenEdit={(vmObj) => setEditingVM(vmObj)}
+
+                {/* Disk Слайдер */}
+                <div className="slider-container">
+                  <div className="slider-header">
+                    <span>Объем жесткого диска</span>
+                    <span className="slider-value">{diskGb} GB</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="10" 
+                    max="200" 
+                    step="10"
+                    className="range-input"
+                    value={diskGb}
+                    onChange={(e) => setDiskGb(parseInt(e.target.value))}
+                    disabled={formLoading}
+                  />
+                </div>
+
+                {/* Windows ISO URL */}
+                {osType === 'windows' && (
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="win-iso-url">Собственная ссылка на ISO (необязательно)</label>
+                    <input 
+                      id="win-iso-url"
+                      type="url" 
+                      className="form-input"
+                      value={isoUrl}
+                      onChange={(e) => setIsoUrl(e.target.value)}
+                      placeholder="Оставьте пустым для Windows Server 2022"
+                      disabled={formLoading}
                     />
-                  ))}
-                </div>
-              )}
+                  </div>
+                )}
+
+                <button 
+                  type="submit" 
+                  className="btn btn-primary"
+                  style={{ width: '100%', marginTop: '10px' }}
+                  disabled={formLoading || (osType === 'custom' && customImages.length === 0)}
+                >
+                  {formLoading ? <span className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} /> : <Plus size={16} />}
+                  Создать виртуальную машину
+                </button>
+              </form>
             </div>
+          </div>
+        )}
+
+        {/* Вкладка: Виртуальные машины */}
+        {activeTab === 'vms' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="vms-section-header">
+              <h2 style={{ fontSize: '1.4rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Activity className="logo-icon" size={22} />
+                Ваши виртуальные машины
+              </h2>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                Всего развернуто: {vms.length}
+              </span>
+            </div>
+
+            {loading && vms.length === 0 ? (
+              <div className="card" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px' }}>
+                <div className="spinner"></div>
+              </div>
+            ) : vms.length === 0 ? (
+              <div className="empty-state">
+                <span className="empty-state-icon">🖥️</span>
+                <h3>Виртуальных машин нет</h3>
+                <p style={{ maxWidth: '350px', textAlign: 'center', fontSize: '0.9rem' }}>
+                  Создайте виртуалку с индивидуальными ресурсами во вкладке "Дашборд" или загрузите собственные образы во вкладке "Образы дисков".
+                </p>
+              </div>
+            ) : (
+              <div className="vms-grid">
+                {vms.map((vm) => (
+                  <VMCard 
+                    key={vm.name} 
+                    vm={vm} 
+                    onActionSuccess={fetchVMs}
+                    onOpenConsole={(name) => setOpenConsoleName(name)}
+                    onOpenEdit={(vmObj) => setEditingVM(vmObj)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
 
