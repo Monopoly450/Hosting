@@ -150,6 +150,10 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
                         },
                         "storage": {
                             "storageClassName": "local-path",
+                            "accessModes": [
+                                "ReadWriteOnce"
+                            ],
+                            "volumeMode": "Filesystem",
                             "resources": {
                                 "requests": {
                                     "storage": f"{req.disk_gb}Gi"
@@ -295,6 +299,10 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                         },
                         "storage": {
                             "storageClassName": "local-path",
+                            "accessModes": [
+                                "ReadWriteOnce"
+                            ],
+                            "volumeMode": "Filesystem",
                             "resources": {
                                 "requests": {
                                     "storage": f"{req.disk_gb}Gi"
@@ -318,6 +326,10 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                         },
                         "storage": {
                             "storageClassName": "local-path",
+                            "accessModes": [
+                                "ReadWriteOnce"
+                            ],
+                            "volumeMode": "Filesystem",
                             "resources": {
                                 "requests": {
                                     "storage": "6Gi"
