@@ -148,8 +148,8 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
           flexDirection: 'column',
           gap: '12px',
           padding: '16px',
-          background: 'rgba(255, 255, 255, 0.02)',
-          borderRadius: '12px',
+          background: 'rgba(0, 0, 0, 0.02)',
+          borderRadius: '0px',
           border: '1px solid var(--border-color)',
           fontSize: '0.82rem',
           marginBottom: '15px'
@@ -182,7 +182,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
 
           {/* Подключение по SSH */}
           {sshIp && vm.os_type !== 'windows' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', borderTop: '1px solid rgba(0, 0, 0, 0.05)', paddingTop: '8px' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 500 }}>Подключение по SSH</span>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
                 <span style={{ color: 'var(--text-primary)' }}>ssh {vm.credentials?.username || 'root'}@{sshIp}</span>
@@ -202,7 +202,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
 
           {/* Пароль */}
           {vm.os_type !== 'windows' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', borderTop: '1px solid rgba(0, 0, 0, 0.05)', paddingTop: '8px' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 500 }}>
                 {vm.credentials?.username === 'root' ? 'Root-пароль' : 'Пароль пользователя'}
               </span>
@@ -234,7 +234,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
 
           {/* Нода */}
           {vm.node && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', borderTop: '1px solid rgba(0, 0, 0, 0.05)', paddingTop: '8px' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 500 }}>Нода</span>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
                 <span style={{ color: 'var(--text-primary)' }}>{vm.node}</span>
@@ -253,12 +253,12 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
           )}
 
           {/* Закрытые порты */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', borderTop: '1px solid rgba(0, 0, 0, 0.05)', paddingTop: '8px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 500 }}>Закрытые порты</span>
               <ShieldAlert size={11} color="var(--danger)" />
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.4)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
               <span>2525, 465, 587, 389, 53413, 3389, 25</span>
             </div>
           </div>
