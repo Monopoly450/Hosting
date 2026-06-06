@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2 } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -7,14 +7,25 @@ import DockerPanel from './components/DockerPanel';
 import ImageManager from './components/ImageManager';
 import VMEditModal from './components/VMEditModal';
 
+// Компоненты для внешних серверов
+import ExternalServerCard from './components/ExternalServerCard';
+import ExternalServerDetail from './components/ExternalServerDetail';
+import ConnectServerModal from './components/ConnectServerModal';
+
 const App = () => {
-  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'images' | 'docker'
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'images' | 'docker' | 'external'
   const [vms, setVms] = useState([]);
   const [customImages, setCustomImages] = useState([]);
+  const [externalServers, setExternalServers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [serversLoading, setServersLoading] = useState(true);
   const [formLoading, setFormLoading] = useState(false);
+  
+  // Модальные окна
   const [openConsoleName, setOpenConsoleName] = useState(null);
   const [editingVM, setEditingVM] = useState(null);
+  const [showConnectModal, setShowConnectModal] = useState(false);
+  const [selectedServerId, setSelectedServerId] = useState(null);
 
   // Состояние формы создания VM
   const [name, setName] = useState('');
@@ -36,7 +47,6 @@ const App = () => {
       setMemoryGb(4);
       setDiskGb(60);
     } else {
-      // Для кастомных шаблонов
       setCpuCores(2);
       setMemoryGb(2);
       setDiskGb(30);
@@ -70,18 +80,43 @@ const App = () => {
     }
   };
 
+  const fetchExternalServers = async () => {
+    try {
+      const response = await fetch('/api/external-servers');
+      if (!response.ok) throw new Error('Failed to fetch external servers');
+      const data = await response.json();
+      setExternalServers(data);
+    } catch (err) {
+      console.error('Error fetching external servers:', err);
+    } finally {
+      setServersLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchVMs();
     fetchCustomImages();
-    // Опрашиваем список ВМ каждые 5 секунд
-    const interval = setInterval(fetchVMs, 5000);
-    return () => clearInterval(interval);
+    fetchExternalServers();
+    
+    // Опрашиваем списки периодически
+    const vmsInterval = setInterval(fetchVMs, 5000);
+    const serversInterval = setInterval(fetchExternalServers, 10000); // статус серверов реже
+    
+    return () => {
+      clearInterval(vmsInterval);
+      clearInterval(serversInterval);
+    };
   }, []);
 
-  // Обновляем список кастомных образов при переключении вкладок
+  // Обновляем списки при переключении вкладок
   useEffect(() => {
-    if (activeTab === 'dashboard' || activeTab === 'images') {
+    if (activeTab === 'dashboard') {
+      fetchVMs();
       fetchCustomImages();
+    } else if (activeTab === 'images') {
+      fetchCustomImages();
+    } else if (activeTab === 'external') {
+      fetchExternalServers();
     }
   }, [activeTab]);
 
@@ -119,7 +154,6 @@ const App = () => {
 
       const resData = await response.json();
       
-      // Очистка формы
       setName('');
       setIsoUrl('');
       fetchVMs();
@@ -161,6 +195,14 @@ const App = () => {
             Образы дисков
           </button>
           <button 
+            className={`btn btn-sm ${activeTab === 'external' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ color: activeTab === 'external' ? '#000' : 'var(--text-primary)' }}
+            onClick={() => setActiveTab('external')}
+          >
+            <Link2 size={14} />
+            Внешние серверы
+          </button>
+          <button 
             className={`btn btn-sm ${activeTab === 'docker' ? 'btn-primary' : 'btn-secondary'}`}
             style={{ color: activeTab === 'docker' ? '#000' : 'var(--text-primary)' }}
             onClick={() => setActiveTab('docker')}
@@ -198,7 +240,7 @@ const App = () => {
                 
                 <form onSubmit={handleCreateVM} className="create-form">
                   
-                  {/* Селектор шаблона ОС */}
+                  {/* Селектор ОС */}
                   <div className="form-group">
                     <span className="form-label">Тип операционной системы</span>
                     <div className="template-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
@@ -244,7 +286,7 @@ const App = () => {
                     />
                   </div>
 
-                  {/* Список кастомных образов при osType === 'custom' */}
+                  {/* Список кастомных образов */}
                   {osType === 'custom' && (
                     <div className="form-group">
                       <label className="form-label" htmlFor="custom-image-select">Выберите загруженный образ</label>
@@ -322,7 +364,7 @@ const App = () => {
                     />
                   </div>
 
-                  {/* Дополнительные параметры для Windows */}
+                  {/* Windows ISO URL */}
                   {osType === 'windows' && (
                     <div className="form-group">
                       <label className="form-label" htmlFor="win-iso-url">Собственная ссылка на ISO (необязательно)</label>
@@ -397,7 +439,50 @@ const App = () => {
           <ImageManager onImagesChanged={setCustomImages} />
         )}
 
-        {/* Вкладка 3: Docker Админка */}
+        {/* Вкладка 3: Внешние серверы */}
+        {activeTab === 'external' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="vms-section-header">
+              <h2 style={{ fontSize: '1.4rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Server className="logo-icon" size={22} />
+                Внешние подключенные серверы
+              </h2>
+              <button className="btn btn-primary btn-sm" onClick={() => setShowConnectModal(true)}>
+                <Plus size={14} /> Подключить сервер
+              </button>
+            </div>
+
+            {serversLoading && externalServers.length === 0 ? (
+              <div className="card" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
+                <div className="spinner"></div>
+              </div>
+            ) : externalServers.length === 0 ? (
+              <div className="empty-state">
+                <span className="empty-state-icon">🌐</span>
+                <h3>Нет подключенных внешних серверов</h3>
+                <p style={{ maxWidth: '350px', textAlign: 'center', fontSize: '0.9rem' }}>
+                  Вы можете подключить любой внешний Linux-сервер по его IP-адресу, логину и паролю SSH для отслеживания его метрик и процессов.
+                </p>
+                <button className="btn btn-primary" style={{ marginTop: '10px' }} onClick={() => setShowConnectModal(true)}>
+                  Подключить первый сервер
+                </button>
+              </div>
+            ) : (
+              <div className="vms-grid">
+                {externalServers.map((server) => (
+                  <ExternalServerCard 
+                    key={server.id} 
+                    server={server} 
+                    onClick={() => server.status === 'Online' && setSelectedServerId(server.id)}
+                    onDeleteSuccess={fetchExternalServers}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Вкладка 4: Docker Админка */}
         {activeTab === 'docker' && (
           <DockerPanel />
         )}
@@ -418,6 +503,22 @@ const App = () => {
           vm={editingVM} 
           onClose={() => setEditingVM(null)} 
           onSaveSuccess={fetchVMs} 
+        />
+      )}
+
+      {/* Модальное окно подключения внешнего сервера */}
+      {showConnectModal && (
+        <ConnectServerModal 
+          onClose={() => setShowConnectModal(false)}
+          onSuccess={fetchExternalServers}
+        />
+      )}
+
+      {/* Модальное окно детального мониторинга внешнего сервера */}
+      {selectedServerId && (
+        <ExternalServerDetail 
+          serverId={selectedServerId}
+          onClose={() => setSelectedServerId(null)}
         />
       )}
     </div>

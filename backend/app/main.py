@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api import vms, host, vnc, images, docker_admin
+from app.api import vms, host, vnc, images, docker_admin, external_servers
 
 # Настройка логирования
 logging.basicConfig(
@@ -42,6 +42,7 @@ app.include_router(host.router, prefix=f"{settings.API_V1_STR}/host", tags=["hos
 app.include_router(vnc.router, prefix=f"{settings.API_V1_STR}/vnc", tags=["vnc"])
 app.include_router(images.router, prefix=f"{settings.API_V1_STR}/images", tags=["images"])
 app.include_router(docker_admin.router, prefix=f"{settings.API_V1_STR}/docker", tags=["docker"])
+app.include_router(external_servers.router, prefix=f"{settings.API_V1_STR}/external-servers", tags=["external-servers"])
 
 @app.get("/")
 def read_root():
