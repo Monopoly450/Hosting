@@ -1,5 +1,7 @@
 import logging
 import os
+import time
+import base64
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from app.core.config import settings
@@ -122,7 +124,7 @@ class K8sClient:
             raise e
 
     def delete_vm(self, name: str, namespace="default"):
-        """Удалить VM и связанные диски (DataVolume / PVC)"""
+        """Удалить VM, ее учетные секреты, связанные диски (DataVolume / PVC) и резервные копии"""
         try:
             # Получаем VM, чтобы узнать имена связанных DataVolume
             vm = self.custom_api.get_namespaced_custom_object(
@@ -133,7 +135,7 @@ class K8sClient:
                 name=name
             )
             
-            # Удаляем саму VM
+            # 1. Удаляем саму VM
             self.custom_api.delete_namespaced_custom_object(
                 group="kubevirt.io",
                 version="v1",
@@ -142,7 +144,24 @@ class K8sClient:
                 name=name
             )
             
-            # Удаляем диски (DataVolume), если они есть в шаблонах
+            # 2. Удаляем Secret с учетными данными
+            try:
+                self.core_api.delete_namespaced_secret(f"{name}-credentials", namespace)
+                logger.info(f"Удален Secret учетных данных для VM: {name}")
+            except ApiException as e:
+                if e.status != 404:
+                    logger.error(f"Не удалось удалить Secret для VM {name}: {e}")
+                    
+            # 3. Удаляем резервные копии этой VM
+            try:
+                backups = self.list_vm_backups(name, namespace)
+                for backup in backups:
+                    self.delete_vm_backup(backup["name"], namespace)
+                    logger.info(f"Удалена резервная копия: {backup['name']}")
+            except Exception as e:
+                logger.error(f"Не удалось удалить бэкапы при удалении VM {name}: {e}")
+            
+            # 4. Удаляем диски (DataVolume), если они есть в шаблонах
             dvt = vm.get("spec", {}).get("dataVolumeTemplates", [])
             for dv in dvt:
                 dv_name = dv["metadata"]["name"]
@@ -159,7 +178,7 @@ class K8sClient:
                     if e.status != 404:
                         logger.error(f"Не удалось удалить DataVolume {dv_name}: {e}")
             
-            # На всякий случай удаляем связанные PVC
+            # 5. На всякий случай удаляем связанные PVC
             vols = vm.get("spec", {}).get("template", {}).get("spec", {}).get("volumes", [])
             for vol in vols:
                 if "persistentVolumeClaim" in vol:
@@ -181,8 +200,6 @@ class K8sClient:
     def _call_vms_subresource(self, action: str, name: str, namespace="default"):
         """Вспомогательный метод для вызова API жизненного цикла KubeVirt (start/stop/restart)"""
         try:
-            # KubeVirt использует subresources для надежного управления питанием
-            # Пример пути: /apis/subresources.kubevirt.io/v1/namespaces/default/virtualmachines/myvm/start
             path = f"/apis/subresources.kubevirt.io/v1/namespaces/{namespace}/virtualmachines/{name}/{action}"
             
             # Подготавливаем заголовки авторизации
@@ -218,8 +235,6 @@ class K8sClient:
     def get_vm_metrics(self, name: str, namespace="default"):
         """Получить метрики использования ресурсов (CPU, RAM) через Metrics API"""
         try:
-            # Находим Launcher-под для этой VM
-            # Все поды виртуалок имеют лейбл kubevirt.io/domain=ИМЯ_VM
             pods = self.core_api.list_namespaced_pod(
                 namespace=namespace,
                 label_selector=f"kubevirt.io/domain={name}"
@@ -234,7 +249,6 @@ class K8sClient:
             if pod_phase != "Running":
                 return {"cpu_usage": 0, "memory_usage": 0, "status": pod_phase}
 
-            # Делаем запрос к Metrics API (metrics.k8s.io)
             try:
                 metrics = self.custom_api.get_namespaced_custom_object(
                     group="metrics.k8s.io",
@@ -244,7 +258,6 @@ class K8sClient:
                     name=pod_name
                 )
                 
-                # Суммируем потребление по всем контейнерам внутри пода лаунчера
                 cpu_nano = 0
                 mem_bytes = 0
                 
@@ -252,7 +265,6 @@ class K8sClient:
                     cpu_str = container["usage"]["cpu"]
                     mem_str = container["usage"]["memory"]
                     
-                    # Парсим CPU (обычно в нс, например, "123456n")
                     if cpu_str.endswith("n"):
                         cpu_nano += int(cpu_str[:-1])
                     elif cpu_str.endswith("u"):
@@ -262,7 +274,6 @@ class K8sClient:
                     else:
                         cpu_nano += int(float(cpu_str) * 1000000000)
                         
-                    # Парсим Memory (обычно в Ki, Mi, Gi)
                     if mem_str.endswith("Ki"):
                         mem_bytes += int(mem_str[:-2]) * 1024
                     elif mem_str.endswith("Mi"):
@@ -276,7 +287,6 @@ class K8sClient:
                     else:
                         mem_bytes += int(mem_str)
                 
-                # Переводим CPU в милликоры (1 millicore = 10^6 nanocores)
                 cpu_milli = cpu_nano / 1000000
                 
                 return {
@@ -286,7 +296,6 @@ class K8sClient:
                     "status": "Running"
                 }
             except ApiException as e:
-                # Если metrics-server еще не собрал метрики или отсутствует
                 logger.warning(f"Ошибка получения raw-метрик для {pod_name}: {e}")
                 return {"cpu_usage_milli": 0, "memory_bytes": 0, "status": "Running (No Metrics)"}
                 
@@ -294,11 +303,307 @@ class K8sClient:
             logger.error(f"Не удалось получить метрики для VM {name}: {e}")
             return {"cpu_usage": 0, "memory_usage": 0, "error": str(e)}
 
+    # --- ИЗМЕНЕНИЕ РЕСУРСОВ (CPU, RAM, DISK) ---
+
+    def create_credentials_secret(self, name: str, password: str, namespace="default"):
+        """Создает Secret с паролем root пользователя для виртуалки"""
+        try:
+            secret_name = f"{name}-credentials"
+            secret = client.V1Secret(
+                metadata=client.V1ObjectMeta(
+                    name=secret_name,
+                    labels={
+                        "hosting.antigravity.io/credentials-source": name
+                    }
+                ),
+                string_data={
+                    "username": "root",
+                    "password": password
+                }
+            )
+            self.core_api.create_namespaced_secret(namespace, secret)
+            logger.info(f"Создан секрет {secret_name} с учетными данными для ВМ {name}")
+        except Exception as e:
+            logger.error(f"Ошибка создания секрета пароля для {name}: {e}")
+            raise e
+
+    def resize_vm_resources(self, name: str, cpu_cores: int, memory_gb: int, namespace="default"):
+        """Изменяет выделенные ядра CPU и RAM в манифесте VM (требуется перезапуск)"""
+        try:
+            # Изменяем манифест VM
+            body = [
+                {"op": "replace", "path": "/spec/template/spec/domain/cpu/cores", "value": cpu_cores},
+                {"op": "replace", "path": "/spec/template/spec/domain/resources/requests/memory", "value": f"{memory_gb}Gi"}
+            ]
+            self.custom_api.patch_namespaced_custom_object(
+                group="kubevirt.io",
+                version="v1",
+                namespace=namespace,
+                plural="virtualmachines",
+                name=name,
+                body=body
+            )
+            logger.info(f"Ресурсы VM {name} изменены: CPU={cpu_cores}, RAM={memory_gb}Gi")
+            return {"status": "success", "cpu_cores": cpu_cores, "memory_gb": memory_gb}
+        except ApiException as e:
+            logger.error(f"Ошибка изменения ресурсов VM {name}: {e}")
+            raise e
+
+    def resize_vm_disk(self, name: str, new_size_gb: int, namespace="default"):
+        """Увеличивает объем системного PVC жесткого диска виртуалки"""
+        try:
+            # Находим системный PVC по маске имени ВМ
+            pvc_list = self.core_api.list_namespaced_persistent_volume_claim(namespace)
+            pvc_name = None
+            for pvc in pvc_list.items:
+                # Нам нужен PVC диска, а не бэкапа
+                if pvc.metadata.name.startswith(name) and "-backup-" not in pvc.metadata.name:
+                    pvc_name = pvc.metadata.name
+                    break
+                    
+            if not pvc_name:
+                raise Exception(f"Системный диск (PVC) для VM {name} не найден.")
+                
+            body = {
+                "spec": {
+                    "resources": {
+                        "requests": {
+                            "storage": f"{new_size_gb}Gi"
+                        }
+                    }
+                }
+            }
+            self.core_api.patch_namespaced_persistent_volume_claim(pvc_name, namespace, body)
+            logger.info(f"Запрос на расширение диска {pvc_name} до {new_size_gb}Gi отправлен.")
+            return {"status": "success", "pvc": pvc_name, "new_size_gb": new_size_gb}
+        except Exception as e:
+            logger.error(f"Ошибка расширения диска для {name}: {e}")
+            raise e
+
+    # --- РЕЗЕРВНОЕ КОПИРОВАНИЕ И ВОССТАНОВЛЕНИЕ (BACKUPS) ---
+
+    def create_vm_backup(self, name: str, namespace="default"):
+        """Создает бэкап диска (клонирует PVC)"""
+        try:
+            # Находим системный PVC
+            pvc_list = self.core_api.list_namespaced_persistent_volume_claim(namespace)
+            orig_pvc_name = None
+            orig_pvc = None
+            for pvc in pvc_list.items:
+                if pvc.metadata.name.startswith(name) and "-backup-" not in pvc.metadata.name:
+                    orig_pvc_name = pvc.metadata.name
+                    orig_pvc = pvc
+                    break
+                    
+            if not orig_pvc_name:
+                raise Exception(f"Оригинальный PVC диска для VM {name} не найден")
+                
+            # Размер копируемого диска
+            storage_size = orig_pvc.spec.resources.requests["storage"]
+            
+            # Уникальное имя резервной копии
+            timestamp = int(time.time())
+            backup_name = f"{name}-backup-{timestamp}"
+            
+            # Создаем DataVolume с источником clone pvc
+            dv_manifest = {
+                "apiVersion": "cdi.kubevirt.io/v1beta1",
+                "kind": "DataVolume",
+                "metadata": {
+                    "name": backup_name,
+                    "namespace": namespace,
+                    "labels": {
+                        "hosting.antigravity.io/backup-source": name
+                    }
+                },
+                "spec": {
+                    "source": {
+                        "pvc": {
+                            "name": orig_pvc_name,
+                            "namespace": namespace
+                        }
+                    },
+                    "storage": {
+                        "storageClassName": "local-path",
+                        "resources": {
+                            "requests": {
+                                "storage": storage_size
+                            }
+                        }
+                    }
+                }
+            }
+            
+            self.custom_api.create_namespaced_custom_object(
+                group="cdi.kubevirt.io",
+                version="v1beta1",
+                namespace=namespace,
+                plural="datavolumes",
+                body=dv_manifest
+            )
+            logger.info(f"Запущен процесс клонирования бэкапа {backup_name} для VM {name}")
+            return {"status": "creating", "backup_name": backup_name, "source": orig_pvc_name}
+        except Exception as e:
+            logger.error(f"Ошибка бэкапа VM {name}: {e}")
+            raise e
+
+    def list_vm_backups(self, name: str, namespace="default"):
+        """Получить список всех бэкапов для конкретной VM"""
+        try:
+            dvs = self.custom_api.list_namespaced_custom_object(
+                group="cdi.kubevirt.io",
+                version="v1beta1",
+                namespace=namespace,
+                plural="datavolumes",
+                label_selector=f"hosting.antigravity.io/backup-source={name}"
+            )
+            
+            backups = []
+            for dv in dvs.get("items", []):
+                backup_name = dv["metadata"]["name"]
+                
+                # Статус клонирования
+                status = dv.get("status", {}).get("phase", "Unknown")
+                progress = dv.get("status", {}).get("progress", "N/A")
+                
+                size = dv.get("spec", {}).get("storage", {}).get("resources", {}).get("requests", {}).get("storage", "N/A")
+                created_at = dv["metadata"].get("creationTimestamp")
+                
+                backups.append({
+                    "name": backup_name,
+                    "size": size,
+                    "status": status,
+                    "progress": progress,
+                    "created_at": created_at
+                })
+            return backups
+        except Exception as e:
+            logger.error(f"Ошибка получения бэкапов для VM {name}: {e}")
+            raise e
+
+    def delete_vm_backup(self, backup_name: str, namespace="default"):
+        """Удаляет резервную копию (DataVolume и PVC)"""
+        try:
+            # Удаляем DataVolume
+            self.custom_api.delete_namespaced_custom_object(
+                group="cdi.kubevirt.io",
+                version="v1beta1",
+                namespace=namespace,
+                plural="datavolumes",
+                name=backup_name
+            )
+            
+            # Удаляем PVC
+            try:
+                self.core_api.delete_namespaced_volume_claim(backup_name, namespace)
+            except ApiException as e:
+                if e.status != 404:
+                    raise e
+                    
+            logger.info(f"Резервная копия {backup_name} удалена.")
+            return {"status": "deleted", "backup_name": backup_name}
+        except Exception as e:
+            logger.error(f"Ошибка удаления бэкапа {backup_name}: {e}")
+            raise e
+
+    def restore_vm_backup(self, vm_name: str, backup_name: str, namespace="default"):
+        """Заменяет текущий PVC жесткого диска ВМ на клон из выбранного бэкапа"""
+        try:
+            # 1. Получаем манифест VM
+            vm = self.custom_api.get_namespaced_custom_object(
+                group="kubevirt.io",
+                version="v1",
+                namespace=namespace,
+                plural="virtualmachines",
+                name=vm_name
+            )
+            
+            # 2. Проверяем, что VM выключена. Иначе останавливаем.
+            running = vm.get("spec", {}).get("running", False)
+            if running:
+                logger.info(f"Авто-остановка VM {vm_name} перед восстановлением...")
+                self.stop_vm(vm_name, namespace)
+                # Ждем короткое время, чтобы VM выключилась
+                time.sleep(2)
+            
+            # 3. Находим оригинальное имя PVC
+            pvc_list = self.core_api.list_namespaced_persistent_volume_claim(namespace)
+            orig_pvc_name = None
+            for pvc in pvc_list.items:
+                if pvc.metadata.name.startswith(vm_name) and "-backup-" not in pvc.metadata.name:
+                    orig_pvc_name = pvc.metadata.name
+                    break
+                    
+            if not orig_pvc_name:
+                raise Exception(f"Оригинальный системный диск (PVC) для VM {vm_name} не найден.")
+                
+            # 4. Удаляем старый PVC диска
+            try:
+                self.core_api.delete_namespaced_persistent_volume_claim(orig_pvc_name, namespace)
+                logger.info(f"Старый PVC {orig_pvc_name} удален для замены.")
+            except ApiException as e:
+                if e.status != 404:
+                    raise e
+                    
+            # Ждем пока PVC удалится
+            for _ in range(10):
+                try:
+                    self.core_api.read_namespaced_persistent_volume_claim(orig_pvc_name, namespace)
+                    time.sleep(1)
+                except ApiException as e:
+                    if e.status == 404:
+                        break
+            
+            # 5. Считываем размер бэкапа
+            backup_pvc = self.core_api.read_namespaced_persistent_volume_claim(backup_name, namespace)
+            backup_size = backup_pvc.spec.resources.requests["storage"]
+            
+            # 6. Создаем новый DataVolume с оригинальным именем (orig_pvc_name), клонируя его из бэкапа
+            dv_manifest = {
+                "apiVersion": "cdi.kubevirt.io/v1beta1",
+                "kind": "DataVolume",
+                "metadata": {
+                    "name": orig_pvc_name,
+                    "namespace": namespace
+                },
+                "spec": {
+                    "source": {
+                        "pvc": {
+                            "name": backup_name,
+                            "namespace": namespace
+                        }
+                    },
+                    "storage": {
+                        "storageClassName": "local-path",
+                        "resources": {
+                            "requests": {
+                                "storage": backup_size
+                            }
+                        }
+                    }
+                }
+            }
+            
+            self.custom_api.create_namespaced_custom_object(
+                group="cdi.kubevirt.io",
+                version="v1beta1",
+                namespace=namespace,
+                plural="datavolumes",
+                body=dv_manifest
+            )
+            
+            logger.info(f"Восстановление ВМ {vm_name} запущено: {orig_pvc_name} клонируется из {backup_name}")
+            return {"status": "restoring", "vm": vm_name, "pvc": orig_pvc_name, "source": backup_name}
+        except Exception as e:
+            logger.error(f"Ошибка восстановления VM {vm_name} из {backup_name}: {e}")
+            raise e
+
     # --- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ---
 
     def _parse_vm_object(self, vm: dict, vmi: dict = None) -> dict:
         """Преобразует сырой манифест KubeVirt в чистый JSON-объект для фронтенда"""
         name = vm["metadata"]["name"]
+        namespace = vm["metadata"]["namespace"]
         spec = vm.get("spec", {})
         running_desired = spec.get("running", False)
         
@@ -345,11 +650,9 @@ class K8sClient:
             # Собираем IP адреса
             interfaces = vmi.get("status", {}).get("interfaces", [])
             for iface in interfaces:
-                # KubeVirt может возвращать как внутренний Pod IP, так и внешний Bridge IP
                 ip = iface.get("ipAddress")
                 if ip:
                     ips.append(ip)
-                # Иногда IP лежит в массиве ipAddresses
                 for ip_addr in iface.get("ipAddresses", []):
                     if ip_addr not in ips:
                         ips.append(ip_addr)
@@ -357,9 +660,18 @@ class K8sClient:
         # Шаблон ОС
         os_type = vm["metadata"].get("labels", {}).get("hosting.antigravity.io/template", "unknown")
 
+        # Получаем учетные данные (логин root + авто-пароль из секретов K8s)
+        credentials = {"username": "root", "password": "N/A"}
+        try:
+            secret = self.core_api.read_namespaced_secret(f"{name}-credentials", namespace)
+            pw = base64.b64decode(secret.data["password"]).decode("utf-8")
+            credentials["password"] = pw
+        except Exception:
+            pass
+
         return {
             "name": name,
-            "namespace": vm["metadata"]["namespace"],
+            "namespace": namespace,
             "desired_state": "Running" if running_desired else "Stopped",
             "status": status,
             "os_type": os_type,
@@ -368,5 +680,6 @@ class K8sClient:
             "disks": disks,
             "ips": ips,
             "node": node_name,
-            "created_at": creation_timestamp
+            "created_at": creation_timestamp,
+            "credentials": credentials
         }

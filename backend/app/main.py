@@ -1,8 +1,10 @@
+import os
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api import vms, host, vnc
+from app.api import vms, host, vnc, images, docker_admin
 
 # Настройка логирования
 logging.basicConfig(
@@ -19,6 +21,11 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
 
+# Монтируем раздачу образов
+IMAGES_DIR = os.getenv("IMAGES_DIR", "/app/data/images")
+os.makedirs(IMAGES_DIR, exist_ok=True)
+app.mount("/static/images", StaticFiles(directory=IMAGES_DIR), name="static-images")
+
 # Настройка CORS
 if settings.BACKEND_CORS_ORIGINS:
     app.add_middleware(
@@ -33,6 +40,8 @@ if settings.BACKEND_CORS_ORIGINS:
 app.include_router(vms.router, prefix=f"{settings.API_V1_STR}/vms", tags=["vms"])
 app.include_router(host.router, prefix=f"{settings.API_V1_STR}/host", tags=["host"])
 app.include_router(vnc.router, prefix=f"{settings.API_V1_STR}/vnc", tags=["vnc"])
+app.include_router(images.router, prefix=f"{settings.API_V1_STR}/images", tags=["images"])
+app.include_router(docker_admin.router, prefix=f"{settings.API_V1_STR}/docker", tags=["docker"])
 
 @app.get("/")
 def read_root():

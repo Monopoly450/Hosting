@@ -11,9 +11,14 @@ services:
     volumes:
       # Пробрасываем kubeconfig из K3s для авторизации в Kubernetes API
       - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
+      # Пробрасываем Docker-сокет для администрирования контейнеров
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      # Папка для загрузки и хранения кастомных образов ОС
+      - ./data/images:/app/data/images:rw
     environment:
       - PORT=8000
       - HOST=0.0.0.0
+      - IMAGES_DIR=/app/data/images
     logging:
       driver: "json-file"
       options:

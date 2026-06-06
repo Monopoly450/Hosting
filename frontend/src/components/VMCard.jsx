@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Square, RotateCw, Monitor, Trash2, Cpu, HardDrive, Terminal } from 'lucide-react';
+import { Play, Square, RotateCw, Monitor, Trash2, Cpu, HardDrive, Terminal, Settings, ShieldAlert, Key, Clipboard, Copy, Check } from 'lucide-react';
+import BackupList from './BackupList';
 
-const VMCard = ({ vm, onActionSuccess, onOpenConsole }) => {
+const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
   const [metrics, setMetrics] = useState(null);
   const [actionLoading, setActionLoading] = useState(null); // 'start' | 'stop' | 'restart' | 'delete'
+  const [showBackups, setShowBackups] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Получаем живые метрики для запущенной виртуалки
   useEffect(() => {
@@ -55,6 +58,14 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole }) => {
     }
   };
 
+  const copyPassword = () => {
+    if (vm.credentials && vm.credentials.password !== 'N/A') {
+      navigator.clipboard.writeText(vm.credentials.password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   const getStatusClass = (status) => {
     switch (status) {
       case 'Running': return 'running';
@@ -76,13 +87,13 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole }) => {
   };
 
   const getOSIcon = (type) => {
-    return type === 'windows' ? '🪟' : '🐧';
+    if (type === 'windows') return '🪟';
+    if (type === 'ubuntu') return '🐧';
+    return '💿';
   };
 
-  // Расчет процента RAM под виртуалку
   const getRamPercent = () => {
     if (!metrics || !metrics.memory_mb) return 0;
-    // Лимит памяти VM (например, "2Gi" -> 2048)
     const limitGb = parseInt(vm.memory);
     if (isNaN(limitGb)) return 0;
     const limitMb = limitGb * 1024;
@@ -90,85 +101,138 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole }) => {
   };
 
   return (
-    <div className="card vm-card">
-      <div className="vm-card-header">
-        <div className="vm-title-group">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '1.25rem' }}>{getOSIcon(vm.os_type)}</span>
-            <span className="vm-name">{vm.name}</span>
+    <div className="card vm-card" style={{ height: 'auto', minHeight: 'auto' }}>
+      <div>
+        <div className="vm-card-header">
+          <div className="vm-title-group">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '1.25rem' }}>{getOSIcon(vm.os_type)}</span>
+              <span className="vm-name">{vm.name}</span>
+            </div>
+            <span className="vm-template">{vm.os_type} template</span>
           </div>
-          <span className="vm-template">{vm.os_type} template</span>
+          <span className={`status-badge ${getStatusClass(vm.status)}`}>
+            <span className="status-dot"></span>
+            {getStatusLabel(vm.status)}
+          </span>
         </div>
-        <span className={`status-badge ${getStatusClass(vm.status)}`}>
-          <span className="status-dot"></span>
-          {getStatusLabel(vm.status)}
-        </span>
-      </div>
 
-      {/* Выделенные ресурсы */}
-      <div className="vm-resources-row">
-        <div className="resource-metric">
-          <span className="resource-label">CPU Cores</span>
-          <span className="resource-val">{vm.cpu_cores}</span>
-        </div>
-        <div className="resource-metric">
-          <span className="resource-label">Memory</span>
-          <span className="resource-val">{vm.memory}</span>
-        </div>
-        <div className="resource-metric">
-          <span className="resource-label">Storage</span>
-          <span className="resource-val">{vm.disks[0]?.size || 'N/A'}</span>
-        </div>
-      </div>
-
-      {/* Метрики реального времени (показываем только когда VM работает) */}
-      {vm.status === 'Running' && metrics && metrics.cpu_milli !== undefined && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '15px', padding: '0 4px' }}>
-          {/* Нагрузка CPU */}
-          <div className="stat-item">
-            <div className="stat-label-container" style={{ fontSize: '0.75rem' }}>
-              <span>Загрузка CPU</span>
-              <span className="stat-value">{metrics.cpu_milli} mCores</span>
-            </div>
-            <div className="progress-bar-bg" style={{ height: '4px' }}>
-              <div 
-                className="progress-bar-fill primary"
-                style={{ width: `${Math.min(100, Math.round(metrics.cpu_milli / (vm.cpu_cores * 10)))}%` }}
-              />
-            </div>
+        {/* Выделенные ресурсы */}
+        <div className="vm-resources-row">
+          <div className="resource-metric">
+            <span className="resource-label">CPU Cores</span>
+            <span className="resource-val">{vm.cpu_cores}</span>
           </div>
-          {/* Потребление RAM */}
-          <div className="stat-item">
-            <div className="stat-label-container" style={{ fontSize: '0.75rem' }}>
-              <span>Использование RAM</span>
-              <span className="stat-value">{metrics.memory_mb} MB ({getRamPercent()}%)</span>
-            </div>
-            <div className="progress-bar-bg" style={{ height: '4px' }}>
-              <div 
-                className="progress-bar-fill success"
-                style={{ width: `${getRamPercent()}%` }}
-              />
-            </div>
+          <div className="resource-metric">
+            <span className="resource-label">Memory</span>
+            <span className="resource-val">{vm.memory}</span>
+          </div>
+          <div className="resource-metric">
+            <span className="resource-label">Storage</span>
+            <span className="resource-val">{vm.disks[0]?.size || 'N/A'}</span>
           </div>
         </div>
-      )}
 
-      {/* IP адреса ВМ */}
-      <div className="vm-ips-section">
-        <div className="resource-label" style={{ marginBottom: '4px' }}>Сеть и IP адреса:</div>
-        {vm.status === 'Running' && vm.ips && vm.ips.length > 0 ? (
-          vm.ips.map((ip, i) => (
-            <div key={i} className="ip-row">
-              <Terminal size={12} />
-              <span>{ip} {i === 0 ? '(Internal)' : '(Home Bridge)'}</span>
+        {/* Доступ по паролю */}
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          padding: '12px',
+          background: 'rgba(255, 255, 255, 0.03)',
+          borderRadius: '10px',
+          border: '1px solid var(--border-color)',
+          fontSize: '0.8rem',
+          marginBottom: '15px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+            <Key size={14} color="var(--primary)" />
+            <span>Реквизиты доступа (SSH / OS)</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)' }}>
+            <span>Логин: <strong style={{ color: 'var(--primary)' }}>root</strong></span>
+            {vm.os_type === 'windows' ? (
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Установка в VNC</span>
+            ) : (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                Пароль: <strong>{vm.credentials?.password || 'Загрузка...'}</strong>
+                {vm.credentials?.password !== 'N/A' && (
+                  <button 
+                    onClick={copyPassword} 
+                    style={{ background: 'none', border: 'none', color: copied ? 'var(--success)' : 'var(--text-secondary)', cursor: 'pointer', display: 'flex' }}
+                    title="Копировать пароль"
+                  >
+                    {copied ? <Check size={12} /> : <Copy size={12} />}
+                  </button>
+                )}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Метрики реального времени */}
+        {vm.status === 'Running' && metrics && metrics.cpu_milli !== undefined && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '15px', padding: '0 4px' }}>
+            <div className="stat-item">
+              <div className="stat-label-container" style={{ fontSize: '0.75rem' }}>
+                <span>Загрузка CPU</span>
+                <span className="stat-value">{metrics.cpu_milli} mCores</span>
+              </div>
+              <div className="progress-bar-bg" style={{ height: '4px' }}>
+                <div 
+                  className="progress-bar-fill primary"
+                  style={{ width: `${Math.min(100, Math.round(metrics.cpu_milli / (vm.cpu_cores * 10)))}%` }}
+                />
+              </div>
             </div>
-          ))
-        ) : (
-          <div className="ip-row" style={{ color: 'var(--text-muted)' }}>
-            <span>{vm.status === 'Running' ? 'Ожидание получения IP...' : 'Выключена'}</span>
+            <div className="stat-item">
+              <div className="stat-label-container" style={{ fontSize: '0.75rem' }}>
+                <span>Использование RAM</span>
+                <span className="stat-value">{metrics.memory_mb} MB ({getRamPercent()}%)</span>
+              </div>
+              <div className="progress-bar-bg" style={{ height: '4px' }}>
+                <div 
+                  className="progress-bar-fill success"
+                  style={{ width: `${getRamPercent()}%` }}
+                />
+              </div>
+            </div>
           </div>
         )}
+
+        {/* IP адреса ВМ */}
+        <div className="vm-ips-section" style={{ marginBottom: '15px' }}>
+          <div className="resource-label" style={{ marginBottom: '4px' }}>Сеть и IP адреса:</div>
+          {vm.status === 'Running' && vm.ips && vm.ips.length > 0 ? (
+            vm.ips.map((ip, i) => (
+              <div key={i} className="ip-row">
+                <Terminal size={12} />
+                <span>{ip} {i === 0 ? '(Internal)' : '(Home Bridge)'}</span>
+              </div>
+            ))
+          ) : (
+            <div className="ip-row" style={{ color: 'var(--text-muted)' }}>
+              <span>{vm.status === 'Running' ? 'Ожидание получения IP...' : 'Выключена'}</span>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Выдвижная панель бэкапов */}
+      {showBackups && (
+        <div style={{
+          borderTop: '1px solid var(--border-color)',
+          paddingTop: '15px',
+          marginTop: '15px',
+          marginBottom: '15px'
+        }}>
+          <BackupList 
+            vmName={vm.name} 
+            vmStatus={vm.status} 
+            onRestoreStarted={onActionSuccess} 
+          />
+        </div>
+      )}
 
       {/* Действия с VM */}
       <div className="vm-card-actions">
@@ -212,6 +276,25 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole }) => {
           </>
         )}
         
+        {/* Кнопка бэкапов */}
+        <button 
+          className={`btn btn-secondary btn-sm ${showBackups ? 'active' : ''}`}
+          onClick={() => setShowBackups(!showBackups)}
+          title="Резервные копии"
+          style={{ padding: '8px', border: showBackups ? '1px solid var(--primary)' : '1px solid var(--border-color)' }}
+        >
+          💾
+        </button>
+
+        {/* Настройки */}
+        <button 
+          className="btn btn-secondary btn-sm btn-icon-only"
+          onClick={() => onOpenEdit(vm)}
+          title="Настройка ресурсов"
+        >
+          <Settings size={14} />
+        </button>
+
         <button 
           className="btn btn-danger btn-sm btn-icon-only"
           onClick={() => handleAction('delete')}

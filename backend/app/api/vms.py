@@ -1,9 +1,13 @@
+import secrets
+import string
+import logging
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from app.core.k8s_client import K8sClient
 
 router = APIRouter()
+logger = logging.getLogger("app.api.vms")
 
 # Зависимость для получения клиента K8s
 def get_k8s_client():
@@ -12,18 +16,34 @@ def get_k8s_client():
 # Модели запросов
 class VMCreationRequest(BaseModel):
     name: str = Field(..., pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", description="Имя виртуалки (латиница, цифры, дефис)")
-    os_type: str = Field(..., description="Тип ОС (ubuntu или windows)")
+    os_type: str = Field(..., description="Тип ОС (ubuntu, windows или custom)")
+    custom_image: Optional[str] = Field(None, description="Имя файла кастомного образа (если os_type == custom)")
     cpu_cores: int = Field(2, ge=1, le=16, description="Количество ядер CPU")
     memory_gb: int = Field(2, ge=1, le=64, description="Объем оперативной памяти в ГБ")
     disk_gb: int = Field(20, ge=10, le=500, description="Размер системного диска в ГБ")
-    password: Optional[str] = Field("ubuntu", description="Пароль для пользователя по умолчанию")
     iso_url: Optional[str] = Field(None, description="Ссылка на собственный ISO-образ (для Windows)")
+
+class VMResizeRequest(BaseModel):
+    cpu_cores: int = Field(..., ge=1, le=16)
+    memory_gb: int = Field(..., ge=1, le=64)
+    disk_gb: int = Field(..., ge=10, le=500)
+
+def generate_random_password(length=12) -> str:
+    """Генерирует криптографически стойкий случайный пароль"""
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 # Базовые константы-шаблоны для генерации манифестов
 DEFAULT_WINDOWS_ISO = "https://software-static.download.prss.microsoft.com/sg/download/details.aspx?uuid=5e4c6052-b13c-4384-9ff5-c439162e08e7"
 DEFAULT_UBUNTU_IMAGE = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 
-def generate_ubuntu_manifest(req: VMCreationRequest) -> dict:
+def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
+    # Если выбран кастомный образ, загружаем его из локального хранилища бэкенда
+    image_url = DEFAULT_UBUNTU_IMAGE
+    if req.os_type == "custom" and req.custom_image:
+        # K3s нода обращается к бэкенду на localhost:8000
+        image_url = f"http://127.0.0.1:8000/static/images/{req.custom_image}"
+        
     return {
         "apiVersion": "kubevirt.io/v1",
         "kind": "VirtualMachine",
@@ -31,11 +51,11 @@ def generate_ubuntu_manifest(req: VMCreationRequest) -> dict:
             "name": req.name,
             "namespace": "default",
             "labels": {
-                "hosting.antigravity.io/template": "ubuntu"
+                "hosting.antigravity.io/template": req.os_type
             }
         },
         "spec": {
-            "running": True, # Сразу запускаем после создания
+            "running": True,
             "template": {
                 "metadata": {
                     "labels": {
@@ -108,7 +128,7 @@ def generate_ubuntu_manifest(req: VMCreationRequest) -> dict:
                         {
                             "name": "cloudinit",
                             "cloudInitNoCloud": {
-                                "userData": f"#cloud-config\nssh_pwauth: True\ndisable_root: false\nusers:\n  - name: ubuntu\n    sudo: ALL=(ALL) NOPASSWD:ALL\n    lock_passwd: false\n    passwd: {req.password}\nruncmd:\n  - apt-get update\n  - apt-get install -y qemu-guest-agent\n  - systemctl enable --now qemu-guest-agent\n"
+                                "userData": f"#cloud-config\nssh_pwauth: True\ndisable_root: false\nusers:\n  - name: root\n    lock_passwd: false\n    passwd: {password}\nruncmd:\n  - apt-get update\n  - apt-get install -y qemu-guest-agent\n  - systemctl enable --now qemu-guest-agent\n"
                             }
                         }
                     ]
@@ -122,7 +142,7 @@ def generate_ubuntu_manifest(req: VMCreationRequest) -> dict:
                     "spec": {
                         "source": {
                             "http": {
-                                "url": DEFAULT_UBUNTU_IMAGE
+                                "url": image_url
                             }
                         },
                         "storage": {
@@ -141,6 +161,10 @@ def generate_ubuntu_manifest(req: VMCreationRequest) -> dict:
 
 def generate_windows_manifest(req: VMCreationRequest) -> dict:
     iso_url = req.iso_url or DEFAULT_WINDOWS_ISO
+    # Если Windows создается из кастомного образа ISO
+    if req.os_type == "custom" and req.custom_image:
+        iso_url = f"http://127.0.0.1:8000/static/images/{req.custom_image}"
+
     return {
         "apiVersion": "kubevirt.io/v1",
         "kind": "VirtualMachine",
@@ -152,7 +176,7 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
             }
         },
         "spec": {
-            "running": True, # Сразу запускаем
+            "running": True,
             "template": {
                 "metadata": {
                     "labels": {
@@ -310,20 +334,30 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client)):
     try:
         return client.get_vm(name)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Виртуальная машина {name} не найдена или ошибка API: {e}")
+        raise HTTPException(status_code=404, detail=f"Виртуальная машина {name} не найдена: {e}")
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client)):
     try:
-        if req.os_type == "ubuntu":
-            manifest = generate_ubuntu_manifest(req)
+        # Генерируем случайный пароль для рута
+        generated_password = generate_random_password()
+        
+        # Windows устанавливается из ISO в ручном режиме, но пароль все равно генерируем
+        # Ubuntu и кастомные образы дисков (если поддерживают cloud-init) настраиваем через cloud-init
+        if req.os_type in ["ubuntu", "custom"]:
+            manifest = generate_ubuntu_manifest(req, generated_password)
         elif req.os_type == "windows":
             manifest = generate_windows_manifest(req)
         else:
-            raise HTTPException(status_code=400, detail="Поддерживаются только шаблоны ubuntu и windows.")
+            raise HTTPException(status_code=400, detail="Неверный тип ОС.")
             
+        # 1. Создаем VM
         client.create_vm_from_manifest(manifest)
-        return {"status": "creating", "name": req.name}
+        
+        # 2. Сохраняем пароль в Kubernetes Secrets
+        client.create_credentials_secret(req.name, generated_password)
+        
+        return {"status": "creating", "name": req.name, "password": generated_password}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -359,5 +393,51 @@ def restart_vm(name: str, client: K8sClient = Depends(get_k8s_client)):
 def get_vm_metrics(name: str, client: K8sClient = Depends(get_k8s_client)):
     try:
         return client.get_vm_metrics(name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- НОВЫЕ МАРШРУТЫ ИЗМЕНЕНИЯ РЕСУРСОВ И БЭКАПОВ ---
+
+@router.post("/{name}/resize")
+def resize_vm(name: str, req: VMResizeRequest, client: K8sClient = Depends(get_k8s_client)):
+    """Изменение лимитов CPU, RAM и расширение HDD"""
+    try:
+        # Изменяем CPU/RAM
+        client.resize_vm_resources(name, req.cpu_cores, req.memory_gb)
+        # Расширяем диск
+        client.resize_vm_disk(name, req.disk_gb)
+        return {"status": "resized", "name": name, "cpu_cores": req.cpu_cores, "memory_gb": req.memory_gb, "disk_gb": req.disk_gb}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{name}/backup")
+def create_backup(name: str, client: K8sClient = Depends(get_k8s_client)):
+    """Создать резервную копию VM"""
+    try:
+        return client.create_vm_backup(name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/{name}/backups")
+def list_backups(name: str, client: K8sClient = Depends(get_k8s_client)):
+    """Получить список резервных копий VM"""
+    try:
+        return client.list_vm_backups(name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/{name}/backups/{backup_name}")
+def delete_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k8s_client)):
+    """Удалить резервную копию"""
+    try:
+        return client.delete_vm_backup(backup_name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{name}/restore/{backup_name}")
+def restore_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k8s_client)):
+    """Восстановить диск VM из резервной копии"""
+    try:
+        return client.restore_vm_backup(name, backup_name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
