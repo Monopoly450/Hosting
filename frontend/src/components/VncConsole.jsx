@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import RFB from '@novnc/novnc';
 import { X, RefreshCw, AlertCircle, Monitor } from 'lucide-react';
 
-const VncConsole = ({ name, password, onClose }) => {
+const VncConsole = ({ name, username, password, onClose }) => {
   const canvasContainerRef = useRef(null);
   const rfbRef = useRef(null);
   const [status, setStatus] = useState('connecting'); // 'connecting' | 'connected' | 'disconnected' | 'error'
@@ -31,6 +31,17 @@ const VncConsole = ({ name, password, onClose }) => {
         console.log('VNC Connected successfully');
         setStatus('connected');
         rfb.focus(); // Даем фокус для клавиатурного ввода
+        
+        // Автоматический вход (после небольшой паузы, чтобы экран отрисовался)
+        if (username && password) {
+          console.log(`Starting autologin for user: ${username}`);
+          setTimeout(() => {
+            sendString(username + "\n");
+            setTimeout(() => {
+              sendString(password + "\n");
+            }, 1000);
+          }, 1800);
+        }
       });
 
       rfb.addEventListener('disconnect', (e) => {
@@ -117,6 +128,15 @@ const VncConsole = ({ name, password, onClose }) => {
     processNext();
   };
 
+  const handleAutoLogin = () => {
+    if (!rfbRef.current || status !== 'connected') return;
+    rfbRef.current.focus();
+    sendString((username || 'root') + "\n");
+    setTimeout(() => {
+      sendString(password + "\n");
+    }, 1000);
+  };
+
   return (
     <div className="console-modal-backdrop">
       <div className="console-container">
@@ -128,9 +148,18 @@ const VncConsole = ({ name, password, onClose }) => {
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             {status === 'connected' && (
               <>
-                {password && (
+                {username && password && (
                   <button 
                     className="btn btn-primary btn-sm" 
+                    onClick={handleAutoLogin}
+                    title="Ввести логин и пароль посимвольно для автоматического входа"
+                  >
+                    Авто-вход
+                  </button>
+                )}
+                {password && (
+                  <button 
+                    className="btn btn-secondary btn-sm" 
                     onClick={() => sendString(password + "\n")}
                     title="Ввести сгенерированный пароль посимвольно"
                   >

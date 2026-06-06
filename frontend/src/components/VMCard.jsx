@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Square, RotateCw, Monitor, Trash2, Cpu, HardDrive, Terminal, Settings, ShieldAlert, Key, Clipboard, Copy, Check } from 'lucide-react';
+import { Play, Square, RotateCw, Monitor, Trash2, Cpu, HardDrive, Terminal, Settings, ShieldAlert, Key, Clipboard, Copy, Check, Eye, EyeOff } from 'lucide-react';
 import BackupList from './BackupList';
 
 const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
@@ -7,6 +7,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
   const [actionLoading, setActionLoading] = useState(null); // 'start' | 'stop' | 'restart' | 'delete'
   const [showBackups, setShowBackups] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Получаем живые метрики для запущенной виртуалки
   useEffect(() => {
@@ -100,6 +101,14 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
     return Math.min(100, Math.round((metrics.memory_mb / limitMb) * 100));
   };
 
+  const getSshIp = () => {
+    if (!vm.ips || vm.ips.length === 0) return null;
+    // Находим IP, который не относится к внутренней сети подов K8s (10.244.x.x)
+    const externalIp = vm.ips.find(ip => !ip.startsWith('10.244.'));
+    return externalIp || vm.ips[0];
+  };
+  const sshIp = getSshIp();
+
   return (
     <div className="card vm-card" style={{ height: 'auto', minHeight: 'auto' }}>
       <div>
@@ -133,40 +142,125 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
           </div>
         </div>
 
-        {/* Доступ по паролю */}
+        {/* Реквизиты доступа (SSH / OS) */}
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
-          padding: '12px',
-          background: 'rgba(255, 255, 255, 0.03)',
-          borderRadius: '10px',
+          gap: '12px',
+          padding: '16px',
+          background: 'rgba(255, 255, 255, 0.02)',
+          borderRadius: '12px',
           border: '1px solid var(--border-color)',
-          fontSize: '0.8rem',
+          fontSize: '0.82rem',
           marginBottom: '15px'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontWeight: 600 }}>
-            <Key size={14} color="var(--primary)" />
-            <span>Реквизиты доступа (SSH / OS)</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)' }}>
-            <span>Логин: <strong style={{ color: 'var(--primary)' }}>{vm.credentials?.username || 'root'}</strong></span>
-            {vm.os_type === 'windows' ? (
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Установка в VNC</span>
-            ) : (
-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                Пароль: <strong>{vm.credentials?.password || 'Загрузка...'}</strong>
-                {vm.credentials?.password !== 'N/A' && (
+          {/* IPv4 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 500 }}>IPv4</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              {sshIp ? (
+                <>
+                  <strong style={{ fontSize: '0.95rem', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{sshIp}</strong>
                   <button 
-                    onClick={copyPassword} 
-                    style={{ background: 'none', border: 'none', color: copied ? 'var(--success)' : 'var(--text-secondary)', cursor: 'pointer', display: 'flex' }}
-                    title="Копировать пароль"
+                    onClick={() => {
+                      navigator.clipboard.writeText(sshIp);
+                      alert('IP-адрес скопирован в буфер обмена');
+                    }}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px', display: 'flex' }}
+                    title="Копировать IP"
                   >
-                    {copied ? <Check size={12} /> : <Copy size={12} />}
+                    <Copy size={13} />
                   </button>
-                )}
+                </>
+              ) : (
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                  {vm.status === 'Running' ? 'Ожидание получения IP...' : 'Выключена'}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Подключение по SSH */}
+          {sshIp && vm.os_type !== 'windows' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 500 }}>Подключение по SSH</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+                <span style={{ color: 'var(--text-primary)' }}>ssh {vm.credentials?.username || 'root'}@{sshIp}</span>
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(`ssh ${vm.credentials?.username || 'root'}@${sshIp}`);
+                    alert('Команда SSH скопирована в буфер обмена');
+                  }}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px', display: 'flex' }}
+                  title="Копировать команду SSH"
+                >
+                  <Copy size={13} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Пароль */}
+          {vm.os_type !== 'windows' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 500 }}>
+                {vm.credentials?.username === 'root' ? 'Root-пароль' : 'Пароль пользователя'}
               </span>
-            )}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)', letterSpacing: showPassword ? '0px' : '2px', fontSize: showPassword ? '0.85rem' : '0.75rem' }}>
+                  {showPassword ? (vm.credentials?.password || 'N/A') : '••••••••••••'}
+                </strong>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <button 
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px', display: 'flex' }}
+                    title={showPassword ? "Скрыть пароль" : "Показать пароль"}
+                  >
+                    {showPassword ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                  {vm.credentials?.password !== 'N/A' && (
+                    <button 
+                      onClick={copyPassword}
+                      style={{ background: 'none', border: 'none', color: copied ? 'var(--success)' : 'var(--text-secondary)', cursor: 'pointer', padding: '2px', display: 'flex' }}
+                      title="Копировать пароль"
+                    >
+                      {copied ? <Check size={13} /> : <Copy size={13} />}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Нода */}
+          {vm.node && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 500 }}>Нода</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+                <span style={{ color: 'var(--text-primary)' }}>{vm.node}</span>
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(vm.node);
+                    alert('Имя ноды скопировано в буфер обмена');
+                  }}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px', display: 'flex' }}
+                  title="Копировать имя ноды"
+                >
+                  <Copy size={13} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Закрытые порты */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 500 }}>Закрытые порты</span>
+              <ShieldAlert size={11} color="var(--danger)" />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.4)' }}>
+              <span>2525, 465, 587, 389, 53413, 3389, 25</span>
+            </div>
           </div>
         </div>
 
@@ -218,22 +312,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
           </div>
         )}
 
-        {/* IP адреса ВМ */}
-        <div className="vm-ips-section" style={{ marginBottom: '15px' }}>
-          <div className="resource-label" style={{ marginBottom: '4px' }}>Сеть и IP адреса:</div>
-          {vm.status === 'Running' && vm.ips && vm.ips.length > 0 ? (
-            vm.ips.map((ip, i) => (
-              <div key={i} className="ip-row">
-                <Terminal size={12} />
-                <span>{ip} {i === 0 ? '(Internal)' : '(Home Bridge)'}</span>
-              </div>
-            ))
-          ) : (
-            <div className="ip-row" style={{ color: 'var(--text-muted)' }}>
-              <span>{vm.status === 'Running' ? 'Ожидание получения IP...' : 'Выключена'}</span>
-            </div>
-          )}
-        </div>
+
       </div>
 
       {/* Выдвижная панель бэкапов */}

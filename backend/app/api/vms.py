@@ -128,7 +128,7 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
                         {
                             "name": "cloudinit",
                             "cloudInitNoCloud": {
-                                "userData": f"#cloud-config\nssh_pwauth: True\ndisable_root: false\nchpasswd:\n  list: |\n    root:{password}\n    ubuntu:{password}\n  expire: False\nusers:\n  - name: root\n    lock_passwd: false\n  - name: ubuntu\n    sudo: ['ALL=(ALL) NOPASSWD:ALL']\n    shell: /bin/bash\n    lock_passwd: false\nruncmd:\n  - apt-get update\n  - apt-get install -y qemu-guest-agent\n  - systemctl enable --now qemu-guest-agent\n"
+                                "userData": f"#cloud-config\nssh_pwauth: True\ndisable_root: false\nchpasswd:\n  list: |\n    root:{password}\n    ubuntu:{password}\n  expire: False\nusers:\n  - name: root\n    lock_passwd: false\n  - name: ubuntu\n    sudo: ['ALL=(ALL) NOPASSWD:ALL']\n    shell: /bin/bash\n    lock_passwd: false\nruncmd:\n  - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\n  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config\n  - systemctl restart ssh || systemctl restart sshd\n  - apt-get update\n  - apt-get install -y qemu-guest-agent\n  - systemctl enable --now qemu-guest-agent\n"
                             }
                         }
                     ]

@@ -508,6 +508,7 @@ const App = () => {
       {openConsoleName && (
         <VncConsole 
           name={openConsoleName} 
+          username={vms.find(v => v.name === openConsoleName)?.credentials?.username || 'root'}
           password={vms.find(v => v.name === openConsoleName)?.credentials?.password || ''}
           onClose={() => setOpenConsoleName(null)} 
         />
