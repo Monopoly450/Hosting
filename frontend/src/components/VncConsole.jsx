@@ -78,28 +78,40 @@ const VncConsole = ({ name, password, onClose }) => {
     rfbRef.current.focus();
 
     const XK_Shift_L = 0xffe1;
+    const XK_Return = 0xff0d;
     const chars = str.split("");
     
     const processNext = () => {
       if (chars.length === 0) return;
       const char = chars.shift();
+      
+      if (char === "\n") {
+        rfbRef.current.sendKey(XK_Return, "Enter", true);
+        setTimeout(() => {
+          rfbRef.current.sendKey(XK_Return, "Enter", false);
+          setTimeout(processNext, 15);
+        }, 15);
+        return;
+      }
+      
       const code = char.charCodeAt(0);
       
       // Проверяем, требует ли символ зажатого Shift
       const needsShift = /[A-Z!@#$%^&*()_+{}:"<>?~|]/.test(char);
       
       if (needsShift) {
-        rfbRef.current.sendKey(XK_Shift_L, 1);
+        rfbRef.current.sendKey(XK_Shift_L, "ShiftLeft", true);
       }
       
-      rfbRef.current.sendKey(code, 1);
-      rfbRef.current.sendKey(code, 0);
-      
-      if (needsShift) {
-        rfbRef.current.sendKey(XK_Shift_L, 0);
-      }
-      
-      setTimeout(processNext, 15);
+      // Добавим микро-паузу между нажатием и отпусканием клавиши, чтобы VM успела зарегистрировать нажатие
+      rfbRef.current.sendKey(code, null, true);
+      setTimeout(() => {
+        rfbRef.current.sendKey(code, null, false);
+        if (needsShift) {
+          rfbRef.current.sendKey(XK_Shift_L, "ShiftLeft", false);
+        }
+        setTimeout(processNext, 15);
+      }, 15);
     };
     
     processNext();
@@ -119,7 +131,7 @@ const VncConsole = ({ name, password, onClose }) => {
                 {password && (
                   <button 
                     className="btn btn-primary btn-sm" 
-                    onClick={() => sendString(password)}
+                    onClick={() => sendString(password + "\n")}
                     title="Ввести сгенерированный пароль посимвольно"
                   >
                     Вставить пароль
@@ -136,7 +148,7 @@ const VncConsole = ({ name, password, onClose }) => {
                       if (e.key === 'Enter') {
                         const val = e.target.value;
                         if (val) {
-                          sendString(val);
+                          sendString(val + "\n");
                           e.target.value = '';
                         }
                       }
@@ -148,7 +160,7 @@ const VncConsole = ({ name, password, onClose }) => {
                     onClick={() => {
                       const input = document.getElementById('vnc-type-input');
                       if (input && input.value) {
-                        sendString(input.value);
+                        sendString(input.value + "\n");
                         input.value = '';
                       }
                     }}

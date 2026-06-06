@@ -82,8 +82,8 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
                                 },
                                 {
                                     "name": "cloudinit",
-                                    "disk": {
-                                        "bus": "virtio"
+                                    "cdrom": {
+                                        "bus": "sata"
                                     }
                                 }
                             ],
@@ -128,7 +128,7 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
                         {
                             "name": "cloudinit",
                             "cloudInitNoCloud": {
-                                "userData": f"#cloud-config\nssh_pwauth: True\ndisable_root: false\nusers:\n  - name: root\n    lock_passwd: false\n    passwd: {password}\nruncmd:\n  - apt-get update\n  - apt-get install -y qemu-guest-agent\n  - systemctl enable --now qemu-guest-agent\n"
+                                "userData": f"#cloud-config\nssh_pwauth: True\ndisable_root: false\nchpasswd:\n  list: |\n    root:{password}\n  expire: False\nusers:\n  - name: root\n    lock_passwd: false\nruncmd:\n  - apt-get update\n  - apt-get install -y qemu-guest-agent\n  - systemctl enable --now qemu-guest-agent\n"
                             }
                         }
                     ]

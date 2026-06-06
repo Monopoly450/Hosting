@@ -24,8 +24,8 @@ spec:
               disk:
                 bus: virtio
             - name: cloudinit
-              disk:
-                bus: virtio
+              cdrom:
+                bus: sata
           interfaces:
             - name: default
               masquerade: {}
