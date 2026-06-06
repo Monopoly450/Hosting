@@ -137,7 +137,10 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
             "dataVolumeTemplates": [
                 {
                     "metadata": {
-                        "name": f"{req.name}-disk"
+                        "name": f"{req.name}-disk",
+                        "annotations": {
+                            "cdi.kubevirt.io/storage.bind.immediate.requested": "true"
+                        }
                     },
                     "spec": {
                         "source": {
@@ -281,7 +284,10 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
             "dataVolumeTemplates": [
                 {
                     "metadata": {
-                        "name": f"{req.name}-hd"
+                        "name": f"{req.name}-hd",
+                        "annotations": {
+                            "cdi.kubevirt.io/storage.bind.immediate.requested": "true"
+                        }
                     },
                     "spec": {
                         "source": {
@@ -299,7 +305,10 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                 },
                 {
                     "metadata": {
-                        "name": f"{req.name}-iso"
+                        "name": f"{req.name}-iso",
+                        "annotations": {
+                            "cdi.kubevirt.io/storage.bind.immediate.requested": "true"
+                        }
                     },
                     "spec": {
                         "source": {

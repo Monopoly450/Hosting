@@ -149,7 +149,19 @@ const App = () => {
 
       if (!response.ok) {
         const err = await response.json();
-        throw new Error(err.detail || 'Не удалось создать ВМ.');
+        let errMsg = 'Не удалось создать ВМ.';
+        if (typeof err.detail === 'string') {
+          errMsg = err.detail;
+        } else if (Array.isArray(err.detail)) {
+          // Форматируем валидационные ошибки FastAPI
+          errMsg = err.detail.map(d => {
+            if (d.loc.includes('name')) {
+              return 'Имя виртуальной машины должно состоять только из строчных латинских букв, цифр и знака дефиса (без пробелов и спецсимволов).';
+            }
+            return `${d.loc.join('.')}: ${d.msg}`;
+          }).join('\n');
+        }
+        throw new Error(errMsg);
       }
 
       const resData = await response.json();
@@ -284,6 +296,9 @@ const App = () => {
                       required
                       disabled={formLoading}
                     />
+                    <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                      Только латинские строчные буквы, цифры и дефис (например: `my-server-1`).
+                    </small>
                   </div>
 
                   {/* Список кастомных образов */}
