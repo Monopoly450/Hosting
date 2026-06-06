@@ -107,7 +107,10 @@ curl -sL https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/maste
 sed "s|/etc/cni/net.d|${CNI_CONF_DIR}|g" | \
 sed "s|/opt/cni/bin|${CNI_BIN_DIR}|g" | \
 sed "s|mountPath: ${CNI_CONF_DIR}/multus.d|mountPath: /etc/cni/net.d/multus.d|g" | \
-sed "s|\"socketDir\": \"/host/run/multus/\"|\"socketDir\": \"/host/run/multus/\", \"binDir\": \"${CNI_BIN_DIR}\"|g" > /tmp/multus-k3s.yml
+sed "s|\"socketDir\": \"/host/run/multus/\"|\"socketDir\": \"/host/run/multus/\", \"binDir\": \"${CNI_BIN_DIR}\"|g" | \
+sed "s|path: ${CNI_BIN_DIR}|path: /var/lib/rancher/k3s/data|g" | \
+sed "s|mountPath: ${CNI_BIN_DIR}|mountPath: /var/lib/rancher/k3s/data|g" | \
+sed "s|mountPath: /host${CNI_BIN_DIR}|mountPath: /host/var/lib/rancher/k3s/data|g" > /tmp/multus-k3s.yml
 
 kubectl apply -f /tmp/multus-k3s.yml
 rm -f /tmp/multus-k3s.yml
