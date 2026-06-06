@@ -150,7 +150,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
             <span>Реквизиты доступа (SSH / OS)</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)' }}>
-            <span>Логин: <strong style={{ color: 'var(--primary)' }}>root</strong></span>
+            <span>Логин: <strong style={{ color: 'var(--primary)' }}>{vm.credentials?.username || 'root'}</strong></span>
             {vm.os_type === 'windows' ? (
               <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Установка в VNC</span>
             ) : (
