@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Скрипт для исправления настроек KubeVirt CDI
+# Скрипт для исправления настроек KubeVirt и CDI после перезагрузки
 set -e
 
 echo "[INFO] 1. Настройка StorageProfile 'local-path'..."
@@ -13,11 +13,21 @@ kubectl patch cdi cdi \
   --type=merge \
   --patch '{"spec": {"config": {"scratchSpaceStorageClass": "local-path"}}}'
 
-echo "[INFO] Проверяем статус CDI конфигурации..."
-kubectl get cdi cdi -o yaml | grep scratchSpaceStorageClass -B 2 -A 2 || echo "Scratch SC configuration not found in spec"
+# Проверка KVM на хосте
+if [ ! -e /dev/kvm ]; then
+    echo "[INFO] 3. Устройство /dev/kvm не найдено! Настраиваем KubeVirt в режим программной эмуляции..."
+    kubectl patch kubevirt kubevirt -n kubevirt \
+      --type merge \
+      -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true}}}}'
+else
+    echo "[INFO] 3. Аппаратная виртуализация KVM доступна на хосте, эмуляция не требуется."
+fi
 
-echo "[INFO] Успешно применено! Удаляем зависший импорт, чтобы он перезапустился с новыми параметрами..."
-kubectl delete pvc mama-disk-scratch || true
-kubectl delete dv mama-disk || true
+echo "[INFO] Проверяем статус эмуляции в KubeVirt..."
+kubectl get kubevirt kubevirt -n kubevirt -o jsonpath='{.spec.configuration.developerConfiguration.useEmulation}'
+echo ""
 
-echo "[INFO] Готово! Пересоздайте ВМ 'mama' на панели, и импорт пойдет."
+echo "[INFO] Удаляем зависший под виртуалки, чтобы применились новые настройки..."
+kubectl delete pod -l kubevirt.io/domain=hi || true
+
+echo "[INFO] Все исправления применены! Виртуалка должна перезапуститься автоматически."
