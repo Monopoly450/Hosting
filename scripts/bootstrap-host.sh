@@ -80,7 +80,7 @@ log "Kubernetes нода готова!"
 
 # 6. Установка Multus CNI
 log "Установка Multus CNI (поддержка дополнительных сетевых интерфейсов)..."
-kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-crd.yml
+kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml
 
 # Ждем запуска Multus
 log "Ожидание запуска Multus CNI..."
