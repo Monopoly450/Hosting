@@ -108,7 +108,7 @@ log "Сетевой мост bridge-network успешно создан на б�
 
 # 8. Установка KubeVirt
 log "Получение актуальной версии KubeVirt..."
-KUBEVIRT_VERSION=$(curl -s https://api.github.com/repos/kubevirt/kubevirt/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1')
+KUBEVIRT_VERSION=$(curl -s https://api.github.com/repos/kubevirt/kubevirt/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 if [ -z "$KUBEVIRT_VERSION" ]; then
     KUBEVIRT_VERSION="v1.2.0" # Фолбэк на стабильную версию
 fi
@@ -143,7 +143,7 @@ done
 
 # 9. Установка CDI (Containerized Data Importer)
 log "Получение актуальной версии CDI..."
-CDI_VERSION=$(curl -s https://api.github.com/repos/kubevirt/containerized-data-importer/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1')
+CDI_VERSION=$(curl -s https://api.github.com/repos/kubevirt/containerized-data-importer/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 if [ -z "$CDI_VERSION" ]; then
     CDI_VERSION="v1.59.0" # Фолбэк
 fi
