@@ -1,0 +1,74 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: template-ubuntu
+  namespace: default
+  labels:
+    hosting.antigravity.io/template: "ubuntu"
+spec:
+  running: false # Панель управления сама включит VM
+  template:
+    metadata:
+      labels:
+        kubevirt.io/domain: template-ubuntu
+    spec:
+      domain:
+        cpu:
+          cores: 2
+        resources:
+          requests:
+            memory: 2Gi
+        devices:
+          disks:
+            - name: datavolume
+              disk:
+                bus: virtio
+            - name: cloudinit
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+            - name: bridge-net
+              bridge: {}
+          inputs:
+            - type: tablet
+              name: tablet
+              bus: usb
+      networks:
+        - name: default
+          pod: {}
+        - name: bridge-net
+          multus:
+            networkName: bridge-network
+      volumes:
+        - name: datavolume
+          dataVolume:
+            name: template-ubuntu-disk
+        - name: cloudinit
+          cloudInitNoCloud:
+            userData: |-
+              #cloud-config
+              ssh_pwauth: True
+              disable_root: false
+              users:
+                - name: ubuntu
+                  sudo: ALL=(ALL) NOPASSWD:ALL
+                  lock_passwd: false
+                  passwd: "$6$rounds=4096$somesalt$6j2Zk.Q4V5oAqyL2D8U/oGf0d.y8B65dFzT2wP6X0R9aC.9pM8ZgH9J.kYt8U6Z1w" # Пароль по умолчанию: ubuntu (сгенерировано через mkpasswd)
+              runcmd:
+                - apt-get update
+                - apt-get install -y qemu-guest-agent
+                - systemctl enable --now qemu-guest-agent
+  dataVolumeTemplates:
+    - metadata:
+        name: template-ubuntu-disk
+      spec:
+        source:
+          http:
+            url: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+        storage:
+          storageClassName: "local-path" # Стандартный класс хранилища в K3s
+          resources:
+            requests:
+              storage: 20Gi
