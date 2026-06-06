@@ -90,7 +90,25 @@ log "Kubernetes нода готова!"
 
 # 6. Установка Multus CNI
 log "Установка Multus CNI (поддержка дополнительных сетевых интерфейсов)..."
-kubectl apply -f https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml
+log "Определение путей CNI в K3s..."
+CNI_CONF_DIR="/var/lib/rancher/k3s/agent/etc/cni/net.d"
+CNI_BIN_DIR="/var/lib/rancher/k3s/data/cni"
+
+if [ ! -d "$CNI_BIN_DIR" ]; then
+    CNI_BIN_DIR="/var/lib/rancher/k3s/data/current/bin"
+fi
+
+log "Используемые пути для Multus:"
+log "  - Конфигурации CNI: ${CNI_CONF_DIR}"
+log "  - Бинарники CNI: ${CNI_BIN_DIR}"
+
+log "Скачивание и патчинг манифеста Multus CNI..."
+curl -sL https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml | \
+sed "s|/etc/cni/net.d|${CNI_CONF_DIR}|g" | \
+sed "s|/opt/cni/bin|${CNI_BIN_DIR}|g" > /tmp/multus-k3s.yml
+
+kubectl apply -f /tmp/multus-k3s.yml
+rm -f /tmp/multus-k3s.yml
 
 # Ждем запуска Multus
 log "Ожидание запуска Multus CNI..."
