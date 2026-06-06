@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import RFB from '@novnc/novnc/lib/rfb';
+import RFB from '@novnc/novnc';
 import { X, RefreshCw, AlertCircle, Monitor } from 'lucide-react';
 
 const VncConsole = ({ name, onClose }) => {
