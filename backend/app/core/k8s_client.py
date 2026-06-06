@@ -305,8 +305,8 @@ class K8sClient:
 
     # --- ИЗМЕНЕНИЕ РЕСУРСОВ (CPU, RAM, DISK) ---
 
-    def create_credentials_secret(self, name: str, password: str, namespace="default"):
-        """Создает Secret с паролем root пользователя для виртуалки"""
+    def create_credentials_secret(self, name: str, username: str, password: str, namespace="default"):
+        """Создает Secret с учетными данными для виртуалки"""
         try:
             secret_name = f"{name}-credentials"
             secret = client.V1Secret(
@@ -317,12 +317,12 @@ class K8sClient:
                     }
                 ),
                 string_data={
-                    "username": "root",
+                    "username": username,
                     "password": password
                 }
             )
             self.core_api.create_namespaced_secret(namespace, secret)
-            logger.info(f"Создан секрет {secret_name} с учетными данными для ВМ {name}")
+            logger.info(f"Создан секрет {secret_name} с учетными данными для ВМ {name} (логин: {username})")
         except Exception as e:
             logger.error(f"Ошибка создания секрета пароля для {name}: {e}")
             raise e
@@ -693,12 +693,14 @@ class K8sClient:
         # Шаблон ОС
         os_type = vm["metadata"].get("labels", {}).get("hosting.antigravity.io/template", "unknown")
 
-        # Получаем учетные данные (логин root + авто-пароль из секретов K8s)
+        # Получаем учетные данные (логин root/ubuntu + авто-пароль из секретов K8s)
         credentials = {"username": "root", "password": "N/A"}
         try:
             secret = self.core_api.read_namespaced_secret(f"{name}-credentials", namespace)
             pw = base64.b64decode(secret.data["password"]).decode("utf-8")
             credentials["password"] = pw
+            if "username" in secret.data:
+                credentials["username"] = base64.b64decode(secret.data["username"]).decode("utf-8")
         except Exception:
             pass
 

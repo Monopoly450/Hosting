@@ -128,7 +128,7 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
                         {
                             "name": "cloudinit",
                             "cloudInitNoCloud": {
-                                "userData": f"#cloud-config\nssh_pwauth: True\ndisable_root: false\nchpasswd:\n  list: |\n    root:{password}\n  expire: False\nusers:\n  - name: root\n    lock_passwd: false\nruncmd:\n  - apt-get update\n  - apt-get install -y qemu-guest-agent\n  - systemctl enable --now qemu-guest-agent\n"
+                                "userData": f"#cloud-config\nssh_pwauth: True\ndisable_root: false\nchpasswd:\n  list: |\n    root:{password}\n    ubuntu:{password}\n  expire: False\nusers:\n  - name: root\n    lock_passwd: false\n  - name: ubuntu\n    sudo: ['ALL=(ALL) NOPASSWD:ALL']\n    shell: /bin/bash\n    lock_passwd: false\nruncmd:\n  - apt-get update\n  - apt-get install -y qemu-guest-agent\n  - systemctl enable --now qemu-guest-agent\n"
                             }
                         }
                     ]
@@ -363,6 +363,13 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         # Генерируем случайный пароль для рута
         generated_password = generate_random_password()
         
+        # Определяем стандартный логин
+        username = "root"
+        if req.os_type == "ubuntu":
+            username = "ubuntu"
+        elif req.os_type == "windows":
+            username = "Administrator"
+            
         # Windows устанавливается из ISO в ручном режиме, но пароль все равно генерируем
         # Ubuntu и кастомные образы дисков (если поддерживают cloud-init) настраиваем через cloud-init
         if req.os_type in ["ubuntu", "custom"]:
@@ -376,9 +383,9 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         client.create_vm_from_manifest(manifest)
         
         # 2. Сохраняем пароль в Kubernetes Secrets
-        client.create_credentials_secret(req.name, generated_password)
+        client.create_credentials_secret(req.name, username, generated_password)
         
-        return {"status": "creating", "name": req.name, "password": generated_password}
+        return {"status": "creating", "name": req.name, "username": username, "password": generated_password}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
