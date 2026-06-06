@@ -162,6 +162,8 @@ for i in {1..30}; do
     STATUS=$(kubectl get cdi cdi -n cdi -o jsonpath='{.status.phase}' 2>/dev/null || echo "Waiting")
     if [ "$STATUS" = "Deployed" ]; then
         log "CDI успешно развернут!"
+        # Настройка класса хранилища для временных дисков (scratch space)
+        kubectl patch cdi cdi --type=merge --patch '{"spec": {"config": {"scratchSpaceStorageClass": "local-path"}}}' || true
         break
     fi
     log "Текущий статус CDI: $STATUS. Ожидание..."
