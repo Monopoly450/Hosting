@@ -106,7 +106,8 @@ log "Скачивание и патчинг манифеста Multus CNI..."
 curl -sL https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml | \
 sed "s|/etc/cni/net.d|${CNI_CONF_DIR}|g" | \
 sed "s|/opt/cni/bin|${CNI_BIN_DIR}|g" | \
-sed "s|mountPath: ${CNI_CONF_DIR}/multus.d|mountPath: /etc/cni/net.d/multus.d|g" > /tmp/multus-k3s.yml
+sed "s|mountPath: ${CNI_CONF_DIR}/multus.d|mountPath: /etc/cni/net.d/multus.d|g" | \
+sed "s|\"socketDir\": \"/host/run/multus/\"|\"socketDir\": \"/host/run/multus/\", \"binDir\": \"${CNI_BIN_DIR}\"|g" > /tmp/multus-k3s.yml
 
 kubectl apply -f /tmp/multus-k3s.yml
 rm -f /tmp/multus-k3s.yml
