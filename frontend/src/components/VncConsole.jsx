@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import RFB from '@novnc/novnc';
 import { X, RefreshCw, AlertCircle, Monitor } from 'lucide-react';
 
-const VncConsole = ({ name, username, password, onClose }) => {
+const VncConsole = ({ name, username, password, onClose, isInline = false }) => {
   const canvasContainerRef = useRef(null);
   const rfbRef = useRef(null);
   const [status, setStatus] = useState('connecting'); // 'connecting' | 'connected' | 'disconnected' | 'error'
@@ -136,6 +136,110 @@ const VncConsole = ({ name, username, password, onClose }) => {
       sendString(password + "\n");
     }, 1000);
   };
+
+  if (isInline) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', flex: 1, minHeight: '400px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'flex-start', background: 'rgba(0,0,0,0.02)', padding: '10px', border: '1px solid var(--border-color)' }}>
+          {status === 'connected' ? (
+            <>
+              {username && password && (
+                <button 
+                  className="btn btn-primary btn-sm" 
+                  onClick={handleAutoLogin}
+                  title="Ввести логин и пароль посимвольно для автоматического входа"
+                  type="button"
+                  style={{ borderRadius: '0px' }}
+                >
+                  Авто-вход
+                </button>
+              )}
+              {password && (
+                <button 
+                  className="btn btn-secondary btn-sm" 
+                  onClick={() => sendString(password + "\n")}
+                  title="Ввести сгенерированный пароль посимвольно"
+                  type="button"
+                  style={{ borderRadius: '0px' }}
+                >
+                  Вставить пароль
+                </button>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', borderLeft: '1px solid var(--border-color)', paddingLeft: '10px', marginRight: '5px' }}>
+                <input
+                  type="text"
+                  placeholder="Вставить текст..."
+                  id="vnc-type-input"
+                  className="form-control form-control-sm"
+                  style={{ width: '130px', height: '28px', padding: '2px 8px', fontSize: '0.8rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '0px' }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const val = e.target.value;
+                      if (val) {
+                        sendString(val + "\n");
+                        e.target.value = '';
+                      }
+                    }
+                  }}
+                />
+                <button 
+                  className="btn btn-secondary btn-sm"
+                  style={{ height: '28px', padding: '0 8px', fontSize: '0.8rem', borderRadius: '0px' }}
+                  onClick={() => {
+                    const input = document.getElementById('vnc-type-input');
+                    if (input && input.value) {
+                      sendString(input.value + "\n");
+                      input.value = '';
+                    }
+                  }}
+                  type="button"
+                >
+                  Ввести
+                </button>
+              </div>
+              <button className="btn btn-secondary btn-sm" onClick={handleSendCtrlAltDel} type="button" style={{ borderRadius: '0px' }}>
+                Ctrl+Alt+Del
+              </button>
+            </>
+          ) : (
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Ожидание подключения к экрану...</span>
+          )}
+        </div>
+
+        <div className="console-canvas-container" style={{ flex: 1, minHeight: '450px', background: '#000000', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid var(--border-color)' }}>
+          <div 
+            ref={canvasContainerRef} 
+            id="vnc-canvas"
+            style={{ width: '100%', height: '450px', display: status === 'connected' ? 'block' : 'none' }}
+          />
+
+          {status !== 'connected' && (
+            <div className="console-status-overlay">
+              {status === 'connecting' && (
+                <>
+                  <div className="spinner"></div>
+                  <p style={{ fontSize: '0.85rem' }}>Подключение к VNC консоли виртуальной машины...</p>
+                </>
+              )}
+              {status === 'disconnected' && (
+                <>
+                  <AlertCircle size={32} color="var(--text-secondary)" />
+                  <p style={{ fontSize: '0.85rem' }}>Консоль отключена.</p>
+                </>
+              )}
+              {status === 'error' && (
+                <>
+                  <AlertCircle size={32} color="var(--danger)" />
+                  <p style={{ color: 'var(--danger)', fontWeight: 600, fontSize: '0.85rem' }}>Ошибка подключения к консоли</p>
+                  <p style={{ fontSize: '0.75rem', opacity: 0.8 }}>{errorMsg || 'Убедитесь, что виртуалка запущена и KVM включен.'}</p>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="console-modal-backdrop">

@@ -555,6 +555,7 @@ const App = () => {
         <VMDetail 
           vmName={selectedVMDetailName}
           onClose={() => setSelectedVMDetailName(null)}
+          onActionSuccess={fetchVMs}
         />
       )}
     </div>
