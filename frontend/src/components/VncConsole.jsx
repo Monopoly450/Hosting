@@ -89,8 +89,8 @@ const VncConsole = ({ name, password, onClose }) => {
         rfbRef.current.sendKey(XK_Return, "Enter", true);
         setTimeout(() => {
           rfbRef.current.sendKey(XK_Return, "Enter", false);
-          setTimeout(processNext, 15);
-        }, 15);
+          setTimeout(processNext, 45);
+        }, 45);
         return;
       }
       
@@ -110,8 +110,8 @@ const VncConsole = ({ name, password, onClose }) => {
         if (needsShift) {
           rfbRef.current.sendKey(XK_Shift_L, "ShiftLeft", false);
         }
-        setTimeout(processNext, 15);
-      }, 15);
+        setTimeout(processNext, 45);
+      }, 45);
     };
     
     processNext();
