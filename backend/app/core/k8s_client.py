@@ -637,6 +637,30 @@ class K8sClient:
                     "source": "containerDisk"
                 })
 
+        # Проверяем статус DataVolume
+        import_progress = "N/A"
+        import_phase = None
+        dvt = spec.get("dataVolumeTemplates", [])
+        for dv_tmpl in dvt:
+            dv_name = dv_tmpl["metadata"]["name"]
+            try:
+                dv_obj = self.custom_api.get_namespaced_custom_object(
+                    group="cdi.kubevirt.io",
+                    version="v1beta1",
+                    namespace=namespace,
+                    plural="datavolumes",
+                    name=dv_name
+                )
+                dv_status = dv_obj.get("status", {})
+                phase = dv_status.get("phase")
+                progress = dv_status.get("progress")
+                if phase and phase not in ["Succeeded", "Failed"]:
+                    import_phase = phase
+                    import_progress = progress or "0%"
+                    break
+            except Exception:
+                pass
+
         # Получаем данные из запущенного инстанса (VMI)
         status = "Stopped"
         ips = []
@@ -656,6 +680,13 @@ class K8sClient:
                 for ip_addr in iface.get("ipAddresses", []):
                     if ip_addr not in ips:
                         ips.append(ip_addr)
+        else:
+            if import_phase:
+                status = "Importing"
+            elif running_desired:
+                status = "Starting"
+            else:
+                status = "Stopped"
 
         # Шаблон ОС
         os_type = vm["metadata"].get("labels", {}).get("hosting.antigravity.io/template", "unknown")
@@ -674,6 +705,7 @@ class K8sClient:
             "namespace": namespace,
             "desired_state": "Running" if running_desired else "Stopped",
             "status": status,
+            "import_progress": import_progress,
             "os_type": os_type,
             "cpu_cores": cpu_cores,
             "memory": mem_req,

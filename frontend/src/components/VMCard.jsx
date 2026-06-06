@@ -79,7 +79,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
       case 'Running': return 'Активна';
       case 'Stopped': return 'Выключена';
       case 'Provisioning': return 'Создание...';
-      case 'Importing': return 'Импорт диска...';
+      case 'Importing': return `Импорт диска ${vm.import_progress && vm.import_progress !== 'N/A' ? `(${vm.import_progress})` : ''}`;
       case 'Starting': return 'Запуск...';
       case 'Stopping': return 'Остановка...';
       default: return status;
@@ -169,6 +169,24 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
             )}
           </div>
         </div>
+
+        {/* Прогресс импорта диска */}
+        {vm.status === 'Importing' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '15px', padding: '0 4px' }}>
+            <div className="stat-item">
+              <div className="stat-label-container" style={{ fontSize: '0.75rem' }}>
+                <span>Загрузка образа диска</span>
+                <span className="stat-value">{vm.import_progress || '0%'}</span>
+              </div>
+              <div className="progress-bar-bg" style={{ height: '4px' }}>
+                <div 
+                  className="progress-bar-fill primary"
+                  style={{ width: vm.import_progress && vm.import_progress.includes('%') ? vm.import_progress : '0%' }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Метрики реального времени */}
         {vm.status === 'Running' && metrics && metrics.cpu_milli !== undefined && (
