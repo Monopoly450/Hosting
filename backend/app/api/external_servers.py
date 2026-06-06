@@ -189,6 +189,7 @@ def get_server_details(server_id: str):
 
 class CommandExecuteRequest(BaseModel):
     command: str = Field(..., description="Команда для выполнения на удаленном сервере")
+    cwd: Optional[str] = Field(None, description="Текущая рабочая директория")
 
 
 @router.post("/{server_id}/execute")
@@ -211,22 +212,38 @@ def execute_ssh_command(server_id: str, req: CommandExecuteRequest):
             port=target_server["port"],
             username=target_server["username"],
             password=target_server["password"],
-            timeout=10
+            timeout=15
         )
-        stdin, stdout, stderr = ssh.exec_command(req.command, timeout=10)
+        
+        # Определяем команду с переходом в рабочую директорию
+        cwd_dir = req.cwd if req.cwd else "~"
+        full_command = f"cd {cwd_dir} && {req.command} ; echo \"__CWD__\" ; pwd"
+        
+        stdin, stdout, stderr = ssh.exec_command(full_command, timeout=15)
         exit_status = stdout.channel.recv_exit_status()
         out = stdout.read().decode('utf-8', errors='ignore')
         err = stderr.read().decode('utf-8', errors='ignore')
         ssh.close()
+        
+        # Выделяем реальный вывод команды и новый CWD
+        new_cwd = cwd_dir
+        actual_out = out
+        if "__CWD__" in out:
+            parts = out.split("__CWD__")
+            actual_out = parts[0].rstrip("\r\n").rstrip("\n")
+            new_cwd = parts[1].strip()
+            
         return {
             "exit_status": exit_status,
-            "stdout": out,
-            "stderr": err
+            "stdout": actual_out,
+            "stderr": err,
+            "cwd": new_cwd
         }
     except Exception as e:
         logger.error(f"Ошибка выполнения удаленной команды на {target_server['host']}: {e}")
         return {
             "exit_status": -1,
             "stdout": "",
-            "stderr": f"Не удалось выполнить команду по SSH: {str(e)}"
+            "stderr": f"Не удалось выполнить команду по SSH: {str(e)}",
+            "cwd": req.cwd if req.cwd else "~"
         }

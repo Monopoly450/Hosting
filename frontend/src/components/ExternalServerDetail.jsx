@@ -6,9 +6,14 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeSubTab, setActiveSubTab] = useState('processes'); // 'processes' | 'services' | 'docker' | 'console'
+  
+  // Terminal states
   const [command, setCommand] = useState('');
-  const [commandOutput, setCommandOutput] = useState(null);
   const [executing, setExecuting] = useState(false);
+  const [cwd, setCwd] = useState('~');
+  const [terminalHistory, setTerminalHistory] = useState([]);
+  
+  const terminalEndRef = React.useRef(null);
 
   const fetchDetails = async () => {
     try {
@@ -35,28 +40,69 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
     return () => clearInterval(interval);
   }, [serverId]);
 
+  // Initialize terminal welcome banner
+  useEffect(() => {
+    if (data && terminalHistory.length === 0) {
+      setTerminalHistory([
+        { type: 'info', text: `Welcome to ${data.name} (${data.host}) SSH session.` },
+        { type: 'info', text: `OS: ${data.os_name} | Kernel: ${data.kernel}` },
+        { type: 'info', text: `Type your bash commands below.` },
+        { type: 'info', text: '' }
+      ]);
+    }
+  }, [data]);
+
+  // Scroll to bottom when history changes
+  useEffect(() => {
+    if (terminalEndRef.current) {
+      terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [terminalHistory]);
+
   const handleExecuteCommand = async (e) => {
     e.preventDefault();
-    if (!command.trim() || executing) return;
+    const cmdText = command.trim();
+    if (!cmdText || executing) return;
 
     setExecuting(true);
+    setCommand(''); // clear input instantly
+    
+    // Add prompt line to terminal history
+    const promptText = `${data.username}@${data.host}:${cwd}$ ${cmdText}`;
+    setTerminalHistory(prev => [...prev, { type: 'prompt', text: promptText }]);
+
     try {
       const response = await fetch(`/api/external-servers/${serverId}/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: command.trim() })
+        body: JSON.stringify({ command: cmdText, cwd: cwd })
       });
+      
       if (!response.ok) {
-        throw new Error('Не удалось выполнить команду');
+        throw new Error('Не удалось выполнить команду (ошибка API)');
       }
-      const resData = await response.json();
-      setCommandOutput(resData);
-    } catch (err) {
-      setCommandOutput({
-        exit_status: -1,
-        stdout: '',
-        stderr: err.message
+      
+      const resData = await response.json(); // { exit_status, stdout, stderr, cwd }
+      
+      if (resData.cwd) {
+        setCwd(resData.cwd);
+      }
+
+      setTerminalHistory(prev => {
+        const next = [...prev];
+        if (resData.stdout) {
+          next.push({ type: 'stdout', text: resData.stdout });
+        }
+        if (resData.stderr) {
+          next.push({ type: 'stderr', text: resData.stderr });
+        }
+        if (!resData.stdout && !resData.stderr && resData.exit_status !== 0) {
+          next.push({ type: 'stderr', text: `Command exited with status ${resData.exit_status}` });
+        }
+        return next;
       });
+    } catch (err) {
+      setTerminalHistory(prev => [...prev, { type: 'stderr', text: `Error: ${err.message}` }]);
     } finally {
       setExecuting(false);
     }
@@ -354,15 +400,85 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
 
             {/* Под-вкладка 4: SSH Консоль */}
             {activeSubTab === 'console' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', flex: 1, minHeight: '350px' }}>
+                
+                {/* Окно терминала */}
+                <div style={{ 
+                  flex: 1,
+                  background: '#1d1d1f', 
+                  color: '#f5f5f7', 
+                  padding: '20px', 
+                  fontFamily: 'var(--font-mono)', 
+                  fontSize: '0.85rem',
+                  overflowY: 'auto',
+                  height: '300px',
+                  borderRadius: '0px',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
+                }}>
+                  {terminalHistory.map((line, idx) => {
+                    if (line.type === 'prompt') {
+                      return (
+                        <div key={idx} style={{ color: 'var(--primary)', fontWeight: 600 }}>
+                          {line.text}
+                        </div>
+                      );
+                    } else if (line.type === 'stderr') {
+                      return (
+                        <pre key={idx} style={{ color: 'var(--danger)', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                          {line.text}
+                        </pre>
+                      );
+                    } else if (line.type === 'info') {
+                      return (
+                        <div key={idx} style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                          {line.text}
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <pre key={idx} style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                          {line.text}
+                        </pre>
+                      );
+                    }
+                  })}
+                  
+                  {/* Строка ожидания выполнения */}
+                  {executing && (
+                    <div style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px', borderColor: '#fff' }} />
+                      <span>Выполнение команды...</span>
+                    </div>
+                  )}
+                  
+                  <div ref={terminalEndRef} />
+                </div>
+
+                {/* Форма ввода (Строка ввода Putty) */}
                 <form onSubmit={handleExecuteCommand} style={{ display: 'flex', gap: '10px' }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    background: 'rgba(0,0,0,0.05)', 
+                    border: '1px solid var(--border-color)', 
+                    padding: '0 12px', 
+                    fontFamily: 'var(--font-mono)', 
+                    fontSize: '0.85rem',
+                    color: 'var(--text-secondary)'
+                  }}>
+                    {data.username}@{data.host}:{cwd}$
+                  </div>
                   <input 
                     type="text"
                     className="form-input"
-                    placeholder="Введите bash команду (например: ls -la / или systemctl status docker)"
+                    placeholder="Введите bash команду..."
                     value={command}
                     onChange={(e) => setCommand(e.target.value)}
                     disabled={executing}
+                    autoFocus
                     style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}
                   />
                   <button 
@@ -371,53 +487,17 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
                     disabled={executing || !command.trim()}
                     style={{ width: '120px' }}
                   >
-                    {executing ? (
-                      <span className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px', borderColor: '#fff' }} />
-                    ) : (
-                      'Выполнить'
-                    )}
+                    Выполнить
+                  </button>
+                  <button 
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setTerminalHistory([])}
+                    style={{ width: '100px' }}
+                  >
+                    Очистить
                   </button>
                 </form>
-
-                {commandOutput && (
-                  <div className="card" style={{ 
-                    background: '#1d1d1f', 
-                    color: '#ffffff', 
-                    padding: '20px', 
-                    fontFamily: 'var(--font-mono)', 
-                    fontSize: '0.8rem',
-                    overflowY: 'auto',
-                    maxHeight: '300px',
-                    borderRadius: '0px',
-                    border: '1px solid rgba(255, 255, 255, 0.1)'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '8px', marginBottom: '12px', fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)' }}>
-                      <span>Команда: {command}</span>
-                      <span>
-                        Код возврата:{' '}
-                        <strong style={{ color: commandOutput.exit_status === 0 ? 'var(--success)' : 'var(--danger)' }}>
-                          {commandOutput.exit_status}
-                        </strong>
-                      </span>
-                    </div>
-
-                    {commandOutput.stdout && (
-                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
-                        {commandOutput.stdout}
-                      </pre>
-                    )}
-
-                    {commandOutput.stderr && (
-                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: 'var(--danger)', margin: 0 }}>
-                        {commandOutput.stderr}
-                      </pre>
-                    )}
-
-                    {!commandOutput.stdout && !commandOutput.stderr && (
-                      <span style={{ color: 'rgba(255, 255, 255, 0.4)' }}>[Команда завершилась без вывода]</span>
-                    )}
-                  </div>
-                )}
               </div>
             )}
 
