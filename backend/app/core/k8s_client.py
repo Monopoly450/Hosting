@@ -667,7 +667,11 @@ class K8sClient:
         node_name = ""
         creation_timestamp = vm["metadata"].get("creationTimestamp")
         
-        if vmi:
+        if import_phase:
+            status = "Importing"
+            if vmi:
+                node_name = vmi.get("status", {}).get("nodeName", "")
+        elif vmi:
             status = vmi.get("status", {}).get("phase", "Unknown")
             node_name = vmi.get("status", {}).get("nodeName", "")
             
@@ -681,9 +685,7 @@ class K8sClient:
                     if ip_addr not in ips:
                         ips.append(ip_addr)
         else:
-            if import_phase:
-                status = "Importing"
-            elif running_desired:
+            if running_desired:
                 status = "Starting"
             else:
                 status = "Stopped"
