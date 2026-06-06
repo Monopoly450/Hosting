@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import RFB from '@novnc/novnc';
 import { X, RefreshCw, AlertCircle, Monitor } from 'lucide-react';
 
-const VncConsole = ({ name, onClose }) => {
+const VncConsole = ({ name, password, onClose }) => {
   const canvasContainerRef = useRef(null);
   const rfbRef = useRef(null);
   const [status, setStatus] = useState('connecting'); // 'connecting' | 'connected' | 'disconnected' | 'error'
@@ -73,6 +73,38 @@ const VncConsole = ({ name, onClose }) => {
     }
   };
 
+  const sendString = (str) => {
+    if (!rfbRef.current || status !== 'connected') return;
+    rfbRef.current.focus();
+
+    const XK_Shift_L = 0xffe1;
+    const chars = str.split("");
+    
+    const processNext = () => {
+      if (chars.length === 0) return;
+      const char = chars.shift();
+      const code = char.charCodeAt(0);
+      
+      // Проверяем, требует ли символ зажатого Shift
+      const needsShift = /[A-Z!@#$%^&*()_+{}:"<>?~|]/.test(char);
+      
+      if (needsShift) {
+        rfbRef.current.sendKey(XK_Shift_L, 1);
+      }
+      
+      rfbRef.current.sendKey(code, 1);
+      rfbRef.current.sendKey(code, 0);
+      
+      if (needsShift) {
+        rfbRef.current.sendKey(XK_Shift_L, 0);
+      }
+      
+      setTimeout(processNext, 15);
+    };
+    
+    processNext();
+  };
+
   return (
     <div className="console-modal-backdrop">
       <div className="console-container">
@@ -83,9 +115,51 @@ const VncConsole = ({ name, onClose }) => {
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             {status === 'connected' && (
-              <button className="btn btn-secondary btn-sm" onClick={handleSendCtrlAltDel}>
-                Ctrl+Alt+Del
-              </button>
+              <>
+                {password && (
+                  <button 
+                    className="btn btn-primary btn-sm" 
+                    onClick={() => sendString(password)}
+                    title="Ввести сгенерированный пароль посимвольно"
+                  >
+                    Вставить пароль
+                  </button>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', borderLeft: '1px solid var(--border-color)', paddingLeft: '10px', marginRight: '5px' }}>
+                  <input
+                    type="text"
+                    placeholder="Вставить текст..."
+                    id="vnc-type-input"
+                    className="form-control form-control-sm"
+                    style={{ width: '130px', height: '28px', padding: '2px 8px', fontSize: '0.8rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const val = e.target.value;
+                        if (val) {
+                          sendString(val);
+                          e.target.value = '';
+                        }
+                      }
+                    }}
+                  />
+                  <button 
+                    className="btn btn-secondary btn-sm"
+                    style={{ height: '28px', padding: '0 8px', fontSize: '0.8rem' }}
+                    onClick={() => {
+                      const input = document.getElementById('vnc-type-input');
+                      if (input && input.value) {
+                        sendString(input.value);
+                        input.value = '';
+                      }
+                    }}
+                  >
+                    Ввести
+                  </button>
+                </div>
+                <button className="btn btn-secondary btn-sm" onClick={handleSendCtrlAltDel}>
+                  Ctrl+Alt+Del
+                </button>
+              </>
             )}
             <button className="btn btn-danger btn-icon-only btn-sm" onClick={onClose} title="Закрыть консоль">
               <X size={16} />
