@@ -102,6 +102,20 @@ log "Используемые пути для Multus:"
 log "  - Конфигурации CNI: ${CNI_CONF_DIR}"
 log "  - Бинарники CNI: ${CNI_BIN_DIR}"
 
+log "Проверка и установка недостающих CNI плагинов (macvlan и др.)..."
+CNI_VERSION="v1.5.1"
+ARCH=$(uname -m)
+if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi
+if [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi
+
+mkdir -p /tmp/cni-plugins
+curl -sSL "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz" | tar -xz -C /tmp/cni-plugins
+mkdir -p /var/lib/rancher/k3s/data/cni /var/lib/rancher/k3s/data/current/bin
+cp -n /tmp/cni-plugins/* /var/lib/rancher/k3s/data/cni/ 2>/dev/null || true
+cp -n /tmp/cni-plugins/* /var/lib/rancher/k3s/data/current/bin/ 2>/dev/null || true
+chmod +x /var/lib/rancher/k3s/data/cni/* /var/lib/rancher/k3s/data/current/bin/* 2>/dev/null || true
+rm -rf /tmp/cni-plugins
+
 log "Скачивание и патчинг манифеста Multus CNI..."
 curl -sL https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml | \
 sed "s|/etc/cni/net.d|${CNI_CONF_DIR}|g" | \
