@@ -268,9 +268,26 @@ kubectl get pods -A
 
 ## 5. Запуск панели управления (Docker Compose)
 
-Панель управления разворачивается локально с помощью Docker Compose.
+Панель управления разворачивается локально с помощью Docker Compose. Перед запуском необходимо установить Docker и плагин Docker Compose на вашем хосте.
 
-### Конфигурация [docker-compose.yml](file:///Users/vladislavkarasev/Documents/Хостинг/docker-compose.yml):
+### Шаг 5.1: Установка Docker и Docker Compose
+Выполните следующие команды в терминале вашего сервера для установки необходимых пакетов:
+```bash
+# Обновите списки пакетов
+sudo apt-get update
+
+# Установите Docker
+sudo apt-get install -y docker.io
+
+# Установите современный плагин Docker Compose v2
+sudo apt-get install -y docker-compose-v2
+
+# Добавьте вашего пользователя в группу docker (опционально, чтобы выполнять команды без sudo)
+sudo usermod -aG docker $USER
+```
+После этого перезайдите в терминал или выполните `newgrp docker`, чтобы права вступили в силу.
+
+### Шаг 5.2: Конфигурация [docker-compose.yml](file:///Users/vladislavkarasev/Documents/Хостинг/docker-compose.yml):
 ```yaml
 version: '3.8'
 
@@ -318,11 +335,11 @@ services:
 
 ### Сборка и запуск контейнеров:
 ```bash
-# Перейдите в директорию с файлом docker-compose.yml
-cd Hosting
+# Перейдите в корневую директорию проекта (если вы еще не там)
+cd ~/Hosting
 
-# Запустите сборку и старт в фоновом режиме
-sudo docker-compose up -d --build
+# Запустите сборку и старт контейнеров в фоновом режиме (без дефиса в docker compose)
+sudo docker compose up -d --build
 ```
 После успешного запуска:
 * Панель управления (фронтенд) доступна по адресу: `http://IP_ВАШЕГО_СЕРВЕРА:8080`
