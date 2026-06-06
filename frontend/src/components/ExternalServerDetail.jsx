@@ -5,7 +5,10 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeSubTab, setActiveSubTab] = useState('processes'); // 'processes' | 'services' | 'docker'
+  const [activeSubTab, setActiveSubTab] = useState('processes'); // 'processes' | 'services' | 'docker' | 'console'
+  const [command, setCommand] = useState('');
+  const [commandOutput, setCommandOutput] = useState(null);
+  const [executing, setExecuting] = useState(false);
 
   const fetchDetails = async () => {
     try {
@@ -31,6 +34,33 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
     const interval = setInterval(fetchDetails, 6000);
     return () => clearInterval(interval);
   }, [serverId]);
+
+  const handleExecuteCommand = async (e) => {
+    e.preventDefault();
+    if (!command.trim() || executing) return;
+
+    setExecuting(true);
+    try {
+      const response = await fetch(`/api/external-servers/${serverId}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: command.trim() })
+      });
+      if (!response.ok) {
+        throw new Error('Не удалось выполнить команду');
+      }
+      const resData = await response.json();
+      setCommandOutput(resData);
+    } catch (err) {
+      setCommandOutput({
+        exit_status: -1,
+        stdout: '',
+        stderr: err.message
+      });
+    } finally {
+      setExecuting(false);
+    }
+  };
 
   if (loading && !data) {
     return (
@@ -178,7 +208,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
             <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
               <button 
                 className={`btn btn-sm ${activeSubTab === 'processes' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ color: activeSubTab === 'processes' ? '#000' : 'var(--text-primary)' }}
+                style={{ color: activeSubTab === 'processes' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
                 onClick={() => setActiveSubTab('processes')}
               >
                 <Terminal size={12} />
@@ -186,7 +216,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
               </button>
               <button 
                 className={`btn btn-sm ${activeSubTab === 'services' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ color: activeSubTab === 'services' ? '#000' : 'var(--text-primary)' }}
+                style={{ color: activeSubTab === 'services' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
                 onClick={() => setActiveSubTab('services')}
               >
                 <ListFilter size={12} />
@@ -194,11 +224,19 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
               </button>
               <button 
                 className={`btn btn-sm ${activeSubTab === 'docker' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ color: activeSubTab === 'docker' ? '#000' : 'var(--text-primary)' }}
+                style={{ color: activeSubTab === 'docker' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
                 onClick={() => setActiveSubTab('docker')}
               >
                 <Layers size={12} />
                 Docker Контейнеры ({data.docker?.installed ? data.docker.containers.length : 'N/A'})
+              </button>
+              <button 
+                className={`btn btn-sm ${activeSubTab === 'console' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ color: activeSubTab === 'console' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
+                onClick={() => setActiveSubTab('console')}
+              >
+                <Terminal size={12} />
+                Консоль SSH
               </button>
             </div>
 
@@ -309,6 +347,75 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Под-вкладка 4: SSH Консоль */}
+            {activeSubTab === 'console' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                <form onSubmit={handleExecuteCommand} style={{ display: 'flex', gap: '10px' }}>
+                  <input 
+                    type="text"
+                    className="form-input"
+                    placeholder="Введите bash команду (например: ls -la / или systemctl status docker)"
+                    value={command}
+                    onChange={(e) => setCommand(e.target.value)}
+                    disabled={executing}
+                    style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}
+                  />
+                  <button 
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={executing || !command.trim()}
+                    style={{ width: '120px' }}
+                  >
+                    {executing ? (
+                      <span className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px', borderColor: '#fff' }} />
+                    ) : (
+                      'Выполнить'
+                    )}
+                  </button>
+                </form>
+
+                {commandOutput && (
+                  <div className="card" style={{ 
+                    background: '#1d1d1f', 
+                    color: '#ffffff', 
+                    padding: '20px', 
+                    fontFamily: 'var(--font-mono)', 
+                    fontSize: '0.8rem',
+                    overflowY: 'auto',
+                    maxHeight: '300px',
+                    borderRadius: '0px',
+                    border: '1px solid rgba(255, 255, 255, 0.1)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', paddingBottom: '8px', marginBottom: '12px', fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)' }}>
+                      <span>Команда: {command}</span>
+                      <span>
+                        Код возврата:{' '}
+                        <strong style={{ color: commandOutput.exit_status === 0 ? 'var(--success)' : 'var(--danger)' }}>
+                          {commandOutput.exit_status}
+                        </strong>
+                      </span>
+                    </div>
+
+                    {commandOutput.stdout && (
+                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
+                        {commandOutput.stdout}
+                      </pre>
+                    )}
+
+                    {commandOutput.stderr && (
+                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: 'var(--danger)', margin: 0 }}>
+                        {commandOutput.stderr}
+                      </pre>
+                    )}
+
+                    {!commandOutput.stdout && !commandOutput.stderr && (
+                      <span style={{ color: 'rgba(255, 255, 255, 0.4)' }}>[Команда завершилась без вывода]</span>
+                    )}
                   </div>
                 )}
               </div>

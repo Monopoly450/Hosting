@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import logging
+import paramiko
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, status
@@ -184,3 +185,48 @@ def get_server_details(server_id: str):
         "username": target_server["username"],
         **metrics
     }
+
+
+class CommandExecuteRequest(BaseModel):
+    command: str = Field(..., description="Команда для выполнения на удаленном сервере")
+
+
+@router.post("/{server_id}/execute")
+def execute_ssh_command(server_id: str, req: CommandExecuteRequest):
+    """Выполнить произвольную команду на внешнем сервере через SSH"""
+    servers = read_servers()
+    target_server = next((s for s in servers if s["id"] == server_id), None)
+    
+    if not target_server:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Сервер с ID {server_id} не найден."
+        )
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        ssh.connect(
+            hostname=target_server["host"],
+            port=target_server["port"],
+            username=target_server["username"],
+            password=target_server["password"],
+            timeout=10
+        )
+        stdin, stdout, stderr = ssh.exec_command(req.command, timeout=10)
+        exit_status = stdout.channel.recv_exit_status()
+        out = stdout.read().decode('utf-8', errors='ignore')
+        err = stderr.read().decode('utf-8', errors='ignore')
+        ssh.close()
+        return {
+            "exit_status": exit_status,
+            "stdout": out,
+            "stderr": err
+        }
+    except Exception as e:
+        logger.error(f"Ошибка выполнения удаленной команды на {target_server['host']}: {e}")
+        return {
+            "exit_status": -1,
+            "stdout": "",
+            "stderr": f"Не удалось выполнить команду по SSH: {str(e)}"
+        }
