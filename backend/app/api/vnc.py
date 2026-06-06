@@ -18,8 +18,8 @@ async def forward(source, destination):
 
 @router.websocket("/{name}")
 async def vnc_proxy(websocket: WebSocket, name: str, namespace: str = "default"):
-    # Принимаем WebSocket-соединение от браузера
-    await websocket.accept()
+    # Принимаем WebSocket-соединение от браузера с указанием бинарного подпротокола
+    await websocket.accept(subprotocol="binary")
     logger.info(f"Запрос VNC WebSocket для виртуалки: {name}")
     
     try:
@@ -98,11 +98,16 @@ async def vnc_proxy(websocket: WebSocket, name: str, namespace: str = "default")
 
             client_wrapper = FastAPIWSWrapper(websocket)
             
-            # Запускаем двунаправленную пересылку
-            await asyncio.gather(
-                forward(client_wrapper, target_ws),
-                forward(target_ws, client_wrapper)
+            # Запускаем двунаправленную пересылку и завершаем при закрытии любого из направлений
+            done, pending = await asyncio.wait(
+                [
+                    asyncio.create_task(forward(client_wrapper, target_ws)),
+                    asyncio.create_task(forward(target_ws, client_wrapper))
+                ],
+                return_when=asyncio.FIRST_COMPLETED
             )
+            for task in pending:
+                task.cancel()
             
     except Exception as e:
         logger.error(f"Ошибка VNC прокси для {name}: {e}")
