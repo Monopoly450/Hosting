@@ -2,12 +2,26 @@ import React, { useEffect, useState } from 'react';
 import { Play, Square, RotateCw, Monitor, Trash2, Cpu, HardDrive, Terminal, Settings, ShieldAlert, Key, Clipboard, Copy, Check, Eye, EyeOff } from 'lucide-react';
 import BackupList from './BackupList';
 
-const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
+const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit, onOpenDetail }) => {
   const [metrics, setMetrics] = useState(null);
   const [actionLoading, setActionLoading] = useState(null); // 'start' | 'stop' | 'restart' | 'delete'
   const [showBackups, setShowBackups] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  const handleCardClick = (e) => {
+    if (
+      e.target.closest('button') || 
+      e.target.closest('svg') || 
+      e.target.closest('.vm-card-actions') ||
+      e.target.closest('.slider-container')
+    ) {
+      return;
+    }
+    if (vm.status === 'Running' && onOpenDetail) {
+      onOpenDetail(vm.name);
+    }
+  };
 
   // Получаем живые метрики для запущенной виртуалки
   useEffect(() => {
@@ -110,7 +124,26 @@ const VMCard = ({ vm, onActionSuccess, onOpenConsole, onOpenEdit }) => {
   const sshIp = getSshIp();
 
   return (
-    <div className="card vm-card" style={{ height: 'auto', minHeight: 'auto' }}>
+    <div 
+      className="card vm-card" 
+      onClick={handleCardClick}
+      style={{ 
+        height: 'auto', 
+        minHeight: 'auto', 
+        cursor: vm.status === 'Running' ? 'pointer' : 'default',
+        transition: 'all 0.2s ease'
+      }}
+      onMouseEnter={(e) => {
+        if (vm.status === 'Running') {
+          e.currentTarget.style.transform = 'translateY(-2px)';
+          e.currentTarget.style.borderColor = 'rgba(0, 113, 227, 0.25)';
+        }
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.borderColor = 'rgba(0, 0, 0, 0.08)';
+      }}
+    >
       <div>
         <div className="vm-card-header">
           <div className="vm-title-group">

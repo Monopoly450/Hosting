@@ -1,3 +1,6 @@
+import os
+import re
+import paramiko
 import secrets
 import string
 import logging
@@ -5,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from app.core.k8s_client import K8sClient
+from app.services.ssh_inspector import SSHInspector
 
 router = APIRouter()
 logger = logging.getLogger("app.api.vms")
@@ -463,9 +467,132 @@ def delete_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{name}/restore/{backup_name}")
-def restore_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k8s_client)):
-    """Восстановить диск VM из резервной копии"""
+def restore_vm_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k8s_client)):
     try:
         return client.restore_vm_backup(name, backup_name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class VMCommandExecuteRequest(BaseModel):
+    command: str = Field(..., description="Команда для выполнения на ВМ через SSH")
+    cwd: Optional[str] = Field(None, description="Текущая рабочая директория")
+
+
+@router.get("/{name}/ssh-details")
+def get_vm_ssh_details(name: str, client: K8sClient = Depends(get_k8s_client)):
+    """Получить детальный статус виртуальной машины через SSH (процессы, systemd, docker)"""
+    try:
+        vm = client.get_vm(name)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Виртуальная машина {name} не найдена: {str(e)}")
+        
+    if vm.get("status") != "Running":
+        raise HTTPException(status_code=400, detail="Мониторинг доступен только для запущенных виртуальных машин.")
+
+    ips = vm.get("ips", [])
+    external_ip = None
+    for ip in ips:
+        if not ip.startswith("10.244."):
+            external_ip = ip
+            break
+    if not external_ip and ips:
+        external_ip = ips[0]
+
+    if not external_ip:
+        raise HTTPException(status_code=400, detail="У виртуальной машины нет назначенного IP-адреса. Ожидайте запуска.")
+
+    credentials = vm.get("credentials", {})
+    username = credentials.get("username", "root")
+    password = credentials.get("password")
+
+    if not password or password == "N/A":
+        raise HTTPException(status_code=400, detail="Не найден пароль для подключения к ВМ.")
+
+    inspector = SSHInspector(
+        host=external_ip,
+        port=22,
+        username=username,
+        password=password
+    )
+    metrics = inspector.inspect()
+    
+    return {
+        "name": name,
+        "host": external_ip,
+        "port": 22,
+        "username": username,
+        **metrics
+    }
+
+
+@router.post("/{name}/execute")
+def execute_vm_ssh_command(name: str, req: VMCommandExecuteRequest, client: K8sClient = Depends(get_k8s_client)):
+    """Выполнить bash-команду на виртуальной машине через SSH"""
+    try:
+        vm = client.get_vm(name)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Виртуальная машина {name} не найдена: {str(e)}")
+
+    if vm.get("status") != "Running":
+        raise HTTPException(status_code=400, detail="Выполнение команд доступно только на запущенных виртуальных машинах.")
+
+    ips = vm.get("ips", [])
+    external_ip = None
+    for ip in ips:
+        if not ip.startswith("10.244."):
+            external_ip = ip
+            break
+    if not external_ip and ips:
+        external_ip = ips[0]
+
+    if not external_ip:
+        raise HTTPException(status_code=400, detail="У виртуальной машины нет назначенного IP-адреса.")
+
+    credentials = vm.get("credentials", {})
+    username = credentials.get("username", "root")
+    password = credentials.get("password")
+
+    if not password or password == "N/A":
+        raise HTTPException(status_code=400, detail="Не найден пароль для подключения к ВМ.")
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        ssh.connect(
+            hostname=external_ip,
+            port=22,
+            username=username,
+            password=password,
+            timeout=15
+        )
+        cwd_dir = req.cwd if req.cwd else "~"
+        full_command = f"cd {cwd_dir} && {req.command} ; echo \"__CWD__\" ; pwd"
+        
+        stdin, stdout, stderr = ssh.exec_command(full_command, timeout=15)
+        exit_status = stdout.channel.recv_exit_status()
+        out = stdout.read().decode('utf-8', errors='ignore')
+        err = stderr.read().decode('utf-8', errors='ignore')
+        ssh.close()
+        
+        new_cwd = cwd_dir
+        actual_out = out
+        if "__CWD__" in out:
+            parts = out.split("__CWD__")
+            actual_out = parts[0].rstrip("\r\n").rstrip("\n")
+            new_cwd = parts[1].strip()
+            
+        return {
+            "exit_status": exit_status,
+            "stdout": actual_out,
+            "stderr": err,
+            "cwd": new_cwd
+        }
+    except Exception as e:
+        logger.error(f"Ошибка выполнения команды на ВМ {name} ({external_ip}): {e}")
+        return {
+            "exit_status": -1,
+            "stdout": "",
+            "stderr": f"Не удалось выполнить команду по SSH на ВМ: {str(e)}",
+            "cwd": req.cwd if req.cwd else "~"
+        }

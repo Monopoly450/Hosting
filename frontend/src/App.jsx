@@ -6,6 +6,7 @@ import VncConsole from './components/VncConsole';
 import DockerPanel from './components/DockerPanel';
 import ImageManager from './components/ImageManager';
 import VMEditModal from './components/VMEditModal';
+import VMDetail from './components/VMDetail';
 
 // Компоненты для внешних серверов
 import ExternalServerCard from './components/ExternalServerCard';
@@ -26,6 +27,7 @@ const App = () => {
   const [editingVM, setEditingVM] = useState(null);
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [selectedServerId, setSelectedServerId] = useState(null);
+  const [selectedVMDetailName, setSelectedVMDetailName] = useState(null);
 
   // Состояние формы создания VM
   const [name, setName] = useState('');
@@ -450,6 +452,7 @@ const App = () => {
                     onActionSuccess={fetchVMs}
                     onOpenConsole={(name) => setOpenConsoleName(name)}
                     onOpenEdit={(vmObj) => setEditingVM(vmObj)}
+                    onOpenDetail={(name) => setSelectedVMDetailName(name)}
                   />
                 ))}
               </div>
@@ -544,6 +547,14 @@ const App = () => {
         <ExternalServerDetail 
           serverId={selectedServerId}
           onClose={() => setSelectedServerId(null)}
+        />
+      )}
+
+      {/* Модальное окно детального мониторинга виртуальной машины */}
+      {selectedVMDetailName && (
+        <VMDetail 
+          vmName={selectedVMDetailName}
+          onClose={() => setSelectedVMDetailName(null)}
         />
       )}
     </div>
