@@ -50,9 +50,19 @@ fi
 log "Активный сетевой интерфейс хоста: $ACTIVE_IFACE"
 
 # 4. Установка зависимостей
-log "Установка необходимых пакетов (curl, iptables, bridge-utils)..."
+log "Установка необходимых пакетов (curl, iptables, bridge-utils, docker)..."
 apt-get update
 apt-get install -y curl iptables bridge-utils jq net-tools openssl
+
+# Установка Docker и Docker Compose v2 для запуска панели
+log "Проверка и установка Docker & Docker Compose..."
+if ! command -v docker &> /dev/null; then
+    apt-get install -y docker.io docker-compose-v2
+    systemctl enable --now docker
+    log "Docker и Docker Compose успешно установлены!"
+else
+    log "Docker уже установлен в системе."
+fi
 
 # 5. Установка K3s (Kubernetes)
 log "Установка K3s (легковесный Kubernetes)..."
