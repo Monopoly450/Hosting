@@ -13,8 +13,8 @@ services:
       - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
       # Пробрасываем Docker-сокет для администрирования контейнеров
       - /var/run/docker.sock:/var/run/docker.sock:rw
-      # Папка для загрузки и хранения кастомных образов ОС
-      - ./data/images:/app/data/images:rw
+      # Папка для загрузки и хранения кастомных образов ОС и настроек серверов
+      - ./data:/app/data:rw
     environment:
       - PORT=8000
       - HOST=0.0.0.0

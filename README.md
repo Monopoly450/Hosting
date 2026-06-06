@@ -303,7 +303,7 @@ services:
     volumes:
       - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
       - /var/run/docker.sock:/var/run/docker.sock:rw
-      - ./data/images:/app/data/images:rw
+      - ./data:/app/data:rw
     environment:
       - PORT=8000
       - HOST=0.0.0.0
