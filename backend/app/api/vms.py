@@ -132,7 +132,7 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
                         {
                             "name": "cloudinit",
                             "cloudInitNoCloud": {
-                                "userData": f"#cloud-config\nssh_pwauth: True\ndisable_root: false\nchpasswd:\n  list: |\n    root:{password}\n    ubuntu:{password}\n  expire: False\nusers:\n  - name: root\n    lock_passwd: false\n  - name: ubuntu\n    sudo: ['ALL=(ALL) NOPASSWD:ALL']\n    shell: /bin/bash\n    lock_passwd: false\nruncmd:\n  - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\n  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config\n  - systemctl restart ssh || systemctl restart sshd\n  - apt-get update\n  - apt-get install -y qemu-guest-agent\n  - systemctl enable --now qemu-guest-agent\n"
+                                "userData": f"#cloud-config\nssh_pwauth: True\ndisable_root: false\nchpasswd:\n  list: |\n    root:{password}\n    ubuntu:{password}\n  expire: False\nusers:\n  - name: root\n    lock_passwd: false\n  - name: ubuntu\n    sudo: ['ALL=(ALL) NOPASSWD:ALL']\n    shell: /bin/bash\n    lock_passwd: false\nwrite_files:\n  - path: /etc/netplan/99-custom-net.yaml\n    content: |\n      network:\n        version: 2\n        ethernets:\n          eth0:\n            dhcp4: true\n          eth1:\n            dhcp4: true\nruncmd:\n  - netplan apply || true\n  - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\n  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config\n  - systemctl restart ssh || systemctl restart sshd\n  - apt-get update\n  - apt-get install -y qemu-guest-agent\n  - systemctl enable --now qemu-guest-agent\n"
                             }
                         }
                     ]
@@ -474,6 +474,28 @@ def restore_vm_backup(name: str, backup_name: str, client: K8sClient = Depends(g
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def resolve_vm_ip(ips: list) -> Optional[str]:
+    # Ищем мостовой IP (не внутренний k8s под и не внутренний KubeVirt NAT)
+    for ip in ips:
+        if (
+            not ip.startswith("10.244.") and 
+            not ip.startswith("10.42.") and 
+            not ip.startswith("10.0.2.") and 
+            not ip.startswith("127.0.") and 
+            ":" not in ip
+        ):
+            return ip
+    # Фолбэк на под-сеть K3s (10.42.x.x / 10.244.x.x), к которой есть доступ с хоста
+    for ip in ips:
+        if (ip.startswith("10.42.") or ip.startswith("10.244.")) and ":" not in ip:
+            return ip
+    # Если ничего нет, возвращаем первый IPv4
+    for ip in ips:
+        if ":" not in ip:
+            return ip
+    return ips[0] if ips else None
+
+
 class VMCommandExecuteRequest(BaseModel):
     command: str = Field(..., description="Команда для выполнения на ВМ через SSH")
     cwd: Optional[str] = Field(None, description="Текущая рабочая директория")
@@ -491,13 +513,7 @@ def get_vm_ssh_details(name: str, client: K8sClient = Depends(get_k8s_client)):
         raise HTTPException(status_code=400, detail="Мониторинг доступен только для запущенных виртуальных машин.")
 
     ips = vm.get("ips", [])
-    external_ip = None
-    for ip in ips:
-        if not ip.startswith("10.244."):
-            external_ip = ip
-            break
-    if not external_ip and ips:
-        external_ip = ips[0]
+    external_ip = resolve_vm_ip(ips)
 
     if not external_ip:
         raise HTTPException(status_code=400, detail="У виртуальной машины нет назначенного IP-адреса. Ожидайте запуска.")
@@ -538,13 +554,7 @@ def execute_vm_ssh_command(name: str, req: VMCommandExecuteRequest, client: K8sC
         raise HTTPException(status_code=400, detail="Выполнение команд доступно только на запущенных виртуальных машинах.")
 
     ips = vm.get("ips", [])
-    external_ip = None
-    for ip in ips:
-        if not ip.startswith("10.244."):
-            external_ip = ip
-            break
-    if not external_ip and ips:
-        external_ip = ips[0]
+    external_ip = resolve_vm_ip(ips)
 
     if not external_ip:
         raise HTTPException(status_code=400, detail="У виртуальной машины нет назначенного IP-адреса.")

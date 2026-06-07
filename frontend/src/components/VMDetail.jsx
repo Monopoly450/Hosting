@@ -232,8 +232,23 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
   const getSshIp = () => {
     if (!vm || !vm.ips || vm.ips.length === 0) return null;
-    const externalIp = vm.ips.find(ip => !ip.startsWith('10.244.'));
-    return externalIp || vm.ips[0];
+    const bridgeIp = vm.ips.find(ip => 
+      !ip.startsWith('10.244.') && 
+      !ip.startsWith('10.42.') && 
+      !ip.startsWith('10.0.2.') && 
+      !ip.startsWith('127.0.') &&
+      !ip.includes(':')
+    );
+    if (bridgeIp) return bridgeIp;
+    
+    const podIp = vm.ips.find(ip => 
+      (ip.startsWith('10.42.') || ip.startsWith('10.244.')) && 
+      !ip.includes(':')
+    );
+    if (podIp) return podIp;
+
+    const firstIpv4 = vm.ips.find(ip => !ip.includes(':'));
+    return firstIpv4 || vm.ips[0];
   };
 
   const getStatusClass = (status) => {
