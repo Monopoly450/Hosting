@@ -17,7 +17,16 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
     return bridgeIp || null;
   };
 
-  const isReady = vm.status === 'Running' && getSshIp() !== null;
+  const isReady = vm.status === 'Stopped' || (vm.status === 'Running' && getSshIp() !== null);
+
+  const getFooterText = () => {
+    if (isReady) return 'Кликните для управления';
+    if (vm.status === 'Importing') return 'Импорт диска...';
+    if (vm.status === 'Provisioning') return 'Подготовка ресурсов...';
+    if (vm.status === 'Starting') return 'Запуск системы...';
+    if (vm.status === 'Stopping') return 'Остановка системы...';
+    return 'Ожидайте получения IP...';
+  };
 
   const handleCardClick = (e) => {
     if (
@@ -222,7 +231,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
           color: isReady ? 'var(--text-secondary)' : 'var(--warning-text, #e28743)', 
           fontWeight: isReady ? 400 : 500 
         }}>
-          {isReady ? 'Кликните для управления' : 'Ожидайте получения IP...'}
+          {getFooterText()}
         </span>
         {vm.status !== 'Running' ? (
           <button 
