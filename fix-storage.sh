@@ -20,7 +20,10 @@ if [ ! -e /dev/kvm ]; then
       --type merge \
       -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true}}}}'
 else
-    echo "[INFO] 3. Аппаратная виртуализация KVM доступна на хосте, эмуляция не требуется."
+    echo "[INFO] 3. Аппаратная виртуализация KVM доступна на хосте! Отключаем эмуляцию для нативной скорости..."
+    kubectl patch kubevirt kubevirt -n kubevirt \
+      --type merge \
+      -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":false}}}}'
 fi
 
 echo "[INFO] Проверяем статус эмуляции в KubeVirt..."
