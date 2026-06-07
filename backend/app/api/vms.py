@@ -93,10 +93,6 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
                             ],
                             "interfaces": [
                                 {
-                                    "name": "default",
-                                    "masquerade": {}
-                                },
-                                {
                                     "name": "bridge-net",
                                     "bridge": {}
                                 }
@@ -111,10 +107,6 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
                         }
                     },
                     "networks": [
-                        {
-                            "name": "default",
-                            "pod": {}
-                        },
                         {
                             "name": "bridge-net",
                             "multus": {
@@ -132,7 +124,7 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
                         {
                             "name": "cloudinit",
                             "cloudInitNoCloud": {
-                                "userData": f"#cloud-config\nssh_pwauth: True\ndisable_root: false\nchpasswd:\n  list: |\n    root:{password}\n    ubuntu:{password}\n  expire: False\nusers:\n  - name: root\n    lock_passwd: false\n  - name: ubuntu\n    sudo: ['ALL=(ALL) NOPASSWD:ALL']\n    shell: /bin/bash\n    lock_passwd: false\nwrite_files:\n  - path: /etc/netplan/99-custom-net.yaml\n    content: |\n      network:\n        version: 2\n        ethernets:\n          enp2s0:\n            dhcp4: true\n          eth1:\n            dhcp4: true\n          ens4:\n            dhcp4: true\nruncmd:\n  - netplan apply || true\n  - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\n  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config\n  - systemctl restart ssh || systemctl restart sshd\n  - apt-get update\n  - apt-get install -y qemu-guest-agent\n  - systemctl enable --now qemu-guest-agent\n"
+                                "userData": f"#cloud-config\nssh_pwauth: True\ndisable_root: false\nchpasswd:\n  list: |\n    root:{password}\n    ubuntu:{password}\n  expire: False\nusers:\n  - name: root\n    lock_passwd: false\n  - name: ubuntu\n    sudo: ['ALL=(ALL) NOPASSWD:ALL']\n    shell: /bin/bash\n    lock_passwd: false\nruncmd:\n  - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\n  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config\n  - systemctl restart ssh || systemctl restart sshd\n  - apt-get update\n  - apt-get install -y qemu-guest-agent\n  - systemctl enable --now qemu-guest-agent\n"
                             }
                         }
                     ]
@@ -238,10 +230,6 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                             ],
                             "interfaces": [
                                 {
-                                    "name": "default",
-                                    "masquerade": {}
-                                },
-                                {
                                     "name": "bridge-net",
                                     "bridge": {}
                                 }
@@ -256,10 +244,6 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                         }
                     },
                     "networks": [
-                        {
-                            "name": "default",
-                            "pod": {}
-                        },
                         {
                             "name": "bridge-net",
                             "multus": {
