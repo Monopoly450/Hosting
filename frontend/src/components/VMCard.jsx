@@ -5,12 +5,29 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
   const [metrics, setMetrics] = useState(null);
   const [actionLoading, setActionLoading] = useState(null); // 'start' | 'stop' | 'restart'
 
+  const getSshIp = () => {
+    if (!vm || !vm.ips || vm.ips.length === 0) return null;
+    const bridgeIp = vm.ips.find(ip => 
+      !ip.startsWith('10.244.') && 
+      !ip.startsWith('10.42.') && 
+      !ip.startsWith('10.0.2.') && 
+      !ip.startsWith('127.0.') &&
+      !ip.includes(':')
+    );
+    return bridgeIp || null;
+  };
+
+  const isReady = vm.status === 'Running' && getSshIp() !== null;
+
   const handleCardClick = (e) => {
     if (
       e.target.closest('button') || 
       e.target.closest('svg') || 
       e.target.closest('.vm-card-actions')
     ) {
+      return;
+    }
+    if (!isReady) {
       return;
     }
     if (onOpenDetail) {
@@ -59,7 +76,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
 
   const getStatusClass = (status) => {
     switch (status) {
-      case 'Running': return 'running';
+      case 'Running': return isReady ? 'running' : 'pending';
       case 'Stopped': return 'stopped';
       default: return 'pending';
     }
@@ -67,7 +84,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
 
   const getStatusLabel = (status) => {
     switch (status) {
-      case 'Running': return 'Активна';
+      case 'Running': return isReady ? 'Активна' : 'Настройка сети...';
       case 'Stopped': return 'Выключена';
       case 'Provisioning': return 'Создание...';
       case 'Importing': return `Импорт диска ${vm.import_progress && vm.import_progress !== 'N/A' ? `(${vm.import_progress})` : ''}`;
@@ -98,13 +115,15 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
       style={{ 
         height: 'auto', 
         minHeight: '230px', 
-        cursor: 'pointer',
+        cursor: isReady ? 'pointer' : 'wait',
+        opacity: isReady ? 1 : 0.88,
         transition: 'all 0.2s ease',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between'
       }}
       onMouseEnter={(e) => {
+        if (!isReady) return;
         e.currentTarget.style.transform = 'translateY(-2px)';
         e.currentTarget.style.borderColor = 'rgba(0, 113, 227, 0.25)';
         e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.08)';
@@ -198,8 +217,12 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
 
       {/* Нижняя панель действий */}
       <div className="vm-card-actions" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-          Кликните для управления
+        <span style={{ 
+          fontSize: '0.75rem', 
+          color: isReady ? 'var(--text-secondary)' : 'var(--warning-text, #e28743)', 
+          fontWeight: isReady ? 400 : 500 
+        }}>
+          {isReady ? 'Кликните для управления' : 'Ожидайте получения IP...'}
         </span>
         {vm.status !== 'Running' ? (
           <button 
