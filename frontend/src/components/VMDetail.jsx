@@ -301,6 +301,18 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
     );
   }
 
+  const getBridgeIp = () => {
+    if (!vm || !vm.ips || vm.ips.length === 0) return null;
+    return vm.ips.find(ip => 
+      !ip.startsWith('10.244.') && 
+      !ip.startsWith('10.42.') && 
+      !ip.startsWith('10.0.2.') && 
+      !ip.startsWith('127.0.') &&
+      !ip.includes(':')
+    ) || null;
+  };
+
+  const isNetworkConfigured = vm && (vm.status === 'Stopped' || getBridgeIp() !== null);
   const sshIp = getSshIp();
   const currentDiskLimit = vm.disks && vm.disks[0] ? parseInt(vm.disks[0].size) || 20 : 20;
 
@@ -549,16 +561,30 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                     <>
                       <button 
                         className={`btn btn-sm ${activeTab === 'terminal' ? 'btn-primary' : 'btn-secondary'}`}
-                        style={{ color: activeTab === 'terminal' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
-                        onClick={() => setActiveTab('terminal')}
+                        style={{ 
+                          color: activeTab === 'terminal' ? '#ffffff' : 'var(--text-primary)', 
+                          borderRadius: '0px',
+                          opacity: isNetworkConfigured ? 1 : 0.5,
+                          cursor: isNetworkConfigured ? 'pointer' : 'not-allowed'
+                        }}
+                        disabled={!isNetworkConfigured}
+                        onClick={() => isNetworkConfigured && setActiveTab('terminal')}
+                        title={!isNetworkConfigured ? 'Недоступно, пока настраивается сеть' : ''}
                       >
                         <Terminal size={12} />
                         Консоль SSH
                       </button>
                       <button 
                         className={`btn btn-sm ${activeTab === 'monitoring' ? 'btn-primary' : 'btn-secondary'}`}
-                        style={{ color: activeTab === 'monitoring' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
-                        onClick={() => setActiveTab('monitoring')}
+                        style={{ 
+                          color: activeTab === 'monitoring' ? '#ffffff' : 'var(--text-primary)', 
+                          borderRadius: '0px',
+                          opacity: isNetworkConfigured ? 1 : 0.5,
+                          cursor: isNetworkConfigured ? 'pointer' : 'not-allowed'
+                        }}
+                        disabled={!isNetworkConfigured}
+                        onClick={() => isNetworkConfigured && setActiveTab('monitoring')}
+                        title={!isNetworkConfigured ? 'Недоступно, пока настраивается сеть' : ''}
                       >
                         <Activity size={12} />
                         Мониторинг ОС
@@ -569,15 +595,29 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               )}
               <button 
                 className={`btn btn-sm ${activeTab === 'backups' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ color: activeTab === 'backups' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
-                onClick={() => setActiveTab('backups')}
+                style={{ 
+                  color: activeTab === 'backups' ? '#ffffff' : 'var(--text-primary)', 
+                  borderRadius: '0px',
+                  opacity: isNetworkConfigured ? 1 : 0.5,
+                  cursor: isNetworkConfigured ? 'pointer' : 'not-allowed'
+                }}
+                disabled={!isNetworkConfigured}
+                onClick={() => isNetworkConfigured && setActiveTab('backups')}
+                title={!isNetworkConfigured ? 'Недоступно, пока настраивается сеть' : ''}
               >
                 💾 Резервные копии
               </button>
               <button 
                 className={`btn btn-sm ${activeTab === 'resize' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ color: activeTab === 'resize' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
-                onClick={() => setActiveTab('resize')}
+                style={{ 
+                  color: activeTab === 'resize' ? '#ffffff' : 'var(--text-primary)', 
+                  borderRadius: '0px',
+                  opacity: isNetworkConfigured ? 1 : 0.5,
+                  cursor: isNetworkConfigured ? 'pointer' : 'not-allowed'
+                }}
+                disabled={!isNetworkConfigured}
+                onClick={() => isNetworkConfigured && setActiveTab('resize')}
+                title={!isNetworkConfigured ? 'Недоступно, пока настраивается сеть' : ''}
               >
                 <Settings size={12} />
                 Ресурсы
@@ -591,17 +631,32 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               {activeTab === 'vnc' && (
                 <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
                   {vm.status !== 'Running' ? (
-                    <div style={{
-                      flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', 
-                      border: '1px dashed var(--border-color)', color: 'var(--text-muted)', gap: '10px', minHeight: '300px'
-                    }}>
-                      <Monitor size={48} />
-                      <h3>Виртуальная машина выключена</h3>
-                      <p style={{ fontSize: '0.85rem' }}>Запустите виртуальную машину, чтобы подключиться к экрану VNC.</p>
-                      <button className="btn btn-primary btn-sm" onClick={() => handlePowerAction('start')} disabled={actionLoading !== null} style={{ marginTop: '10px' }}>
-                        Запустить сейчас
-                      </button>
-                    </div>
+                    vm.status === 'Importing' || vm.status === 'Provisioning' || vm.status === 'Starting' ? (
+                      <div style={{
+                        flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', 
+                        border: '1px dashed var(--border-color)', color: 'var(--text-muted)', gap: '15px', minHeight: '300px'
+                      }}>
+                        <span className="spinner" style={{ width: '32px', height: '32px', borderWidth: '3px' }} />
+                        <h3 style={{ marginTop: '10px' }}>Подготовка виртуальной машины</h3>
+                        <p style={{ fontSize: '0.85rem' }}>
+                          {vm.status === 'Importing' ? `Идет импорт системного диска ${vm.import_progress ? `(${vm.import_progress})` : ''}...` : 
+                           vm.status === 'Starting' ? 'Запуск операционной системы...' : 
+                           'Инициализация ресурсов кластера...'}
+                        </p>
+                      </div>
+                    ) : (
+                      <div style={{
+                        flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', 
+                        border: '1px dashed var(--border-color)', color: 'var(--text-muted)', gap: '10px', minHeight: '300px'
+                      }}>
+                        <Monitor size={48} />
+                        <h3>Виртуальная машина выключена</h3>
+                        <p style={{ fontSize: '0.85rem' }}>Запустите виртуальную машину, чтобы подключиться к экрану VNC.</p>
+                        <button className="btn btn-primary btn-sm" onClick={() => handlePowerAction('start')} disabled={actionLoading !== null} style={{ marginTop: '10px' }}>
+                          Запустить сейчас
+                        </button>
+                      </div>
+                    )
                   ) : (
                     <VncConsole 
                       name={vmName} 

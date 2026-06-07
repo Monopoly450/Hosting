@@ -36,9 +36,6 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
     ) {
       return;
     }
-    if (!isReady) {
-      return;
-    }
     if (onOpenDetail) {
       onOpenDetail(vm.name);
     }
@@ -124,15 +121,13 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
       style={{ 
         height: 'auto', 
         minHeight: '230px', 
-        cursor: isReady ? 'pointer' : 'wait',
-        opacity: isReady ? 1 : 0.88,
+        cursor: 'pointer',
         transition: 'all 0.2s ease',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between'
       }}
       onMouseEnter={(e) => {
-        if (!isReady) return;
         e.currentTarget.style.transform = 'translateY(-2px)';
         e.currentTarget.style.borderColor = 'rgba(0, 113, 227, 0.25)';
         e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.08)';
