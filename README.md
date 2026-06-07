@@ -21,6 +21,7 @@
     * [6.7. Админка Docker на хосте](#67-админка-docker-на-хосте)
 7. [Справочник API Эндпоинтов (REST & WebSockets)](#7-справочник-api-эндпоинтов-rest--websockets)
 8. [Решение возможных проблем (Troubleshooting)](#8-решение-возможных-проблем-troubleshooting)
+9. [Автозапуск и самовосстановление после перезагрузки сервера](#9-автозапуск-и-самовосстановление-после-перезагрузки-сервера)
 
 ---
 
@@ -661,6 +662,75 @@ Cloud-init переопределяет стандартные политики 
    ssh root@<IP_внешнего_сервера> -p 22
    ```
 3. **Решение:** Добавьте IP вашей ноды в белый список брандмауэра (`ufw` / `iptables`) удаленного сервера и убедитесь, что в конфигурации SSH удаленного сервера (`/etc/ssh/sshd_config`) разрешен вход по паролю: `PasswordAuthentication yes`.
+
+---
+
+## 9. Автозапуск и самовосстановление после перезагрузки сервера
+
+При перезагрузке физического сервера (гипервизора) службы Kubernetes (`k3s.service`) и Docker (`docker.service`) запускаются автоматически. Однако некоторые критические настройки KubeVirt и CDI (такие как `local-path` StorageProfile, Scratch Space Storage Class и настройки аппаратной эмуляции) могут сбрасываться операторами или не применяться вовремя из-за последовательности инициализации.
+
+Для обеспечения стабильности и самовосстановления системы после перезагрузки мы используем системную службу **Systemd**, которая ожидает полной готовности API Kubernetes, а затем автоматически запускает скрипт самолечения `fix-storage.sh`.
+
+### Шаг 9.1: Создание Systemd-службы автозапуска
+
+Создайте новый файл конфигурации службы в директории `/etc/systemd/system/`:
+
+```bash
+sudo nano /etc/systemd/system/hosting-startup.service
+```
+
+Вставьте в него следующее содержимое:
+
+```ini
+[Unit]
+Description=Hosting Platform Startup Self-Healing Service
+After=k3s.service docker.service
+Requires=k3s.service docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/root/Hosting
+ExecStartPre=/bin/bash -c 'until kubectl get nodes; do echo "Waiting for K3s API..."; sleep 5; done'
+ExecStart=/bin/bash /root/Hosting/fix-storage.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
+
+> [!IMPORTANT]
+> Если проект склонирован в домашнюю директорию другого пользователя (не root), обязательно измените пути в директивах `WorkingDirectory` и `ExecStart` на актуальные (например, `/home/ubuntu/Hosting` и `/home/ubuntu/Hosting/fix-storage.sh`).
+
+### Шаг 9.2: Активация и запуск службы
+
+После сохранения файла примените настройки и включите службу:
+
+```bash
+# Перезагрузите демоны systemd
+sudo systemctl daemon-reload
+
+# Включите автозапуск службы при загрузке системы
+sudo systemctl enable hosting-startup.service
+
+# Запустите службу вручную прямо сейчас
+sudo systemctl start hosting-startup.service
+```
+
+### Шаг 9.3: Проверка статуса
+
+Убедитесь, что служба отработала успешно и применила все настройки:
+
+```bash
+sudo systemctl status hosting-startup.service
+```
+
+Просмотреть логи выполнения скрипта можно командой:
+
+```bash
+sudo journalctl -u hosting-startup.service -n 50 -f
+```
 
 ---
 
