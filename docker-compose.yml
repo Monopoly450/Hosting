@@ -36,6 +36,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       # Папка для загрузки и хранения кастомных образов ОС и настроек серверов
       - ./data:/app/data:rw
+      # Пробрасываем корень проекта для Git-интеграции
+      - .:/app/repo:rw
     environment:
       - PORT=8000
       - HOST=0.0.0.0

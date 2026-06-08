@@ -9,6 +9,7 @@ import VMEditModal from './components/VMEditModal';
 import VMDetail from './components/VMDetail';
 import AegisDashboard from './components/AegisDashboard';
 import AwsConsole from './components/AwsConsole';
+import InfraPanel from './components/InfraPanel';
 
 // Компоненты для внешних серверов
 import ExternalServerCard from './components/ExternalServerCard';
@@ -251,6 +252,14 @@ const App = () => {
           >
             <Shield size={14} />
             Docker Админка
+          </button>
+          <button 
+            className={`btn btn-sm ${activeTab === 'infra' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ color: activeTab === 'infra' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
+            onClick={() => setActiveTab('infra')}
+          >
+            <Terminal size={14} />
+            Инфраструктура
           </button>
         </div>
 
@@ -539,6 +548,11 @@ const App = () => {
         {/* Вкладка 4: Docker Админка */}
         {activeTab === 'docker' && (
           <DockerPanel />
+        )}
+
+        {/* Вкладка: Инфраструктура */}
+        {activeTab === 'infra' && (
+          <InfraPanel />
         )}
 
 
