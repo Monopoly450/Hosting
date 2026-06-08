@@ -55,7 +55,8 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
             "name": req.name,
             "namespace": "default",
             "labels": {
-                "hosting.antigravity.io/template": req.os_type
+                "hosting.antigravity.io/template": req.os_type,
+                **({"hosting.antigravity.io/owner": "client-01"} if req.name.startswith("client-") else {})
             }
         },
         "spec": {
@@ -175,7 +176,8 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
             "name": req.name,
             "namespace": "default",
             "labels": {
-                "hosting.antigravity.io/template": "windows"
+                "hosting.antigravity.io/template": "windows",
+                **({"hosting.antigravity.io/owner": "client-01"} if req.name.startswith("client-") else {})
             }
         },
         "spec": {

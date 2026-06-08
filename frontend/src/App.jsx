@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2 } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, Cloud } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -7,6 +7,8 @@ import DockerPanel from './components/DockerPanel';
 import ImageManager from './components/ImageManager';
 import VMEditModal from './components/VMEditModal';
 import VMDetail from './components/VMDetail';
+import AegisDashboard from './components/AegisDashboard';
+import AwsConsole from './components/AwsConsole';
 
 // Компоненты для внешних серверов
 import ExternalServerCard from './components/ExternalServerCard';
@@ -201,6 +203,22 @@ const App = () => {
           >
             <LayoutDashboard size={14} />
             Дашборд
+          </button>
+          <button 
+            className={`btn btn-sm ${activeTab === 'aegis' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ color: activeTab === 'aegis' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
+            onClick={() => setActiveTab('aegis')}
+          >
+            <Layers size={14} />
+            Aegis-HCI
+          </button>
+          <button 
+            className={`btn btn-sm ${activeTab === 'aws' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ color: activeTab === 'aws' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
+            onClick={() => setActiveTab('aws')}
+          >
+            <Cloud size={14} />
+            AWS Console
           </button>
           <button 
             className={`btn btn-sm ${activeTab === 'vms' ? 'btn-primary' : 'btn-secondary'}`}
@@ -508,10 +526,21 @@ const App = () => {
           </div>
         )}
 
+        {/* Вкладка: Aegis-HCI */}
+        {activeTab === 'aegis' && (
+          <AegisDashboard />
+        )}
+
+        {/* Вкладка: AWS Console */}
+        {activeTab === 'aws' && (
+          <AwsConsole mode="admin" />
+        )}
+
         {/* Вкладка 4: Docker Админка */}
         {activeTab === 'docker' && (
           <DockerPanel />
         )}
+
 
       </main>
 

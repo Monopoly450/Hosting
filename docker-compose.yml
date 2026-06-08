@@ -39,3 +39,37 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  aegis-orchestrator:
+    build:
+      context: ./aegis-orchestrator
+      dockerfile: Dockerfile
+    container_name: aegis-orchestrator
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data:rw
+    environment:
+      - PORT=8001
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  vds-frontend:
+    build:
+      context: ./vds
+      dockerfile: Dockerfile
+    container_name: vds-frontend
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
