@@ -19,6 +19,48 @@ const InfraPanel = () => {
   const [cmdOutput, setCmdOutput] = useState('');
   const [cmdLoading, setCmdLoading] = useState(false);
 
+  // Состояние ВМ для проброса портов
+  const [vms, setVms] = useState([]);
+  const [vmsLoading, setVmsLoading] = useState(false);
+
+  const fetchVms = async () => {
+    setVmsLoading(true);
+    try {
+      const response = await fetch('/api/vms');
+      if (response.ok) {
+        const data = await response.json();
+        setVms(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch VMs:', err);
+    } finally {
+      setVmsLoading(false);
+    }
+  };
+
+  const getSshIp = (vm) => {
+    if (!vm.ips || vm.ips.length === 0) return null;
+    for (let ip of vm.ips) {
+      if (!ip.startsWith('10.244.') && !ip.startsWith('10.42.') && !ip.startsWith('10.0.2.') && !ip.startsWith('127.0.') && !ip.includes(':')) {
+        return ip;
+      }
+    }
+    for (let ip of vm.ips) {
+      if ((ip.startsWith('10.42.') || ip.startsWith('10.244.')) && !ip.includes(':')) {
+        return ip;
+      }
+    }
+    for (let ip of vm.ips) {
+      if (!ip.includes(':')) return ip;
+    }
+    return vm.ips[0] || null;
+  };
+
+  const isPrivateIp = (ip) => {
+    if (!ip) return false;
+    return ip.startsWith('172.16.') || ip.startsWith('172.17.') || ip.startsWith('172.18.') || ip.startsWith('172.19.') || ip.startsWith('172.20.') || ip.startsWith('172.21.') || ip.startsWith('172.22.') || ip.startsWith('172.23.') || ip.startsWith('172.24.') || ip.startsWith('172.25.') || ip.startsWith('172.26.') || ip.startsWith('172.27.') || ip.startsWith('172.28.') || ip.startsWith('172.29.') || ip.startsWith('172.30.') || ip.startsWith('172.31.') || ip.startsWith('10.') || ip.startsWith('192.168.');
+  };
+
   const logsEndRef = useRef(null);
   const cmdOutputEndRef = useRef(null);
 
@@ -99,6 +141,7 @@ const InfraPanel = () => {
   useEffect(() => {
     fetchGitInfo();
     fetchLogs();
+    fetchVms();
   }, []);
 
   // Обновление логов при смене сервиса
@@ -315,6 +358,87 @@ const InfraPanel = () => {
             </button>
           ))}
         </div>
+
+        {/* Список ВМ для проброса портов */}
+        {vms.filter(vm => vm.status === 'Running' && getSshIp(vm) && isPrivateIp(getSshIp(vm))).length > 0 && (
+          <div style={{ background: 'rgba(245, 158, 11, 0.04)', border: '1px dashed rgba(245, 158, 11, 0.3)', padding: '12px', borderRadius: '4px', fontSize: '0.8rem' }}>
+            <strong style={{ color: 'rgb(245, 158, 11)', display: 'block', marginBottom: '8px' }}>
+              ⚠️ Обнаружены запущенные VM в приватной сети. Выберите VM для автоматической вставки команд проброса портов:
+            </strong>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {vms.filter(vm => vm.status === 'Running' && getSshIp(vm) && isPrivateIp(getSshIp(vm))).map(vm => {
+                const ip = getSshIp(vm);
+                const cmd1 = `iptables -t nat -A PREROUTING -p tcp --dport 2222 -j DNAT --to-destination ${ip}:22`;
+                const cmd2 = `iptables -A FORWARD -p tcp -d ${ip} --dport 22 -j ACCEPT`;
+                return (
+                  <div key={vm.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.02)', padding: '6px 10px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '10px' }}>
+                    <span>
+                      VM <strong>{vm.name}</strong> (IP: <code>{ip}</code>)
+                    </span>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button 
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: '0.75rem', padding: '4px 8px', borderRadius: '0px' }}
+                        onClick={() => {
+                          setCommand(cmd1);
+                          alert('Команда PREROUTING введена в поле ввода! Нажмите "Запуск" для выполнения.');
+                        }}
+                        type="button"
+                      >
+                        Заполнить шаг 1
+                      </button>
+                      <button 
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: '0.75rem', padding: '4px 8px', borderRadius: '0px' }}
+                        onClick={() => {
+                          setCommand(cmd2);
+                          alert('Команда FORWARD введена в поле ввода! Нажмите "Запуск" для выполнения.');
+                        }}
+                        type="button"
+                      >
+                        Заполнить шаг 2
+                      </button>
+                      <button 
+                        className="btn btn-warning btn-sm"
+                        style={{ fontSize: '0.75rem', padding: '4px 8px', borderRadius: '0px', background: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.3)', color: 'rgb(245, 158, 11)' }}
+                        onClick={async () => {
+                          if (window.confirm(`Выполнить проброс портов на хосте для ${vm.name}?`)) {
+                            setCmdLoading(true);
+                            setCmdOutput(prev => prev + `\n$ ${cmd1}\n$ ${cmd2}\n`);
+                            try {
+                              let response = await fetch('/api/infra/execute-command', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ command: cmd1 })
+                              });
+                              let data = await response.json();
+                              setCmdOutput(prev => prev + (data.output || '') + '\n');
+                              
+                              response = await fetch('/api/infra/execute-command', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ command: cmd2 })
+                              });
+                              data = await response.json();
+                              setCmdOutput(prev => prev + (data.output || '') + '\nУспешно применены правила проброса!\n');
+                            } catch (err) {
+                              setCmdOutput(prev => prev + `Ошибка: ${err.message}\n`);
+                            } finally {
+                              setCmdLoading(false);
+                            }
+                          }
+                        }}
+                        type="button"
+                      >
+                        ⚡ Пробросить порт 2222
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Терминал вывода команд */}
         <div style={{ background: '#0b0c10', border: '1px solid #151821', borderRadius: '4px', color: '#33ff33', padding: '15px', height: '250px', overflowY: 'auto', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', whiteSpace: 'pre-wrap' }}>

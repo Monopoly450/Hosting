@@ -140,7 +140,7 @@ const VncConsole = ({ name, username, password, onClose, isInline = false }) => 
   if (isInline) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', flex: 1, minHeight: '400px' }}>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'flex-start', background: 'rgba(0,0,0,0.02)', padding: '10px', border: '1px solid var(--border-color)' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'flex-start', background: 'rgba(0,0,0,0.02)', padding: '10px', border: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
           {status === 'connected' ? (
             <>
               {username && password && (
@@ -155,15 +155,29 @@ const VncConsole = ({ name, username, password, onClose, isInline = false }) => 
                 </button>
               )}
               {password && (
-                <button 
-                  className="btn btn-secondary btn-sm" 
-                  onClick={() => sendString(password + "\n")}
-                  title="Ввести сгенерированный пароль посимвольно"
-                  type="button"
-                  style={{ borderRadius: '0px' }}
-                >
-                  Вставить пароль
-                </button>
+                <>
+                  <button 
+                    className="btn btn-secondary btn-sm" 
+                    onClick={() => sendString(password + "\n")}
+                    title="Ввести сгенерированный пароль посимвольно"
+                    type="button"
+                    style={{ borderRadius: '0px' }}
+                  >
+                    Вставить пароль
+                  </button>
+                  <button 
+                    className="btn btn-warning btn-sm" 
+                    onClick={() => {
+                      const fixCmd = `sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf; echo "ubuntu:${password}" | sudo chpasswd; echo "root:${password}" | sudo chpasswd; sudo systemctl restart ssh || sudo systemctl restart sshd\n`;
+                      sendString(fixCmd);
+                    }}
+                    title="Настроить SSH парольный вход и применить пароль из личного кабинета"
+                    type="button"
+                    style={{ borderRadius: '0px', background: 'rgba(245, 158, 11, 0.15)', color: 'rgb(245, 158, 11)', border: '1px solid rgba(245, 158, 11, 0.3)' }}
+                  >
+                    ⚙️ Настроить SSH и Пароль
+                  </button>
+                </>
               )}
               <div style={{ display: 'flex', alignItems: 'center', gap: '5px', borderLeft: '1px solid var(--border-color)', paddingLeft: '10px', marginRight: '5px' }}>
                 <input
@@ -200,6 +214,10 @@ const VncConsole = ({ name, username, password, onClose, isInline = false }) => 
               <button className="btn btn-secondary btn-sm" onClick={handleSendCtrlAltDel} type="button" style={{ borderRadius: '0px' }}>
                 Ctrl+Alt+Del
               </button>
+              <div style={{ fontSize: '0.78rem', display: 'flex', gap: '8px', borderLeft: '1px solid var(--border-color)', paddingLeft: '10px', color: 'var(--text-primary)', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span>Логин: <strong style={{ color: 'var(--primary)' }}>{username}</strong></span>
+                <span>Пароль: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--primary)' }}>{password}</strong></span>
+              </div>
             </>
           ) : (
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Ожидание подключения к экрану...</span>
@@ -249,7 +267,7 @@ const VncConsole = ({ name, username, password, onClose, isInline = false }) => 
             <Monitor className="logo-icon" size={20} />
             <span>Консоль управления VM: <strong>{name}</strong></span>
           </div>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
             {status === 'connected' && (
               <>
                 {username && password && (
@@ -262,13 +280,26 @@ const VncConsole = ({ name, username, password, onClose, isInline = false }) => 
                   </button>
                 )}
                 {password && (
-                  <button 
-                    className="btn btn-secondary btn-sm" 
-                    onClick={() => sendString(password + "\n")}
-                    title="Ввести сгенерированный пароль посимвольно"
-                  >
-                    Вставить пароль
-                  </button>
+                  <>
+                    <button 
+                      className="btn btn-secondary btn-sm" 
+                      onClick={() => sendString(password + "\n")}
+                      title="Ввести сгенерированный пароль посимвольно"
+                    >
+                      Вставить пароль
+                    </button>
+                    <button 
+                      className="btn btn-warning btn-sm" 
+                      onClick={() => {
+                        const fixCmd = `sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf; echo "ubuntu:${password}" | sudo chpasswd; echo "root:${password}" | sudo chpasswd; sudo systemctl restart ssh || sudo systemctl restart sshd\n`;
+                        sendString(fixCmd);
+                      }}
+                      title="Настроить SSH парольный вход и применить пароль из личного кабинета"
+                      style={{ background: 'rgba(245, 158, 11, 0.15)', color: 'rgb(245, 158, 11)', border: '1px solid rgba(245, 158, 11, 0.3)', padding: '4px 10px', fontSize: '0.8rem', cursor: 'pointer' }}
+                    >
+                      ⚙️ Настроить SSH и Пароль
+                    </button>
+                  </>
                 )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', borderLeft: '1px solid var(--border-color)', paddingLeft: '10px', marginRight: '5px' }}>
                   <input
@@ -304,6 +335,10 @@ const VncConsole = ({ name, username, password, onClose, isInline = false }) => 
                 <button className="btn btn-secondary btn-sm" onClick={handleSendCtrlAltDel}>
                   Ctrl+Alt+Del
                 </button>
+                <div style={{ fontSize: '0.78rem', display: 'flex', gap: '8px', borderLeft: '1px solid var(--border-color)', paddingLeft: '10px', color: '#fff', alignItems: 'center' }}>
+                  <span>Логин: <strong style={{ color: 'var(--primary)' }}>{username}</strong></span>
+                  <span>Пароль: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--primary)' }}>{password}</strong></span>
+                </div>
               </>
             )}
             <button className="btn btn-danger btn-icon-only btn-sm" onClick={onClose} title="Закрыть консоль">

@@ -34,6 +34,41 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [executing, setExecuting] = useState(false);
   const [cwd, setCwd] = useState('~');
   const [terminalHistory, setTerminalHistory] = useState([]);
+  const [applyingNat, setApplyingNat] = useState(false);
+
+  const isPrivateIp = (ip) => {
+    if (!ip) return false;
+    return ip.startsWith('172.16.') || ip.startsWith('172.17.') || ip.startsWith('172.18.') || ip.startsWith('172.19.') || ip.startsWith('172.20.') || ip.startsWith('172.21.') || ip.startsWith('172.22.') || ip.startsWith('172.23.') || ip.startsWith('172.24.') || ip.startsWith('172.25.') || ip.startsWith('172.26.') || ip.startsWith('172.27.') || ip.startsWith('172.28.') || ip.startsWith('172.29.') || ip.startsWith('172.30.') || ip.startsWith('172.31.') || ip.startsWith('10.') || ip.startsWith('192.168.');
+  };
+
+  const handleApplyNat = async () => {
+    const ip = getSshIp();
+    if (!ip) return;
+    setApplyingNat(true);
+    const cmd1 = `iptables -t nat -A PREROUTING -p tcp --dport 2222 -j DNAT --to-destination ${ip}:22`;
+    const cmd2 = `iptables -A FORWARD -p tcp -d ${ip} --dport 22 -j ACCEPT`;
+    try {
+      let response = await fetch('/api/infra/execute-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: cmd1 })
+      });
+      if (!response.ok) throw new Error('Ошибка при пробросе PREROUTING');
+      
+      response = await fetch('/api/infra/execute-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: cmd2 })
+      });
+      if (!response.ok) throw new Error('Ошибка при пробросе FORWARD');
+      
+      alert('Проброс портов на хосте успешно настроен! Теперь вы можете подключаться с внешнего хоста на порт 2222.');
+    } catch (err) {
+      alert(`Ошибка настройки проброса портов: ${err.message}`);
+    } finally {
+      setApplyingNat(false);
+    }
+  };
   
   const terminalEndRef = useRef(null);
 
@@ -450,20 +485,97 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
               {/* SSH команда */}
               {sshIp && vm.os_type !== 'windows' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Команда SSH</span>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border-color)' }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '240px' }}>
-                      ssh {vm.credentials?.username || 'root'}@{sshIp}
-                    </span>
-                    <button 
-                      className="btn-icon-only" 
-                      onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${sshIp}`, 'ssh')}
-                      style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
-                    >
-                      {copiedField === 'ssh' ? <Check size={13} color="var(--success)" /> : <Copy size={13} />}
-                    </button>
-                  </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {isPrivateIp(sshIp) ? (
+                    <>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Внешняя команда SSH (порт 2222)</span>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border-color)' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '240px' }}>
+                            ssh {vm.credentials?.username || 'root'}@{window.location.hostname} -p 2222
+                          </span>
+                          <button 
+                            className="btn-icon-only" 
+                            onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${window.location.hostname} -p 2222`, 'ssh-ext')}
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                          >
+                            {copiedField === 'ssh-ext' ? <Check size={13} color="var(--success)" /> : <Copy size={13} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Локальная команда SSH (внутри сети)</span>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border-color)' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '240px' }}>
+                            ssh {vm.credentials?.username || 'root'}@{sshIp}
+                          </span>
+                          <button 
+                            className="btn-icon-only" 
+                            onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${sshIp}`, 'ssh-loc')}
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                          >
+                            {copiedField === 'ssh-loc' ? <Check size={13} color="var(--success)" /> : <Copy size={13} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ 
+                        fontSize: '0.75rem', 
+                        color: 'var(--text-muted)', 
+                        background: 'rgba(245, 158, 11, 0.05)', 
+                        padding: '10px', 
+                        border: '1px solid rgba(245, 158, 11, 0.15)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px'
+                      }}>
+                        <div>⚠️ VM находится в приватной сети <code>{sshIp}</code>. Для внешнего доступа требуется настроить проброс на хосте.</div>
+                        <button 
+                          className="btn btn-warning btn-sm"
+                          disabled={applyingNat}
+                          onClick={handleApplyNat}
+                          style={{ 
+                            width: '100%', 
+                            borderRadius: '0px', 
+                            fontSize: '0.75rem', 
+                            padding: '6px 8px',
+                            background: 'rgba(245, 158, 11, 0.15)',
+                            color: 'rgb(245, 158, 11)',
+                            border: '1px solid rgba(245, 158, 11, 0.3)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          {applyingNat ? (
+                            <>
+                              <span className="spinner" style={{ width: '10px', height: '10px', borderWidth: '1.5px', borderColor: 'rgb(245, 158, 11)' }} />
+                              Настройка правил...
+                            </>
+                          ) : '⚡ Настроить проброс портов на хосте'}
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Команда SSH</span>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border-color)' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '240px' }}>
+                          ssh {vm.credentials?.username || 'root'}@{sshIp}
+                        </span>
+                        <button 
+                          className="btn-icon-only" 
+                          onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${sshIp}`, 'ssh')}
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                        >
+                          {copiedField === 'ssh' ? <Check size={13} color="var(--success)" /> : <Copy size={13} />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
