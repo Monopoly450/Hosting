@@ -72,7 +72,7 @@ def get_git_info():
         # Получаем последний коммит
         git_log_cmd = f"cd {repo_path} && git log -n 1 --format='%H|%an|%ad|%s'"
         log_res = client.containers.run(
-            image="alpine",
+            image="postgres:15-alpine",
             command=["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", git_log_cmd],
             privileged=True,
             pid_mode="host",
@@ -88,7 +88,7 @@ def get_git_info():
         # Получаем текущую ветку
         git_branch_cmd = f"cd {repo_path} && git rev-parse --abbrev-ref HEAD"
         branch = client.containers.run(
-            image="alpine",
+            image="postgres:15-alpine",
             command=["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", git_branch_cmd],
             privileged=True,
             pid_mode="host",
@@ -98,7 +98,7 @@ def get_git_info():
         # Получаем статус (изменения)
         git_status_cmd = f"cd {repo_path} && git status --short"
         status_res = client.containers.run(
-            image="alpine",
+            image="postgres:15-alpine",
             command=["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", git_status_cmd],
             privileged=True,
             pid_mode="host",
@@ -108,7 +108,7 @@ def get_git_info():
         # Проверяем, есть ли обновления в репозитории (git fetch && git status -uno)
         git_fetch_cmd = f"cd {repo_path} && git fetch && git status -uno"
         fetch_res = client.containers.run(
-            image="alpine",
+            image="postgres:15-alpine",
             command=["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", git_fetch_cmd],
             privileged=True,
             pid_mode="host",
@@ -189,7 +189,7 @@ def git_pull():
     cmd = f"cd {repo_path} && git pull && docker compose up -d --build"
     try:
         output = client.containers.run(
-            image="alpine",
+            image="postgres:15-alpine",
             command=["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", cmd],
             privileged=True,
             pid_mode="host",
@@ -257,7 +257,7 @@ def execute_command(req: CommandRequest):
             
     try:
         output = client.containers.run(
-            image="alpine",
+            image="postgres:15-alpine",
             command=["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", cmd],
             privileged=True,
             pid_mode="host",
