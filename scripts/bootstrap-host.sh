@@ -134,6 +134,16 @@ log "Ожидание запуска Multus CNI..."
 kubectl rollout status daemonset/kube-multus-ds -n kube-system --timeout=120s
 
 # 7. Создание NetworkAttachmentDefinition для Macvlan (Мост в домашнюю сеть)
+log "Ожидание готовности CRD NetworkAttachmentDefinition от Multus..."
+for i in {1..30}; do
+    if kubectl get crd network-attachment-definitions.k8s.cni.cncf.io &>/dev/null; then
+        log "CRD NetworkAttachmentDefinition успешно зарегистрирован!"
+        break
+    fi
+    log "Ожидание регистрации CRD NetworkAttachmentDefinition... ($i/30)"
+    sleep 5
+done
+
 log "Создание NetworkAttachmentDefinition (сетевой мост в домашнюю сеть)..."
 cat <<EOF | kubectl apply -f -
 apiVersion: "k8s.cni.cncf.io/v1"
@@ -182,6 +192,10 @@ for i in {1..30}; do
     STATUS=$(kubectl get kubevirt kubevirt -n kubevirt -o jsonpath='{.status.phase}' 2>/dev/null || echo "Waiting")
     if [ "$STATUS" = "Deployed" ]; then
         log "KubeVirt успешно развернут!"
+        if [ "$KVM_SUPPORTED" = false ]; then
+            log "Повторное применение патча эмуляции KubeVirt..."
+            kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true}}}}' || true
+        fi
         break
     fi
     log "Текущий статус KubeVirt: $STATUS. Ожидание..."
@@ -211,6 +225,9 @@ for i in {1..30}; do
         log "CDI успешно развернут!"
         # Настройка класса хранилища для временных дисков (scratch space)
         kubectl patch cdi cdi --type=merge --patch '{"spec": {"config": {"scratchSpaceStorageClass": "local-path"}}}' || true
+        # Настройка StorageProfile 'local-path' для поддержки импорта дисков
+        log "Настройка StorageProfile 'local-path'..."
+        kubectl patch storageprofile local-path --type=merge -p '{"spec": {"claimPropertySets": [{"accessModes": ["ReadWriteOnce"], "volumeMode": "Filesystem"}]}}' || true
         break
     fi
     log "Текущий статус CDI: $STATUS. Ожидание..."
