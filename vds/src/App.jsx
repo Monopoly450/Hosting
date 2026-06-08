@@ -586,9 +586,28 @@ const App = () => {
                                 <button className="btn btn-secondary btn-sm" onClick={() => handlePowerAction(vm.name, 'stop')} style={{ flex: 1 }}>
                                   <Square size={12} /> Стоп
                                 </button>
-                                <button className="btn btn-primary btn-sm" onClick={() => setOpenConsoleName(vm.name)} style={{ flex: 1, color: '#000' }}>
-                                  <Monitor size={12} /> Экран (VNC)
-                                </button>
+                                 <button 
+                                   className="btn btn-primary btn-sm" 
+                                   onClick={() => setOpenConsoleName(vm.name)} 
+                                   disabled={!vm.ips || vm.ips.length === 0}
+                                   style={{ 
+                                     flex: 1, 
+                                     color: '#000',
+                                     cursor: (!vm.ips || vm.ips.length === 0) ? 'not-allowed' : 'pointer',
+                                     opacity: (!vm.ips || vm.ips.length === 0) ? 0.65 : 1
+                                   }}
+                                 >
+                                   {!vm.ips || vm.ips.length === 0 ? (
+                                     <span style={{ display: 'flex', alignItems: 'center', gap: '5px', justifyContent: 'center' }}>
+                                       <span className="spinner" style={{ width: '10px', height: '10px', borderWidth: '2px', borderColor: '#000' }} />
+                                       Настройка...
+                                     </span>
+                                   ) : (
+                                     <>
+                                       <Monitor size={12} /> Экран (VNC)
+                                     </>
+                                   )}
+                                 </button>
                               </>
                             ) : (
                               <button className="btn btn-secondary btn-sm" onClick={() => handlePowerAction(vm.name, 'start')} style={{ flex: 1 }}>

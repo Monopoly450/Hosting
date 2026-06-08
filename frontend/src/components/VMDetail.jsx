@@ -545,7 +545,77 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             minHeight: 0
           }}>
             
-            {/* Меню переключения вкладок */}
+            {vm.status === 'Running' && !sshIp ? (
+              <div style={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                flex: 1, 
+                gap: '25px', 
+                textAlign: 'center', 
+                padding: '40px', 
+                background: 'rgba(255, 255, 255, 0.4)', 
+                backdropFilter: 'blur(10px)', 
+                border: '1px solid var(--border-color)', 
+                borderRadius: '8px' 
+              }}>
+                <style>{`
+                  @keyframes spin-circle {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                  }
+                  @keyframes pulse-text {
+                    0% { opacity: 0.6; }
+                    50% { opacity: 1; }
+                    100% { opacity: 0.6; }
+                  }
+                `}</style>
+                <div style={{ position: 'relative', width: '140px', height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {/* SVG Circular Progress Loader */}
+                  <svg width="140" height="140" viewBox="0 0 140 140" style={{ transform: 'rotate(-90deg)', animation: 'spin-circle 2s linear infinite' }}>
+                    <circle cx="70" cy="70" r="55" fill="transparent" stroke="rgba(0,0,0,0.05)" strokeWidth="6" />
+                    <circle cx="70" cy="70" r="55" fill="transparent" stroke="var(--primary)" strokeWidth="6" 
+                      strokeDasharray="345.5" strokeDashoffset="120" 
+                      style={{ strokeLinecap: 'round' }}
+                    />
+                  </svg>
+                  <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <Activity size={32} color="var(--primary)" style={{ animation: 'pulse-text 1.5s ease-in-out infinite' }} />
+                    <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-secondary)', marginTop: '6px' }}>Настройка...</span>
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Запуск гостевой операционной системы</h3>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px', maxWidth: '440px', lineHeight: '1.4' }}>
+                    Виртуальная машина успешно запущена на гипервизоре. Ожидаем выделения сетевого адреса (DHCP) и запуска <code>qemu-guest-agent</code>.
+                  </p>
+                </div>
+
+                {/* Step checklist */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', maxWidth: '380px', borderTop: '1px solid var(--border-color)', paddingTop: '20px', textAlign: 'left' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>1. Создание диска ВМ</span>
+                    <span style={{ color: 'var(--success)', fontWeight: 600 }}>Выполнено ✓</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>2. Запуск контейнера виртуализации</span>
+                    <span style={{ color: 'var(--success)', fontWeight: 600 }}>Выполнено ✓</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>3. Настройка сетевого адаптера и агента</span>
+                    <span style={{ color: 'var(--primary)', fontWeight: 600, animation: 'pulse-text 1s infinite' }}>Ожидание сети...</span>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.02)', padding: '10px 15px', border: '1px solid var(--border-color)', borderRadius: '4px', maxWidth: '440px' }}>
+                  💡 <strong>Обратите внимание:</strong> Вы можете ознакомиться со своими реквизитами доступа (логин и пароль) на левой панели. Доступ в консоль SSH/noVNC откроется автоматически, как только сервер получит IP.
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Меню переключения вкладок */}
             <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '20px' }}>
               {vm.status === 'Running' && (
                 <>
@@ -1060,6 +1130,8 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               )}
 
             </div>
+              </>
+            )}
 
           </div>
 
