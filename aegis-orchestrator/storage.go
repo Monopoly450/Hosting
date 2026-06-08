@@ -20,6 +20,7 @@ type S3Node struct {
 	Status      string `json:"status"` // Online, Offline
 	Path        string `json:"path"`
 	ActiveParts int    `json:"active_parts"`
+	Capacity    int64  `json:"capacity"`
 }
 
 type FileMetadata struct {
