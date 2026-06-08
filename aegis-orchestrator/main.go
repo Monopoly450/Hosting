@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -84,24 +85,123 @@ var state = &SystemState{
 	DDoSLogs: []DDoSLogEntry{},
 }
 
-const stateFile = "/app/data/aegis_state.json"
-
 func loadState() {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 
-	data, err := os.ReadFile(stateFile)
+	ctx := context.Background()
+
+	// 1. Загрузка настроек системы
+	var balance, billingRate float64
+	var ddosActive bool
+	err := dbPool.QueryRow(ctx, "SELECT balance, billing_rate, ddos_active FROM system_state WHERE id=1").Scan(&balance, &billingRate, &ddosActive)
 	if err == nil {
-		var loaded SystemState
-		if err := json.Unmarshal(data, &loaded); err == nil {
-			state.Containers = loaded.Containers
-			state.S3Nodes = loaded.S3Nodes
-			state.DDoSRules = loaded.DDoSRules
-			state.DDoSActive = loaded.DDoSActive
-			state.Balance = loaded.Balance
-			state.BillingRate = loaded.BillingRate
-			state.Transactions = loaded.Transactions
-			state.DDoSLogs = loaded.DDoSLogs
+		state.Balance = balance
+		state.BillingRate = billingRate
+		state.DDoSActive = ddosActive
+	} else {
+		log.Printf("[DB] Ошибка чтения system_state: %v", err)
+	}
+
+	// 2. Загрузка контейнеров
+	rows, err := dbPool.Query(ctx, "SELECT id, name, status, cpu_cores, ram_limit_gb, cpu_pinning, namespaces, cgroup_path, pid FROM containers")
+	if err == nil {
+		defer rows.Close()
+		state.Containers = []*Container{}
+		for rows.Next() {
+			var c Container
+			var pinningBytes, nsBytes []byte
+			err := rows.Scan(&c.ID, &c.Name, &c.Status, &c.CPUCores, &c.RAMLimitGB, &pinningBytes, &nsBytes, &c.CgroupPath, &c.PID)
+			if err == nil {
+				_ = json.Unmarshal(pinningBytes, &c.CPUPinning)
+				_ = json.Unmarshal(nsBytes, &c.Namespaces)
+				state.Containers = append(state.Containers, &c)
+			}
+		}
+	}
+
+	// 3. Загрузка s3_nodes
+	sRows, err := dbPool.Query(ctx, "SELECT id, name, path, status, disk_usage, total_capacity FROM s3_nodes")
+	if err == nil {
+		defer sRows.Close()
+		state.S3Nodes = []*S3Node{}
+		for sRows.Next() {
+			var n S3Node
+			var rawID string
+			err := sRows.Scan(&rawID, &n.Name, &n.Path, &n.Status, &n.ActiveParts, &n.Capacity)
+			if err == nil {
+				var intID int
+				fmt.Sscanf(rawID, "%d", &intID)
+				n.ID = intID
+				state.S3Nodes = append(state.S3Nodes, &n)
+			}
+		}
+	}
+	if len(state.S3Nodes) == 0 {
+		state.S3Nodes = []*S3Node{
+			{ID: 1, Name: "S3-Storage-Node-1", Status: "Online", Path: "/app/data/s3/node_1", ActiveParts: 0},
+			{ID: 2, Name: "S3-Storage-Node-2", Status: "Online", Path: "/app/data/s3/node_2", ActiveParts: 0},
+			{ID: 3, Name: "S3-Storage-Node-3", Status: "Online", Path: "/app/data/s3/node_3", ActiveParts: 0},
+			{ID: 4, Name: "S3-Storage-Node-4", Status: "Online", Path: "/app/data/s3/node_4", ActiveParts: 0},
+			{ID: 5, Name: "S3-Storage-Node-5", Status: "Online", Path: "/app/data/s3/node_5", ActiveParts: 0},
+			{ID: 6, Name: "S3-Storage-Node-6", Status: "Online", Path: "/app/data/s3/node_6", ActiveParts: 0},
+		}
+		for _, n := range state.S3Nodes {
+			_, _ = dbPool.Exec(ctx, "INSERT INTO s3_nodes (id, name, path, status, disk_usage, total_capacity) VALUES ($1, $2, $3, $4, $5, $6)",
+				fmt.Sprintf("%d", n.ID), n.Name, n.Path, n.Status, n.ActiveParts, n.Capacity)
+		}
+	}
+
+	// 4. Загрузка ddos_rules
+	var ppsThreshold int
+	var ruleAction string
+	var activeRulesBytes []byte
+	err = dbPool.QueryRow(ctx, "SELECT pps_threshold, action, active_rules FROM ddos_rules WHERE id='main'").Scan(&ppsThreshold, &ruleAction, &activeRulesBytes)
+	if err == nil {
+		state.DDoSRules = &DDoSRules{
+			Enabled:     true,
+			MaxPPSPerIP: ppsThreshold,
+			Action:      ruleAction,
+		}
+	} else {
+		state.DDoSRules = &DDoSRules{
+			Enabled:     true,
+			MaxPPSPerIP: 1000,
+			Action:      "Drop",
+		}
+		_, _ = dbPool.Exec(ctx, "INSERT INTO ddos_rules (id, pps_threshold, action, active_rules) VALUES ('main', 1000, 'Drop', '[]'::jsonb)")
+	}
+
+	// 5. Загрузка транзакций
+	tRows, err := dbPool.Query(ctx, "SELECT time, amount, description FROM transactions ORDER BY id DESC LIMIT 15")
+	if err == nil {
+		defer tRows.Close()
+		state.Transactions = []Transaction{}
+		for tRows.Next() {
+			var tx Transaction
+			err := tRows.Scan(&tx.Time, &tx.Amount, &tx.Desc)
+			if err == nil {
+				state.Transactions = append(state.Transactions, tx)
+			}
+		}
+	}
+	if len(state.Transactions) == 0 {
+		tx := Transaction{Time: time.Now().Format("15:04:05"), Amount: 100.0, Desc: "Начальное пополнение баланса"}
+		state.Transactions = append(state.Transactions, tx)
+		_, _ = dbPool.Exec(ctx, "INSERT INTO transactions (time, amount, description) VALUES ($1, $2, $3)", tx.Time, tx.Amount, tx.Desc)
+	}
+
+	// 6. Загрузка ddos_logs
+	lRows, err := dbPool.Query(ctx, "SELECT time, source, type, pps, action FROM ddos_logs ORDER BY id DESC LIMIT 30")
+	if err == nil {
+		defer lRows.Close()
+		state.DDoSLogs = []DDoSLogEntry{}
+		for lRows.Next() {
+			var l DDoSLogEntry
+			err := lRows.Scan(&l.Time, &l.Source, &l.Type, &l.PPS, &l.Action)
+			if err == nil {
+				state.DDoSLogs = append(state.DDoSLogs, l)
+			}
 		}
 	}
 }
@@ -110,12 +210,9 @@ func saveState() {
 	state.mu.RLock()
 	defer state.mu.RUnlock()
 
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return
-	}
-	os.MkdirAll(filepath.Dir(stateFile), 0755)
-	_ = os.WriteFile(stateFile, data, 0644)
+	ctx := context.Background()
+	_, _ = dbPool.Exec(ctx, "UPDATE system_state SET balance=$1, billing_rate=$2, ddos_active=$3 WHERE id=1",
+		state.Balance, state.BillingRate, state.DDoSActive)
 }
 
 // SSE Clients Broker
@@ -166,7 +263,9 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func main() {
+	initDB()
 	loadState()
+	loadAWSState()
 	go broker.Start()
 
 	// Create directories for S3 nodes

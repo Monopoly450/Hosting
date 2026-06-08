@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -138,28 +139,88 @@ var awsState = &AWSState{
 	},
 }
 
-const awsStateFile = "/app/data/aegis_aws_state.json"
-
 func init() {
-	loadAWSState()
+	// init will be called, but wait for dbPool setup in main.
+	// Since loadAWSState needs dbPool, we will call it from main after initDB.
 }
 
 func loadAWSState() {
-	data, err := os.ReadFile(awsStateFile)
+	awsState.mu.Lock()
+	defer awsState.mu.Unlock()
+
+	ctx := context.Background()
+
+	// 1. Загрузка Security Groups
+	rows, err := dbPool.Query(ctx, "SELECT id, name, description, rules, bound_instances FROM aws_security_groups")
 	if err == nil {
-		var loaded AWSState
-		if err := json.Unmarshal(data, &loaded); err == nil {
-			awsState.SecurityGroups = loaded.SecurityGroups
-			awsState.S3Buckets = loaded.S3Buckets
-			awsState.IAMUsers = loaded.IAMUsers
+		defer rows.Close()
+		awsState.SecurityGroups = []*SecurityGroup{}
+		for rows.Next() {
+			var sg SecurityGroup
+			var rulesBytes, boundBytes []byte
+			err := rows.Scan(&sg.ID, &sg.Name, &sg.Description, &rulesBytes, &boundBytes)
+			if err == nil {
+				_ = json.Unmarshal(rulesBytes, &sg.Rules)
+				_ = json.Unmarshal(boundBytes, &sg.BoundInstances)
+				awsState.SecurityGroups = append(awsState.SecurityGroups, &sg)
+			}
+		}
+	}
+
+	// 2. Загрузка S3 Buckets
+	bRows, err := dbPool.Query(ctx, "SELECT name, region, access_policy, objects FROM aws_s3_buckets")
+	if err == nil {
+		defer bRows.Close()
+		awsState.S3Buckets = []*S3Bucket{}
+		for bRows.Next() {
+			var b S3Bucket
+			var objBytes []byte
+			err := bRows.Scan(&b.Name, &b.Region, &b.AccessPolicy, &objBytes)
+			if err == nil {
+				_ = json.Unmarshal(objBytes, &b.Objects)
+				awsState.S3Buckets = append(awsState.S3Buckets, &b)
+			}
+		}
+	}
+
+	// 3. Загрузка IAM Users
+	uRows, err := dbPool.Query(ctx, "SELECT username, policy, joined_at FROM aws_iam_users")
+	if err == nil {
+		defer uRows.Close()
+		awsState.IAMUsers = []*IAMUser{}
+		for uRows.Next() {
+			var u IAMUser
+			err := uRows.Scan(&u.Username, &u.Policy, &u.JoinedAt)
+			if err == nil {
+				awsState.IAMUsers = append(awsState.IAMUsers, &u)
+			}
 		}
 	}
 }
 
 func saveAWSState() {
-	data, err := json.MarshalIndent(awsState, "", "  ")
-	if err == nil {
-		_ = os.WriteFile(awsStateFile, data, 0644)
+	awsState.mu.RLock()
+	defer awsState.mu.RUnlock()
+
+	ctx := context.Background()
+
+	// Очищаем и перезаписываем для простоты
+	_, _ = dbPool.Exec(ctx, "DELETE FROM aws_security_groups")
+	for _, sg := range awsState.SecurityGroups {
+		_, _ = dbPool.Exec(ctx, "INSERT INTO aws_security_groups (id, name, description, rules, bound_instances) VALUES ($1, $2, $3, $4, $5)",
+			sg.ID, sg.Name, sg.Description, toJSONB(sg.Rules), toJSONB(sg.BoundInstances))
+	}
+
+	_, _ = dbPool.Exec(ctx, "DELETE FROM aws_s3_buckets")
+	for _, b := range awsState.S3Buckets {
+		_, _ = dbPool.Exec(ctx, "INSERT INTO aws_s3_buckets (name, region, access_policy, objects) VALUES ($1, $2, $3, $4)",
+			b.Name, b.Region, b.AccessPolicy, toJSONB(b.Objects))
+	}
+
+	_, _ = dbPool.Exec(ctx, "DELETE FROM aws_iam_users")
+	for _, u := range awsState.IAMUsers {
+		_, _ = dbPool.Exec(ctx, "INSERT INTO aws_iam_users (username, policy, joined_at) VALUES ($1, $2, $3)",
+			u.Username, u.Policy, u.JoinedAt)
 	}
 }
 

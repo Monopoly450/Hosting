@@ -26,6 +26,75 @@ IMAGES_DIR = os.getenv("IMAGES_DIR", "/app/data/images")
 os.makedirs(IMAGES_DIR, exist_ok=True)
 app.mount("/static/images", StaticFiles(directory=IMAGES_DIR), name="static-images")
 
+@app.on_event("startup")
+async def startup_event():
+    from app.core.database import engine, Base
+    from app.models.models import SystemState, AWSSecurityGroup, AWSS3Bucket, AWSIAMUser
+    from sqlalchemy import select
+    
+    logger.info("Инициализация таблиц базы данных...")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Таблицы базы данных успешно проверены/созданы.")
+    
+    # Заполнение начальными данными при пустой БД
+    from app.core.database import SessionLocal
+    async with SessionLocal() as db:
+        # 1. Проверяем настройки системы
+        res = await db.execute(select(SystemState).filter_by(id=1))
+        if not res.scalars().first():
+            db.add(SystemState(id=1, balance=50.0, billing_rate=0.0, ddos_active=False))
+            logger.info("Сид: Добавлены начальные настройки system_state.")
+
+        # 2. Проверяем группу безопасности по умолчанию
+        res = await db.execute(select(AWSSecurityGroup).filter_by(id="sg-01a2b3c4d"))
+        if not res.scalars().first():
+            db.add(AWSSecurityGroup(
+                id="sg-01a2b3c4d",
+                name="default-vpc-sg",
+                description="Стандартная группа безопасности VPC",
+                rules=[
+                    {"type": "Inbound", "protocol": "tcp", "port_range": "22", "source": "0.0.0.0/0"},
+                    {"type": "Inbound", "protocol": "tcp", "port_range": "80", "source": "0.0.0.0/0"},
+                    {"type": "Inbound", "protocol": "tcp", "port_range": "443", "source": "0.0.0.0/0"},
+                    {"type": "Outbound", "protocol": "all", "port_range": "all", "source": "0.0.0.0/0"}
+                ],
+                bound_instances=["client-my-db-vds", "client-web-app"]
+            ))
+            logger.info("Сид: Добавлена стандартная группа безопасности sg-01a2b3c4d.")
+
+        # 3. Проверяем дефолтный бакет S3
+        res = await db.execute(select(AWSS3Bucket).filter_by(name="aegis-backups-bucket"))
+        if not res.scalars().first():
+            db.add(AWSS3Bucket(
+                name="aegis-backups-bucket",
+                region="us-east-1",
+                access_policy="Private",
+                objects=[
+                    {"key": "db-backup-2026-06-07.sql", "size": 154820, "last_update": "2026-06-07 14:02:11"},
+                    {"key": "web-config.json", "size": 1242, "last_update": "2026-06-08 09:12:00"}
+                ]
+            ))
+            logger.info("Сид: Добавлен стандартный бакет S3: aegis-backups-bucket.")
+
+        # 4. Проверяем IAM пользователей
+        res = await db.execute(select(AWSIAMUser).filter_by(username="admin-operator"))
+        if not res.scalars().first():
+            db.add(AWSIAMUser(
+                username="admin-operator",
+                joined_at="2026-06-08 10:00:00",
+                policy='{\n  "Version": "2012-10-17",\n  "Statement": [\n    {\n      "Effect": "Allow",\n      "Action": ["ec2:*", "s3:*", "iam:*"],\n      "Resource": "*"\n    }\n  ]\n}'
+            ))
+            db.add(AWSIAMUser(
+                username="dev-developer",
+                joined_at="2026-06-08 10:15:00",
+                policy='{\n  "Version": "2012-10-17",\n  "Statement": [\n    {\n      "Effect": "Allow",\n      "Action": ["ec2:StartInstance", "ec2:StopInstance", "s3:ListBucket"],\n      "Resource": "*"\n    },\n    {\n      "Effect": "Deny",\n      "Action": ["ec2:TerminateInstance"],\n      "Resource": "*"\n    }\n  ]\n}'
+            ))
+            logger.info("Сид: Добавлены стандартные IAM-пользователи.")
+        
+        await db.commit()
+
+
 # Настройка CORS
 if settings.BACKEND_CORS_ORIGINS:
     app.add_middleware(

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -82,6 +83,7 @@ func handleStorageNodeToggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_, _ = dbPool.Exec(context.Background(), "UPDATE s3_nodes SET status=$1 WHERE id=$2", toggled.Status, fmt.Sprintf("%d", toggled.ID))
 	saveState()
 	broadcastUpdate("s3_node_toggled", toggled)
 
@@ -219,6 +221,7 @@ func handleStorageUpload(w http.ResponseWriter, r *http.Request) {
 
 		partsMatrix[i] = partPath
 		node.ActiveParts++
+		_, _ = dbPool.Exec(context.Background(), "UPDATE s3_nodes SET disk_usage=$1 WHERE id=$2", node.ActiveParts, fmt.Sprintf("%d", node.ID))
 	}
 
 	fileMetadata := FileMetadata{

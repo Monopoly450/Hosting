@@ -1,22 +1,20 @@
 import os
-import json
 import uuid
 import logging
 import paramiko
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.core.database import get_db
+from app.models.models import ExternalServer
 from app.services.ssh_inspector import SSHInspector
 
 router = APIRouter()
 logger = logging.getLogger("app.api.external_servers")
-
-# Путь для сохранения подключенных серверов
-DATA_DIR = "/app/data"
-SERVERS_FILE = os.path.join(DATA_DIR, "external_servers.json")
-
-os.makedirs(DATA_DIR, exist_ok=True)
 
 # Модели данных
 class ExternalServerCreate(BaseModel):
@@ -33,25 +31,6 @@ class ExternalServerResponse(BaseModel):
     port: int
     username: str
     status: str = "Unknown"
-
-# Помощники для чтения/записи JSON
-def read_servers() -> list:
-    if not os.path.exists(SERVERS_FILE):
-        return []
-    try:
-        with open(SERVERS_FILE, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Ошибка чтения файла серверов: {e}")
-        return []
-
-def write_servers(servers: list):
-    try:
-        with open(SERVERS_FILE, "w") as f:
-            json.dump(servers, f, indent=2)
-    except Exception as e:
-        logger.error(f"Ошибка записи файла серверов: {e}")
-        raise HTTPException(status_code=500, detail="Не удалось сохранить изменения на диск.")
 
 # Функция проверки статуса одного сервера (для многопоточного обхода)
 def check_single_server_status(server: dict) -> dict:
@@ -73,26 +52,34 @@ def check_single_server_status(server: dict) -> dict:
 
 
 @router.get("", response_model=List[ExternalServerResponse])
-def list_servers():
+async def list_servers(db: AsyncSession = Depends(get_db)):
     """Получить список всех подключенных серверов с быстрой проверкой их онлайн-статуса"""
-    servers = read_servers()
-    if not servers:
+    res = await db.execute(select(ExternalServer))
+    servers = res.scalars().all()
+    
+    servers_list = [{
+        "id": s.id,
+        "name": s.name,
+        "host": s.host,
+        "port": s.port,
+        "username": s.username,
+        "password": s.password
+    } for s in servers]
+    
+    if not servers_list:
         return []
         
     # Выполняем параллельную проверку доступности всех серверов
-    # Ограничиваем таймаут, чтобы не вешать API
     with ThreadPoolExecutor(max_workers=5) as executor:
-        results = list(executor.map(check_single_server_status, servers))
+        results = list(executor.map(check_single_server_status, servers_list))
         
     return results
 
 @router.post("", response_model=ExternalServerResponse, status_code=status.HTTP_201_CREATED)
-def connect_server(server_in: ExternalServerCreate):
+async def connect_server(server_in: ExternalServerCreate, db: AsyncSession = Depends(get_db)):
     """Подключить новый сервер (с предварительной проверкой SSH-связи)"""
-    servers = read_servers()
-    
-    # Проверяем, нет ли уже сервера с таким IP
-    if any(s["host"] == server_in.host for s in servers):
+    res = await db.execute(select(ExternalServer).filter_by(host=server_in.host))
+    if res.scalars().first():
         raise HTTPException(
             status_code=400, 
             detail=f"Сервер с хостом {server_in.host} уже подключен."
@@ -112,56 +99,52 @@ def connect_server(server_in: ExternalServerCreate):
             detail="Не удалось подключиться к серверу по SSH. Проверьте IP, порт, имя пользователя и пароль."
         )
 
-    # Создаем запись
-    new_server = {
-        "id": str(uuid.uuid4())[:8],
+    # Создаем запись в БД
+    new_id = str(uuid.uuid4())[:8]
+    new_server = ExternalServer(
+        id=new_id,
+        name=server_in.name,
+        host=server_in.host,
+        port=server_in.port,
+        username=server_in.username,
+        password=server_in.password
+    )
+    
+    db.add(new_server)
+    await db.commit()
+    
+    return {
+        "id": new_id,
         "name": server_in.name,
         "host": server_in.host,
         "port": server_in.port,
         "username": server_in.username,
-        "password": server_in.password
-    }
-    
-    servers.append(new_server)
-    write_servers(servers)
-    
-    return {
-        "id": new_server["id"],
-        "name": new_server["name"],
-        "host": new_server["host"],
-        "port": new_server["port"],
-        "username": new_server["username"],
         "status": "Online"
     }
 
 @router.delete("/{server_id}")
-def disconnect_server(server_id: str):
+async def disconnect_server(server_id: str, db: AsyncSession = Depends(get_db)):
     """Отключить сервер и удалить его реквизиты"""
-    servers = read_servers()
-    server_to_delete = None
+    res = await db.execute(select(ExternalServer).filter_by(id=server_id))
+    server = res.scalars().first()
     
-    for s in servers:
-        if s["id"] == server_id:
-            server_to_delete = s
-            break
-            
-    if not server_to_delete:
+    if not server:
         raise HTTPException(
             status_code=404, 
             detail=f"Сервер с ID {server_id} не найден."
         )
         
-    servers.remove(server_to_delete)
-    write_servers(servers)
-    return {"status": "disconnected", "id": server_id, "name": server_to_delete["name"]}
+    await db.delete(server)
+    await db.commit()
+    return {"status": "disconnected", "id": server_id, "name": server.name}
 
 @router.get("/{server_id}/details")
-def get_server_details(server_id: str):
+async def get_server_details(server_id: str, db: AsyncSession = Depends(get_db)):
     """Получить подробный живой отчет о состоянии удаленного сервера (Docker, Systemd, CPU/RAM)"""
-    servers = read_servers()
-    target_server = next((s for s in servers if s["id"] == server_id), None)
+    res = await db.execute(select(ExternalServer).filter_by(id=server_id))
+    server = res.scalars().first()
     
-    if not target_server:
+    if not server:
         raise HTTPException(
             status_code=404, 
             detail=f"Сервер с ID {server_id} не найден."
@@ -169,20 +152,19 @@ def get_server_details(server_id: str):
 
     # Запускаем сбор детальных метрик
     inspector = SSHInspector(
-        host=target_server["host"],
-        port=target_server["port"],
-        username=target_server["username"],
-        password=target_server["password"]
+        host=server.host,
+        port=server.port,
+        username=server.username,
+        password=server.password
     )
     
     metrics = inspector.inspect()
-    # Возвращаем метаданные и собранные метрики
     return {
-        "id": target_server["id"],
-        "name": target_server["name"],
-        "host": target_server["host"],
-        "port": target_server["port"],
-        "username": target_server["username"],
+        "id": server.id,
+        "name": server.name,
+        "host": server.host,
+        "port": server.port,
+        "username": server.username,
         **metrics
     }
 
@@ -193,12 +175,12 @@ class CommandExecuteRequest(BaseModel):
 
 
 @router.post("/{server_id}/execute")
-def execute_ssh_command(server_id: str, req: CommandExecuteRequest):
+async def execute_ssh_command(server_id: str, req: CommandExecuteRequest, db: AsyncSession = Depends(get_db)):
     """Выполнить произвольную команду на внешнем сервере через SSH"""
-    servers = read_servers()
-    target_server = next((s for s in servers if s["id"] == server_id), None)
+    res = await db.execute(select(ExternalServer).filter_by(id=server_id))
+    server = res.scalars().first()
     
-    if not target_server:
+    if not server:
         raise HTTPException(
             status_code=404, 
             detail=f"Сервер с ID {server_id} не найден."
@@ -208,10 +190,10 @@ def execute_ssh_command(server_id: str, req: CommandExecuteRequest):
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
         ssh.connect(
-            hostname=target_server["host"],
-            port=target_server["port"],
-            username=target_server["username"],
-            password=target_server["password"],
+            hostname=server.host,
+            port=server.port,
+            username=server.username,
+            password=server.password,
             timeout=15
         )
         
@@ -240,7 +222,7 @@ def execute_ssh_command(server_id: str, req: CommandExecuteRequest):
             "cwd": new_cwd
         }
     except Exception as e:
-        logger.error(f"Ошибка выполнения удаленной команды на {target_server['host']}: {e}")
+        logger.error(f"Ошибка выполнения удаленной команды на {server.host}: {e}")
         return {
             "exit_status": -1,
             "stdout": "",

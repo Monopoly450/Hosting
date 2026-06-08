@@ -49,7 +49,8 @@ Aegis Cloud Engine (HCI Node Daemon) — это монолитная распр�
 10. [Сборка и запуск панели управления через Docker Compose](#10-сборка-и-запуск-панели-управления-через-docker-compose)
     - 10.1. Полный листинг конфигурации Docker Compose
     - 10.2. Сборка и первый запуск
-    - 10.3. Конфигурация Nginx для маршрутизации панели админа и кабинета
+    - 10.3. Архитектура веб-серверов фронтенда (Nginx в Docker)
+    - 10.4. Настройка СУБД PostgreSQL и автоинициализация схемы
 11. [Руководство пользователя по функциям консоли AWS](#11-руководство-пользователя-по-функциям-консоли-aws)
     - 11.1. EC2 Dashboard и анализ сетевых путей
     - 11.2. Создание и привязка VPC Security Groups
@@ -920,186 +921,188 @@ kubectl get storageclass
 
 ### 10.1. Полный листинг конфигурации Docker Compose
 
-Создайте файл `docker-compose.yml` в корневой директории проекта:
+Создайте или обновите файл `docker-compose.yml` в корневой директории проекта:
 
 ```yaml
 version: '3.8'
 
 services:
-  # Python бэкенд, взаимодействующий с Kubernetes API и KubeVirt
+  db:
+    image: postgres:15-alpine
+    container_name: aegis-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=aegis
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d aegis"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: aegis-backend
-    restart: always
+    container_name: hosting-backend
     network_mode: host
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
-      - /etc/rancher/k3s/k3s.yaml:/app/k3s.yaml:ro
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Пробрасываем kubeconfig из K3s для авторизации в Kubernetes API
+      - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
+      # Пробрасываем Docker-сокет для администрирования контейнеров
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      # Папка для загрузки и хранения кастомных образов ОС и настроек серверов
+      - ./data:/app/data:rw
     environment:
-      - KUBECONFIG=/app/k3s.yaml
-      - AEGIS_DAEMON_URL=http://127.0.0.1:8001
-      - JWT_SECRET=AegisSuperMegaSecureKey2026
+      - PORT=8000
+      - HOST=0.0.0.0
+      - IMAGES_DIR=/app/data/images
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/aegis
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
-  # Go-оркестратор (HCI Node Daemon), управляющий локальным ядром, cgroups и eBPF/Anti-DDoS
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hosting-frontend
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - backend
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   aegis-orchestrator:
     build:
       context: ./aegis-orchestrator
       dockerfile: Dockerfile
     container_name: aegis-orchestrator
-    privileged: true
-    restart: always
     network_mode: host
-    pid: host
-    ipc: host
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
-      - /:/host:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /sys:/sys:ro
-      - /dev:/dev:ro
-      - /proc:/proc:ro
-      - /lib/modules:/lib/modules:ro
-      - /var/run/netns:/var/run/netns:shared
-      - ./data:/app/data
+      - ./data:/app/data:rw
     environment:
-      - AEGIS_PORT=8001
-      - DOCKER_HOST=unix:///var/run/docker.sock
+      - PORT=8001
+      - DB_CONN_STR=postgresql://postgres:postgres@127.0.0.1:5432/aegis?sslmode=disable
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
-  # Nginx веб-сервер, раздающий статику фронтенда и проксирующий запросы к API
-  nginx:
-    image: nginx:alpine
-    container_name: aegis-nginx
-    restart: always
+  vds-frontend:
+    build:
+      context: ./vds
+      dockerfile: Dockerfile
+    container_name: vds-frontend
     network_mode: host
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./frontend/dist:/usr/share/nginx/html/admin:ro
-      - ./vds/dist:/usr/share/nginx/html/client:ro
+    restart: unless-stopped
     depends_on:
       - backend
-      - aegis-orchestrator
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
 ```
 
 ### 10.2. Сборка и первый запуск
 
-1. Соберите статические файлы фронтенда администратора (Admin Panel) и личного кабинета пользователя (Client VDS).
-   *Примечание: сборка Vite выполняется на хосте или внутри временного Node-контейнера.*
-   Выполните локально в папке `frontend`:
-   ```bash
-   npm install && npm run build
-   ```
-   Выполните локально в папке `vds` (Личный кабинет пользователя):
-   ```bash
-   npm install && npm run build
-   ```
-2. Запустите сборку контейнеров и их запуск в фоновом режиме:
+Сборка статических файлов фронтенда администратора (`frontend`) и личного кабинета пользователя (`vds`) происходит автоматически на этапе сборки Docker-образов (благодаря multi-stage сборке Node -> Nginx в Dockerfile каждого фронтенд-модуля). Это полностью избавляет от необходимости предварительно настраивать Node.js на хост-сервере.
+
+1. Запустите автоматическую сборку и запуск всех сервисов (бэкенд, фронтенды, оркестратор и СУБД) в фоновом режиме:
    ```bash
    sudo docker compose up -d --build
    ```
-3. Проверьте статус запущенных контейнеров:
+2. Убедитесь, что все контейнеры успешно запустились и имеют статус `up`:
    ```bash
    sudo docker compose ps
    ```
-4. Посмотрите логи запуска Go-оркестратора:
+3. Проверьте логи инициализации СУБД, бэкенда и Go-оркестратора:
    ```bash
+   sudo docker compose logs db
+   sudo docker compose logs backend
    sudo docker compose logs aegis-orchestrator
    ```
 
-### 10.3. Конфигурация Nginx для маршрутизации панели админа и кабинета
+### 10.3. Архитектура веб-серверов фронтенда (Nginx в Docker)
 
-Создайте файл `nginx.conf` в корневой директории проекта:
+В новой архитектуре Aegis Cloud Engine вам больше не нужно устанавливать и настраивать Nginx на хост-сервере. Каждый фронтенд-сервис:
+*   `hosting-frontend` (порт `8080`) — консоль администратора
+*   `vds-frontend` (порт `8081`) — личный кабинет пользователя
 
-```nginx
-user nginx;
-worker_processes auto;
-error_log /var/log/nginx/error.log warn;
-pid /var/run/nginx.pid;
+уже содержит внутри себя легковесный веб-сервер Nginx (см. `frontend/Dockerfile` и `vds/Dockerfile`). При сборке образов статические файлы React компилируются через Node.js и копируются напрямую в образ Nginx.
 
-events {
-    worker_connections 1024;
-}
+Поскольку контейнеры запущены в режиме `network_mode: host`, они автоматически биндятся на порты `8080` и `8081` вашего физического сервера / виртуалки.
 
-http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    sendfile on;
-    keepalive_timeout 65;
-
-    # Консоль Администратора (порт 8080)
-    server {
-        listen 8080 default_server;
-        server_name localhost;
-
-        # Раздача собранного SPA администратора
-        location / {
-            root /usr/share/nginx/html/admin;
-            try_files $uri $uri/ /index.html;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-        }
-
-        # Проксирование запросов к Go-оркестратору (Aegis Daemon)
-        location /api/aegis/ {
-            proxy_pass http://127.0.0.1:8001/api/aegis/;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "Upgrade";
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        }
-
-        # Проксирование запросов к Python-бэкенду (Kubectl Client API)
-        location /api/ {
-            proxy_pass http://127.0.0.1:8000/api/;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-        }
-    }
-
-    # Кабинет Пользователя VDS/VPS (порт 8081)
-    server {
-        listen 8081;
-        server_name localhost;
-
-        # Раздача собранного SPA личного кабинета клиента
-        location / {
-            root /usr/share/nginx/html/client;
-            try_files $uri $uri/ /index.html;
-            add_header Cache-Control "no-store, no-cache, must-revalidate";
-        }
-
-        # Проксирование запросов к API со стороны пользователя
-        location /api/ {
-            proxy_pass http://127.0.0.1:8000/api/;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-        }
-
-        # Проксирование WebSocket для веб-консоли VNC к ВМ
-        location /vnc {
-            proxy_pass http://127.0.0.1:8000/vnc;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "Upgrade";
-            proxy_set_header Host $host;
-        }
-    }
-}
-```
-После создания файла перезапустите Nginx контейнер:
+#### Дополнительно: Настройка внешнего Nginx в качестве Reverse Proxy (SSL / HTTPS)
+Если вы хотите привязать доменное имя и защитить панель сертификатом SSL (Let's Encrypt), вы можете установить Nginx на хост-систему:
 ```bash
-sudo docker compose restart nginx
+sudo apt update && sudo apt install nginx certbot python3-certbot-nginx -y
+```
+И настроить конфигурационный файл (например, `/etc/nginx/sites-available/aegis`) для проксирования на локальные порты `8080` и `8081`.
+
+### 10.4. Настройка СУБД PostgreSQL и автоинициализация схемы
+
+Для перехода с файлового JSON-хранилища на централизованную базу данных в проект была интегрирована СУБД PostgreSQL. Это обеспечивает транзакционную надежность, отказоустойчивость и возможность масштабирования, когда несколько нод панели управления или Go-оркестраторов работают с единым источником данных.
+
+#### Архитектура и Переменные Окружения
+Оба основных сервиса управления используют единую СУБД:
+*   **FastAPI Backend (Python)**: Подключается асинхронно через драйвер `asyncpg` и ORM SQLAlchemy. Использует переменную окружения `DATABASE_URL`.
+*   **Go Orchestrator (Go)**: Подключается через высокопроизводительный пул соединений `pgxpool` (`github.com/jackc/pgx/v5`). Использует переменную окружения `DB_CONN_STR`.
+
+Поскольку все сервисы запущены в режиме `network_mode: host`, они обращаются к локальному порту СУБД (`127.0.0.1:5432`), который проброшен из контейнера `db`.
+
+#### Автоматическая Инициализация (Миграции и Сиды)
+При первом запуске база данных автоматически инициализируется:
+1.  **Создание схемы**: FastAPI бэкенд на старте проверяет наличие таблиц и выполняет DDL-запросы на их создание.
+2.  **Заполнение начальными данными (Seed)**: В БД автоматически записываются:
+    *   Стартовые системные настройки (`system_state`) с балансом `$50.0`.
+    *   Стандартная группа безопасности VPC (`default-vpc-sg` / `sg-01a2b3c4d`) с разрешенными портами `22`, `80`, `443` и привязками к инстансам.
+    *   Дефолтный S3-бакет (`aegis-backups-bucket`) с демонстрационными объектами.
+    *   Предустановленные IAM пользователи: `admin-operator` (с полными правами) и `dev-developer` (с ограниченными правами разработчика).
+
+#### Схема Таблиц базы данных
+В СУБД создаются следующие таблицы:
+*   `system_state` — Глобальные параметры системы (баланс, тарифы биллинга, статус DDoS-атаки).
+*   `containers` — Состояние контейнеров Aegis-Compute (лимиты, PID, статус).
+*   `transactions` — Лог списаний и пополнений баланса пользователей.
+*   `ddos_logs` — Записи о заблокированных DDoS-атаках.
+*   `aws_security_groups` — Группы безопасности AWS (правила и привязанные инстансы хранятся в формате JSONB).
+*   `aws_s3_buckets` — Хранилище метаданных S3 бакетов и файлов (список объектов в JSONB).
+*   `aws_iam_users` — Пользователи IAM и их политики доступа (JSON-строки).
+*   `external_servers` — Подключенные внешние SSH-серверы для управления.
+
+#### Ручная верификация базы данных
+Вы можете подключиться к базе данных напрямую для проверки целостности таблиц:
+```bash
+sudo docker compose exec db psql -U postgres -d aegis -c "\dt"
+```
+Для просмотра списка запущенных контейнеров из базы данных:
+```bash
+sudo docker compose exec db psql -U postgres -d aegis -c "SELECT id, name, status FROM containers;"
 ```
 
 ---
@@ -1356,7 +1359,11 @@ AWS IAM (Identity and Access Management) отвечает за гибкую на
   ```bash
   sudo docker compose logs aegis-orchestrator | grep -i billing
   ```
-  Проверьте файл балансов пользователей: `cat /app/data/billing_users.json`.
+  Проверьте баланс и историю транзакций в PostgreSQL:
+  ```bash
+  sudo docker compose exec db psql -U postgres -d aegis -c "SELECT * FROM system_state;"
+  sudo docker compose exec db psql -U postgres -d aegis -c "SELECT * FROM transactions ORDER BY created_at DESC LIMIT 10;"
+  ```
 
 ### 13.9. Лимит дисковых квот containerd (Disk pressure в K3s)
 - **Причина**: На системном диске осталось менее 10% свободного места, Kubernetes останавливает поды виртуалки.
@@ -1475,8 +1482,11 @@ AWS IAM (Identity and Access Management) отвечает за гибкую на
   ```
 
 ### 13.25. Баланс пользователя не обновляется в реальном времени
-- **Причина**: Упало WebSocket-соединение с Go-оркестратором, либо база данных балансов заблокирована процессом записи.
-- **Решение**: Проверьте состояние JSON файлов в `/app/data/` на предмет ошибок форматирования.
+- **Причина**: Упало WebSocket-соединение с Go-оркестратором, либо база данных заблокирована/недоступна.
+- **Решение**: Убедитесь, что СУБД PostgreSQL доступна и отвечает на запросы, проверив логи контейнера `db`:
+  ```bash
+  sudo docker compose logs db
+  ```
 
 ---
 
@@ -1552,17 +1562,22 @@ sudo chmod +x /opt/aegis-healthcheck.sh
 
 ### 14.5. Автоматическая синхронизация бэкапов в S3
 
-Создайте скрипт `/opt/aegis-backup-sync.sh` для ежесуточного бэкапа базы данных виртуалки и загрузки в S3 бакет через API:
+Создайте скрипт `/opt/aegis-backup-sync.sh` для ежесуточного бэкапа базы данных PostgreSQL и загрузки в S3 бакет через API:
 ```bash
 #!/bin/bash
 DATE=$(date +%F)
-BACKUP_FILE="/tmp/aegis-state-$DATE.json"
-cp /Users/vladislavkarasev/Documents/Хостинг/data/aegis_state.json $BACKUP_FILE || true
+BACKUP_FILE="/tmp/aegis-db-backup-$DATE.sql"
 
-curl -X POST   -H "Content-Type: application/json"   -d "{"action":"upload","name":"aegis-backups-bucket","key":"backups/state-$DATE.json","size":$(wc -c < $BACKUP_FILE 2>/dev/null || echo 0)}"   http://localhost:8001/api/aegis/aws/s3/buckets
+# Выполняем дамп базы данных PostgreSQL из контейнера
+docker exec -i aegis-db pg_dump -U postgres aegis > $BACKUP_FILE || true
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d "{\"action\":\"upload\",\"name\":\"aegis-backups-bucket\",\"key\":\"backups/db-backup-$DATE.sql\",\"size\":$(wc -c < $BACKUP_FILE 2>/dev/null || echo 0)}" \
+  http://localhost:8001/api/aegis/aws/s3/buckets
 
 rm -f $BACKUP_FILE
-echo "[BACKUP] Бэкап состояния успешно загружен в S3 бакет."
+echo "[BACKUP] Бэкап базы данных PostgreSQL успешно загружен в S3 бакет."
 ```
 Сделайте скрипт исполняемым и добавьте его в cron:
 ```bash
@@ -1653,8 +1668,8 @@ echo "0 2 * * * /bin/bash /opt/aegis-backup-sync.sh > /dev/null 2>&1" | sudo tee
 ### 16.5. Работа с IAM политиками и правами
 * Вывести список всех созданных IAM пользователей:
   `curl -s http://localhost:8001/api/aegis/aws | jq '.iam_users'`
-* Проверить консистентность JSON-файла базы данных AWS:
-  `jq . /app/data/aegis_aws_state.json`
+* Проверить данные в таблице IAM пользователей в PostgreSQL:
+  `sudo docker compose exec db psql -U postgres -d aegis -c "SELECT username, joined_at FROM aws_iam_users;"`
 
 ### 16.6. Дополнительные сценарии администрирования нод и кластера
 

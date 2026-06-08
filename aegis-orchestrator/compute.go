@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -97,6 +98,10 @@ func handleContainers(w http.ResponseWriter, r *http.Request) {
 		// Execute low level container setups
 		setupLowLevelContainer(newContainer)
 
+		// Сохранение в БД
+		_, _ = dbPool.Exec(context.Background(), "INSERT INTO containers (id, name, status, cpu_cores, ram_limit_gb, cpu_pinning, namespaces, cgroup_path, pid) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+			newContainer.ID, newContainer.Name, newContainer.Status, newContainer.CPUCores, newContainer.RAMLimitGB, toJSONB(newContainer.CPUPinning), toJSONB(newContainer.Namespaces), newContainer.CgroupPath, newContainer.PID)
+
 		saveState()
 		broadcastUpdate("container_created", newContainer)
 
@@ -161,12 +166,15 @@ func handleContainerAction(w http.ResponseWriter, r *http.Request) {
 
 		found.Status = "Running"
 		setupLowLevelContainer(found)
+		_, _ = dbPool.Exec(context.Background(), "UPDATE containers SET status='Running', pid=$1 WHERE id=$2", found.PID, found.ID)
 	case "stop":
 		found.Status = "Stopped"
 		teardownLowLevelContainer(found)
+		_, _ = dbPool.Exec(context.Background(), "UPDATE containers SET status='Stopped', pid=0 WHERE id=$2", found.ID)
 	case "delete":
 		teardownLowLevelContainer(found)
 		state.Containers = append(state.Containers[:foundIdx], state.Containers[foundIdx+1:]...)
+		_, _ = dbPool.Exec(context.Background(), "DELETE FROM containers WHERE id=$1", found.ID)
 	default:
 		http.Error(w, "Неверное действие", http.StatusBadRequest)
 		return
@@ -240,6 +248,7 @@ func setupLowLevelContainer(c *Container) {
 	}
 
 	c.PID = cmd.Process.Pid
+	_, _ = dbPool.Exec(context.Background(), "UPDATE containers SET pid=$1 WHERE id=$2", c.PID, c.ID)
 
 	// Add PID of namespace process to cgroups v2 to throttle it
 	pidPath := filepath.Join(c.CgroupPath, "cgroup.procs")

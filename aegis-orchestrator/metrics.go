@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"math/bits"
@@ -238,7 +239,11 @@ func billingLoop() {
 				}
 				aggCounter = 0
 				aggAmount = 0.0
-				go saveState()
+				go func(t Transaction) {
+					_, _ = dbPool.Exec(context.Background(), "INSERT INTO transactions (time, amount, description) VALUES ($1, $2, $3)",
+						t.Time, t.Amount, t.Desc)
+					saveState()
+				}(tx)
 			}
 		}
 

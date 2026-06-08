@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     
     # Настройки CORS
     BACKEND_CORS_ORIGINS: list[str] = ["*"]
+    
+    # URL для подключения к базе данных PostgreSQL
+    DATABASE_URL: str = os.getenv(
+        "DATABASE_URL", 
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/aegis"
+    )
 
     class Config:
         case_sensitive = True
