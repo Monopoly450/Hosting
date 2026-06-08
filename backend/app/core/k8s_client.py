@@ -658,8 +658,8 @@ class K8sClient:
                     import_phase = phase
                     import_progress = progress or "0%"
                     break
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error checking DataVolume {dv_name}: {e}")
 
         # Получаем данные из запущенного инстанса (VMI)
         status = "Stopped"
