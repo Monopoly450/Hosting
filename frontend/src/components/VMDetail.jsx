@@ -12,6 +12,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [sshError, setSshError] = useState(null);
   
   const [activeTab, setActiveTab] = useState('vnc'); // 'vnc' | 'terminal' | 'monitoring' | 'backups' | 'resize'
+  const [bypassVncProgress, setBypassVncProgress] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState('processes'); // 'processes' | 'services' | 'docker'
   
   // Resizing states
@@ -132,6 +133,9 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       if (!response.ok) {
         const err = await response.json();
         throw new Error(err.detail || `Действие ${action} завершилось ошибкой.`);
+      }
+      if (action === 'start' || action === 'restart') {
+        setBypassVncProgress(false);
       }
       await fetchVmDetails();
       if (onActionSuccess) onActionSuccess();
@@ -313,6 +317,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   };
 
   const isNetworkConfigured = vm && (vm.status === 'Stopped' || getBridgeIp() !== null);
+  const canClickTab = vm && (vm.status === 'Running' || isNetworkConfigured);
   const sshIp = getSshIp();
   const currentDiskLimit = vm.disks && vm.disks[0] ? parseInt(vm.disks[0].size) || 20 : 20;
 
@@ -545,77 +550,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             minHeight: 0
           }}>
             
-            {vm.status === 'Running' && !sshIp ? (
-              <div style={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center', 
-                justifyContent: 'center', 
-                flex: 1, 
-                gap: '25px', 
-                textAlign: 'center', 
-                padding: '40px', 
-                background: 'rgba(255, 255, 255, 0.4)', 
-                backdropFilter: 'blur(10px)', 
-                border: '1px solid var(--border-color)', 
-                borderRadius: '8px' 
-              }}>
-                <style>{`
-                  @keyframes spin-circle {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                  }
-                  @keyframes pulse-text {
-                    0% { opacity: 0.6; }
-                    50% { opacity: 1; }
-                    100% { opacity: 0.6; }
-                  }
-                `}</style>
-                <div style={{ position: 'relative', width: '140px', height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {/* SVG Circular Progress Loader */}
-                  <svg width="140" height="140" viewBox="0 0 140 140" style={{ transform: 'rotate(-90deg)', animation: 'spin-circle 2s linear infinite' }}>
-                    <circle cx="70" cy="70" r="55" fill="transparent" stroke="rgba(0,0,0,0.05)" strokeWidth="6" />
-                    <circle cx="70" cy="70" r="55" fill="transparent" stroke="var(--primary)" strokeWidth="6" 
-                      strokeDasharray="345.5" strokeDashoffset="120" 
-                      style={{ strokeLinecap: 'round' }}
-                    />
-                  </svg>
-                  <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <Activity size={32} color="var(--primary)" style={{ animation: 'pulse-text 1.5s ease-in-out infinite' }} />
-                    <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-secondary)', marginTop: '6px' }}>Настройка...</span>
-                  </div>
-                </div>
-                
-                <div>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Запуск гостевой операционной системы</h3>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px', maxWidth: '440px', lineHeight: '1.4' }}>
-                    Виртуальная машина успешно запущена на гипервизоре. Ожидаем выделения сетевого адреса (DHCP) и запуска <code>qemu-guest-agent</code>.
-                  </p>
-                </div>
-
-                {/* Step checklist */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', maxWidth: '380px', borderTop: '1px solid var(--border-color)', paddingTop: '20px', textAlign: 'left' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>1. Создание диска ВМ</span>
-                    <span style={{ color: 'var(--success)', fontWeight: 600 }}>Выполнено ✓</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>2. Запуск контейнера виртуализации</span>
-                    <span style={{ color: 'var(--success)', fontWeight: 600 }}>Выполнено ✓</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
-                    <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>3. Настройка сетевого адаптера и агента</span>
-                    <span style={{ color: 'var(--primary)', fontWeight: 600, animation: 'pulse-text 1s infinite' }}>Ожидание сети...</span>
-                  </div>
-                </div>
-
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.02)', padding: '10px 15px', border: '1px solid var(--border-color)', borderRadius: '4px', maxWidth: '440px' }}>
-                  💡 <strong>Обратите внимание:</strong> Вы можете ознакомиться со своими реквизитами доступа (логин и пароль) на левой панели. Доступ в консоль SSH/noVNC откроется автоматически, как только сервер получит IP.
-                </div>
-              </div>
-            ) : (
-              <>
-                {/* Меню переключения вкладок */}
+            {/* Меню переключения вкладок */}
             <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '20px' }}>
               {vm.status === 'Running' && (
                 <>
@@ -634,12 +569,12 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                         style={{ 
                           color: activeTab === 'terminal' ? '#ffffff' : 'var(--text-primary)', 
                           borderRadius: '0px',
-                          opacity: isNetworkConfigured ? 1 : 0.5,
-                          cursor: isNetworkConfigured ? 'pointer' : 'not-allowed'
+                          opacity: canClickTab ? 1 : 0.5,
+                          cursor: canClickTab ? 'pointer' : 'not-allowed'
                         }}
-                        disabled={!isNetworkConfigured}
-                        onClick={() => isNetworkConfigured && setActiveTab('terminal')}
-                        title={!isNetworkConfigured ? 'Недоступно, пока настраивается сеть' : ''}
+                        disabled={!canClickTab}
+                        onClick={() => canClickTab && setActiveTab('terminal')}
+                        title={!canClickTab ? 'Недоступно, пока настраивается сеть' : ''}
                       >
                         <Terminal size={12} />
                         Консоль SSH
@@ -649,12 +584,12 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                         style={{ 
                           color: activeTab === 'monitoring' ? '#ffffff' : 'var(--text-primary)', 
                           borderRadius: '0px',
-                          opacity: isNetworkConfigured ? 1 : 0.5,
-                          cursor: isNetworkConfigured ? 'pointer' : 'not-allowed'
+                          opacity: canClickTab ? 1 : 0.5,
+                          cursor: canClickTab ? 'pointer' : 'not-allowed'
                         }}
-                        disabled={!isNetworkConfigured}
-                        onClick={() => isNetworkConfigured && setActiveTab('monitoring')}
-                        title={!isNetworkConfigured ? 'Недоступно, пока настраивается сеть' : ''}
+                        disabled={!canClickTab}
+                        onClick={() => canClickTab && setActiveTab('monitoring')}
+                        title={!canClickTab ? 'Недоступно, пока настраивается сеть' : ''}
                       >
                         <Activity size={12} />
                         Мониторинг ОС
@@ -668,12 +603,12 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                 style={{ 
                   color: activeTab === 'backups' ? '#ffffff' : 'var(--text-primary)', 
                   borderRadius: '0px',
-                  opacity: isNetworkConfigured ? 1 : 0.5,
-                  cursor: isNetworkConfigured ? 'pointer' : 'not-allowed'
+                  opacity: canClickTab ? 1 : 0.5,
+                  cursor: canClickTab ? 'pointer' : 'not-allowed'
                 }}
-                disabled={!isNetworkConfigured}
-                onClick={() => isNetworkConfigured && setActiveTab('backups')}
-                title={!isNetworkConfigured ? 'Недоступно, пока настраивается сеть' : ''}
+                disabled={!canClickTab}
+                onClick={() => canClickTab && setActiveTab('backups')}
+                title={!canClickTab ? 'Недоступно, пока настраивается сеть' : ''}
               >
                 💾 Резервные копии
               </button>
@@ -682,12 +617,12 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                 style={{ 
                   color: activeTab === 'resize' ? '#ffffff' : 'var(--text-primary)', 
                   borderRadius: '0px',
-                  opacity: isNetworkConfigured ? 1 : 0.5,
-                  cursor: isNetworkConfigured ? 'pointer' : 'not-allowed'
+                  opacity: canClickTab ? 1 : 0.5,
+                  cursor: canClickTab ? 'pointer' : 'not-allowed'
                 }}
-                disabled={!isNetworkConfigured}
-                onClick={() => isNetworkConfigured && setActiveTab('resize')}
-                title={!isNetworkConfigured ? 'Недоступно, пока настраивается сеть' : ''}
+                disabled={!canClickTab}
+                onClick={() => canClickTab && setActiveTab('resize')}
+                title={!canClickTab ? 'Недоступно, пока настраивается сеть' : ''}
               >
                 <Settings size={12} />
                 Ресурсы
@@ -696,6 +631,112 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
             {/* Контент вкладок */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              {vm.status === 'Running' && !sshIp && (activeTab !== 'vnc' || !bypassVncProgress) ? (
+                <div style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  flex: 1, 
+                  gap: '25px', 
+                  textAlign: 'center', 
+                  padding: '40px', 
+                  background: 'rgba(255, 255, 255, 0.4)', 
+                  backdropFilter: 'blur(10px)', 
+                  border: '1px solid var(--border-color)', 
+                  borderRadius: '8px' 
+                }}>
+                  <style>{`
+                    @keyframes spin-circle {
+                      0% { transform: rotate(0deg); }
+                      100% { transform: rotate(360deg); }
+                    }
+                    @keyframes pulse-text {
+                      0% { opacity: 0.6; }
+                      50% { opacity: 1; }
+                      100% { opacity: 0.6; }
+                    }
+                  `}</style>
+                  <div style={{ position: 'relative', width: '140px', height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {/* SVG Circular Progress Loader */}
+                    <svg width="140" height="140" viewBox="0 0 140 140" style={{ transform: 'rotate(-90deg)', animation: 'spin-circle 2s linear infinite' }}>
+                      <circle cx="70" cy="70" r="55" fill="transparent" stroke="rgba(0,0,0,0.05)" strokeWidth="6" />
+                      <circle cx="70" cy="70" r="55" fill="transparent" stroke="var(--primary)" strokeWidth="6" 
+                        strokeDasharray="345.5" strokeDashoffset="120" 
+                        style={{ strokeLinecap: 'round' }}
+                      />
+                    </svg>
+                    <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <Activity size={32} color="var(--primary)" style={{ animation: 'pulse-text 1.5s ease-in-out infinite' }} />
+                      <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-secondary)', marginTop: '6px' }}>Настройка...</span>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Настройка гостевой операционной системы</h3>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px', maxWidth: '440px', lineHeight: '1.4' }}>
+                      Виртуальная машина успешно запущена. Ожидаем завершения настройки сети (DHCP) и запуска гостевых служб.
+                    </p>
+                  </div>
+
+                  {/* credentials view */}
+                  <div style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    gap: '8px', 
+                    padding: '15px 20px', 
+                    background: 'rgba(0,0,0,0.02)', 
+                    border: '1px solid var(--border-color)', 
+                    borderRadius: '6px', 
+                    width: '100%', 
+                    maxWidth: '380px', 
+                    boxSizing: 'border-box',
+                    textAlign: 'left'
+                  }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, borderBottom: '1px solid rgba(0,0,0,0.05)', paddingBottom: '6px', marginBottom: '4px', color: 'var(--text-primary)' }}>🔑 Реквизиты для входа (после настройки сети):</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Логин:</span>
+                      <strong style={{ color: 'var(--text-primary)' }}>{vm.credentials?.username || 'root'}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Пароль:</span>
+                      <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{vm.credentials?.password || 'N/A'}</strong>
+                    </div>
+                  </div>
+
+                  {/* Step checklist */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', maxWidth: '380px', borderTop: '1px solid var(--border-color)', paddingTop: '20px', textAlign: 'left' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>1. Создание диска ВМ</span>
+                      <span style={{ color: 'var(--success)', fontWeight: 600 }}>Выполнено ✓</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>2. Запуск контейнера виртуализации</span>
+                      <span style={{ color: 'var(--success)', fontWeight: 600 }}>Выполнено ✓</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>3. Настройка сетевого адаптера и агента</span>
+                      <span style={{ color: 'var(--primary)', fontWeight: 600, animation: 'pulse-text 1s infinite' }}>Ожидание сети...</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', width: '100%' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.02)', padding: '10px 15px', border: '1px solid var(--border-color)', borderRadius: '4px', maxWidth: '440px' }}>
+                      💡 <strong>Вы можете запустить аварийную noVNC консоль</strong> для просмотра хода загрузки ОС или ручной настройки сетевого интерфейса.
+                    </div>
+                    {activeTab === 'vnc' && (
+                      <button 
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setBypassVncProgress(true)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '0px' }}
+                      >
+                        <Monitor size={14} /> Открыть аварийную noVNC консоль
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <>
               
               {/* Вкладка 1: Экран (noVNC) */}
               {activeTab === 'vnc' && (
@@ -1130,8 +1171,8 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               )}
 
             </div>
-              </>
-            )}
+                </>
+              )}
 
           </div>
 

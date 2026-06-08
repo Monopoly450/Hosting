@@ -7,13 +7,15 @@ import RFB from '@novnc/novnc';
 import AwsConsole from './components/AwsConsole';
 
 // Self-contained VncConsole Component inside App.jsx for portability
-const ClientVncConsole = ({ name, username, password, onClose }) => {
+const ClientVncConsole = ({ name, username, password, ips = [], onClose }) => {
   const canvasContainerRef = useRef(null);
   const rfbRef = useRef(null);
   const [status, setStatus] = useState('connecting'); // 'connecting' | 'connected' | 'disconnected' | 'error'
   const [errorMsg, setErrorMsg] = useState('');
+  const [bypassProgress, setBypassProgress] = useState(false);
 
   useEffect(() => {
+    if (ips.length === 0 && !bypassProgress) return;
     if (!canvasContainerRef.current) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -71,7 +73,7 @@ const ClientVncConsole = ({ name, username, password, onClose }) => {
         rfbRef.current = null;
       }
     };
-  }, [name]);
+  }, [name, ips, bypassProgress]);
 
   const sendString = (str) => {
     if (!rfbRef.current || status !== 'connected') return;
@@ -120,16 +122,18 @@ const ClientVncConsole = ({ name, username, password, onClose }) => {
     }
   };
 
+  const showProgress = ips.length === 0 && !bypassProgress;
+
   return (
     <div className="console-modal-backdrop">
-      <div className="console-container">
+      <div className="console-container" style={{ maxWidth: '600px', width: '90vw' }}>
         <div className="console-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
             <Monitor size={18} color="#38bdf8" />
-            <span>Экран сервера: <strong style={{ color: '#38bdf8' }}>{name}</strong></span>
+            <span>{showProgress ? 'Развертывание сервера:' : 'Экран сервера:'} <strong style={{ color: '#38bdf8' }}>{name}</strong></span>
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
-            {status === 'connected' && (
+            {!showProgress && status === 'connected' && (
               <>
                 <button className="btn btn-secondary btn-sm" onClick={() => sendString(password + "\n")}>
                   Вставить пароль
@@ -144,24 +148,124 @@ const ClientVncConsole = ({ name, username, password, onClose }) => {
             </button>
           </div>
         </div>
-        <div className="console-canvas-container">
-          <div ref={canvasContainerRef} style={{ width: '100%', height: '500px', display: status === 'connected' ? 'block' : 'none' }} />
-          {status !== 'connected' && (
-            <div className="console-status-overlay">
-              {status === 'connecting' && (
-                <>
-                  <div className="spinner"></div>
-                  <p>Подключение к экрану виртуалки...</p>
-                </>
-              )}
-              {status === 'disconnected' && <p>Подключение завершено.</p>}
-              {status === 'error' && (
-                <>
-                  <AlertCircle size={32} color="#ef4444" />
-                  <p style={{ color: '#ef4444' }}>{errorMsg || 'Ошибка соединения VNC'}</p>
-                </>
-              )}
+        <div className="console-canvas-container" style={{ padding: showProgress ? '30px' : '0px', background: 'var(--bg-secondary)', minHeight: showProgress ? 'auto' : '500px' }}>
+          {showProgress ? (
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              gap: '20px', 
+              textAlign: 'center',
+              color: '#f8fafc'
+            }}>
+              <style>{`
+                @keyframes spin-circle {
+                  0% { transform: rotate(0deg); }
+                  100% { transform: rotate(360deg); }
+                }
+                @keyframes pulse-text {
+                  0% { opacity: 0.6; }
+                  50% { opacity: 1; }
+                  100% { opacity: 0.6; }
+                }
+              `}</style>
+              
+              <div style={{ position: 'relative', width: '100px', height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="100" height="100" viewBox="0 0 100 100" style={{ transform: 'rotate(-90deg)', animation: 'spin-circle 2s linear infinite' }}>
+                  <circle cx="50" cy="50" r="40" fill="transparent" stroke="rgba(255,255,255,0.05)" strokeWidth="5" />
+                  <circle cx="50" cy="50" r="40" fill="transparent" stroke="#38bdf8" strokeWidth="5" 
+                    strokeDasharray="251.2" strokeDashoffset="80" 
+                    style={{ strokeLinecap: 'round' }}
+                  />
+                </svg>
+                <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <Activity size={24} color="#38bdf8" style={{ animation: 'pulse-text 1.5s ease-in-out infinite' }} />
+                </div>
+              </div>
+
+              <div>
+                <h4 style={{ fontSize: '1.1rem', fontWeight: 600, margin: 0 }}>Настройка гостевой операционной системы</h4>
+                <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '6px', maxWidth: '400px', lineHeight: '1.4' }}>
+                  Сервер запущен. Пожалуйста, подождите, пока завершится первоначальная настройка сетевого интерфейса и гостевого агента.
+                </p>
+              </div>
+
+              {/* Реквизиты */}
+              <div style={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '6px', 
+                padding: '12px 16px', 
+                background: 'rgba(255,255,255,0.02)', 
+                border: '1px solid var(--border-color)', 
+                borderRadius: '6px', 
+                width: '100%', 
+                maxWidth: '360px', 
+                boxSizing: 'border-box',
+                textAlign: 'left'
+              }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 'bold', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '4px', marginBottom: '4px', color: '#38bdf8' }}>🔑 Реквизиты для входа:</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                  <span style={{ color: '#94a3b8' }}>Логин:</span>
+                  <strong style={{ color: '#f8fafc' }}>{username}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                  <span style={{ color: '#94a3b8' }}>Пароль:</span>
+                  <strong style={{ color: '#f8fafc', fontFamily: 'monospace' }}>{password || 'N/A'}</strong>
+                </div>
+              </div>
+
+              {/* Checklist */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '360px', borderTop: '1px solid var(--border-color)', paddingTop: '15px', textAlign: 'left', fontSize: '0.75rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: '#94a3b8' }}>1. Создание диска VDS</span>
+                  <span style={{ color: '#4ade80', fontWeight: 600 }}>Выполнено ✓</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: '#94a3b8' }}>2. Запуск контейнера виртуализации</span>
+                  <span style={{ color: '#4ade80', fontWeight: 600 }}>Выполнено ✓</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: '#f8fafc', fontWeight: 600 }}>3. Настройка сетевого адаптера и агента</span>
+                  <span style={{ color: '#38bdf8', fontWeight: 600, animation: 'pulse-text 1s infinite' }}>Ожидание сети...</span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', width: '100%', borderTop: '1px solid var(--border-color)', paddingTop: '15px' }}>
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                  Не удается получить IP?
+                </span>
+                <button 
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setBypassProgress(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#f8fafc', border: '1px solid var(--border-color)', borderRadius: '0px' }}
+                >
+                  <Monitor size={12} /> Запустить аварийную noVNC консоль
+                </button>
+              </div>
             </div>
+          ) : (
+            <>
+              <div ref={canvasContainerRef} style={{ width: '100%', height: '500px', display: status === 'connected' ? 'block' : 'none' }} />
+              {status !== 'connected' && (
+                <div className="console-status-overlay">
+                  {status === 'connecting' && (
+                    <>
+                      <div className="spinner"></div>
+                      <p>Подключение к экрану виртуалки...</p>
+                    </>
+                  )}
+                  {status === 'disconnected' && <p>Подключение завершено.</p>}
+                  {status === 'error' && (
+                    <>
+                      <AlertCircle size={32} color="#ef4444" />
+                      <p style={{ color: '#ef4444' }}>{errorMsg || 'Ошибка соединения VNC'}</p>
+                    </>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -586,28 +690,9 @@ const App = () => {
                                 <button className="btn btn-secondary btn-sm" onClick={() => handlePowerAction(vm.name, 'stop')} style={{ flex: 1 }}>
                                   <Square size={12} /> Стоп
                                 </button>
-                                 <button 
-                                   className="btn btn-primary btn-sm" 
-                                   onClick={() => setOpenConsoleName(vm.name)} 
-                                   disabled={!vm.ips || vm.ips.length === 0}
-                                   style={{ 
-                                     flex: 1, 
-                                     color: '#000',
-                                     cursor: (!vm.ips || vm.ips.length === 0) ? 'not-allowed' : 'pointer',
-                                     opacity: (!vm.ips || vm.ips.length === 0) ? 0.65 : 1
-                                   }}
-                                 >
-                                   {!vm.ips || vm.ips.length === 0 ? (
-                                     <span style={{ display: 'flex', alignItems: 'center', gap: '5px', justifyContent: 'center' }}>
-                                       <span className="spinner" style={{ width: '10px', height: '10px', borderWidth: '2px', borderColor: '#000' }} />
-                                       Настройка...
-                                     </span>
-                                   ) : (
-                                     <>
-                                       <Monitor size={12} /> Экран (VNC)
-                                     </>
-                                   )}
-                                 </button>
+                                <button className="btn btn-primary btn-sm" onClick={() => setOpenConsoleName(vm.name)} style={{ flex: 1, color: '#000' }}>
+                                  <Monitor size={12} /> Экран (VNC)
+                                </button>
                               </>
                             ) : (
                               <button className="btn btn-secondary btn-sm" onClick={() => handlePowerAction(vm.name, 'start')} style={{ flex: 1 }}>
@@ -779,6 +864,7 @@ const App = () => {
           name={openConsoleName}
           username="root"
           password={vms.find(v => v.name === openConsoleName)?.credentials?.password || ''}
+          ips={vms.find(v => v.name === openConsoleName)?.ips || []}
           onClose={() => setOpenConsoleName(null)}
         />
       )}
