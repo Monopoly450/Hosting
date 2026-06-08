@@ -1170,9 +1170,9 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                 </div>
               )}
 
-            </div>
                 </>
               )}
+            </div>
 
           </div>
 
