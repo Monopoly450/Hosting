@@ -89,7 +89,7 @@ def get_git_info():
         ).stdout.strip()
         
         # Для git fetch && git status -uno мы используем nsenter на хосте
-        host_repo_path = "/Users/vladislavkarasev/Documents/Хостинг"
+        host_repo_path = get_repo_host_path(client)
         git_fetch_cmd = f"cd {host_repo_path} && git fetch && git status -uno"
         nsenter_cmd = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", git_fetch_cmd]
         fetch_res = subprocess.run(nsenter_cmd, capture_output=True, text=True, timeout=10).stdout.strip()
@@ -148,7 +148,8 @@ def get_git_info():
 @router.post("/git-pull")
 def git_pull():
     """Выполняет git pull и перезапуск/пересборку docker-compose на хосте"""
-    host_repo_path = "/Users/vladislavkarasev/Documents/Хостинг"
+    client = get_docker_client()
+    host_repo_path = get_repo_host_path(client) if client else os.getenv("REPO_HOST_PATH", "/Users/vladislavkarasev/Documents/Хостинг")
     cmd = f"cd {host_repo_path} && git pull && docker compose up -d --build"
     try:
         nsenter_cmd = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", cmd]
