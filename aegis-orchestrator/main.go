@@ -252,11 +252,41 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Admin-Token, Authorization")
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "OPTIONS" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		adminToken := os.Getenv("ADMIN_TOKEN")
+		if adminToken == "" {
+			adminToken = "aegis-admin-secret-key-2026"
+		}
+
+		token := r.Header.Get("X-Admin-Token")
+		if token == "" {
+			token = r.URL.Query().Get("token")
+		}
+
+		if token != adminToken {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "Unauthorized: invalid or missing X-Admin-Token header or query token",
+			})
+			return
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -312,7 +342,7 @@ func main() {
 	}
 
 	log.Printf("Aegis Cloud Engine Orchestrator starting on port %s...", port)
-	log.Fatal(http.ListenAndServe(":"+port, corsMiddleware(mux)))
+	log.Fatal(http.ListenAndServe(":"+port, corsMiddleware(authMiddleware(mux))))
 }
 
 func handleStream(w http.ResponseWriter, r *http.Request) {

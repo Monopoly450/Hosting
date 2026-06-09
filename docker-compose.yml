@@ -9,7 +9,7 @@ services:
     environment:
       - POSTGRES_DB=aegis
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -44,7 +44,8 @@ services:
       - PORT=8000
       - HOST=0.0.0.0
       - IMAGES_DIR=/app/data/images
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/aegis
+      - DATABASE_URL=${DATABASE_URL}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
     logging:
       driver: "json-file"
       options:
@@ -80,7 +81,8 @@ services:
       - ./data:/app/data:rw
     environment:
       - PORT=8001
-      - DB_CONN_STR=postgresql://postgres:postgres@127.0.0.1:5432/aegis?sslmode=disable
+      - DB_CONN_STR=${DB_CONN_STR}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
     logging:
       driver: "json-file"
       options:

@@ -1,10 +1,11 @@
 import os
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.api import vms, host, vnc, images, docker_admin, external_servers, infra
+from app.core.auth import verify_admin_token
 
 # Настройка логирования
 logging.basicConfig(
@@ -105,14 +106,14 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_headers=["*"],
     )
 
-# Подключение роутеров
-app.include_router(vms.router, prefix=f"{settings.API_V1_STR}/vms", tags=["vms"])
-app.include_router(host.router, prefix=f"{settings.API_V1_STR}/host", tags=["host"])
-app.include_router(vnc.router, prefix=f"{settings.API_V1_STR}/vnc", tags=["vnc"])
-app.include_router(images.router, prefix=f"{settings.API_V1_STR}/images", tags=["images"])
-app.include_router(docker_admin.router, prefix=f"{settings.API_V1_STR}/docker", tags=["docker"])
-app.include_router(external_servers.router, prefix=f"{settings.API_V1_STR}/external-servers", tags=["external-servers"])
-app.include_router(infra.router, prefix=f"{settings.API_V1_STR}/infra", tags=["infra"])
+# Подключение роутеров с валидацией токена
+app.include_router(vms.router, prefix=f"{settings.API_V1_STR}/vms", tags=["vms"], dependencies=[Depends(verify_admin_token)])
+app.include_router(host.router, prefix=f"{settings.API_V1_STR}/host", tags=["host"], dependencies=[Depends(verify_admin_token)])
+app.include_router(vnc.router, prefix=f"{settings.API_V1_STR}/vnc", tags=["vnc"], dependencies=[Depends(verify_admin_token)])
+app.include_router(images.router, prefix=f"{settings.API_V1_STR}/images", tags=["images"], dependencies=[Depends(verify_admin_token)])
+app.include_router(docker_admin.router, prefix=f"{settings.API_V1_STR}/docker", tags=["docker"], dependencies=[Depends(verify_admin_token)])
+app.include_router(external_servers.router, prefix=f"{settings.API_V1_STR}/external-servers", tags=["external-servers"], dependencies=[Depends(verify_admin_token)])
+app.include_router(infra.router, prefix=f"{settings.API_V1_STR}/infra", tags=["infra"], dependencies=[Depends(verify_admin_token)])
 
 @app.get("/")
 def read_root():

@@ -3,6 +3,7 @@ from pydantic import BaseModel
 import docker
 import os
 import subprocess
+import re
 from typing import Optional
 
 router = APIRouter()
@@ -29,6 +30,52 @@ def get_repo_host_path(client) -> str:
 
 class CommandRequest(BaseModel):
     command: str
+
+def is_command_whitelisted(cmd: str) -> bool:
+    # 1. Точные совпадения с разрешенными диагностическими командами
+    allowed_exact = {
+        "df -h",
+        "free -m",
+        "docker ps",
+        'docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"',
+        "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'",
+        "ip -br addr",
+        "ip a",
+        "ip addr",
+        "ip r",
+        "ip route",
+        "uptime",
+        "iptables -t nat -vnL --line-numbers",
+        "iptables -t nat -vnL",
+        "iptables -vnL",
+        "iptables -t nat -L -v -n",
+        "iptables -L -v -n",
+        "kubectl get nodes",
+        "kubectl get pods -A",
+        "kubectl get services -A",
+    }
+    cleaned = cmd.strip()
+    if cleaned in allowed_exact:
+        return True
+        
+    # 2. Динамические команды настройки NAT (iptables)
+    # Пример 1: iptables -t nat -A PREROUTING -p tcp --dport 2222 -j DNAT --to-destination 172.18.0.5:22
+    # Пример 2: iptables -A FORWARD -p tcp -d 172.18.0.5 --dport 22 -j ACCEPT
+    ip_pattern = r"(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)"
+    
+    prerouting_regex = re.compile(
+        rf"^iptables\s+-t\s+nat\s+-A\s+PREROUTING\s+-p\s+tcp\s+--dport\s+2222\s+-j\s+DNAT\s+--to-destination\s+({ip_pattern}):22$"
+    )
+    forward_regex = re.compile(
+        rf"^iptables\s+-A\s+FORWARD\s+-p\s+tcp\s+-d\s+({ip_pattern})\s+--dport\s+22\s+-j\s+ACCEPT$"
+    )
+    
+    if prerouting_regex.match(cleaned):
+        return True
+    if forward_regex.match(cleaned):
+        return True
+        
+    return False
 
 @router.get("/git-info")
 def get_git_info():
@@ -201,12 +248,14 @@ def get_service_logs(service: str = Query(..., description="Имя сервис�
 
 @router.post("/execute-command")
 def execute_command(req: CommandRequest):
-    """Выполняет произвольную команду на хост-сервере через nsenter"""
+    """Выполняет разрешенную команду на хост-сервере через nsenter"""
     cmd = req.command
-    forbidden_keywords = ["rm -rf /", "mkfs", "dd ", "shutdown", "reboot", "poweroff"]
-    for kw in forbidden_keywords:
-        if kw in cmd:
-            raise HTTPException(status_code=400, detail=f"Команда содержит запрещенный токен: '{kw}'")
+    
+    if not is_command_whitelisted(cmd):
+        raise HTTPException(
+            status_code=403, 
+            detail="Выполнение этой команды запрещено политикой безопасности (Command is not whitelisted)."
+        )
             
     try:
         # Выполняем nsenter прямо через subprocess.run из привилегированного контейнера

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Layers, Plus, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, 
-  Play, Square, Trash2, Key, HelpCircle, User, DollarSign, Wallet, Monitor, X, AlertCircle, RefreshCw, Cloud
+  Play, Square, Trash2, Key, HelpCircle, User, DollarSign, Wallet, Monitor, X, AlertCircle, RefreshCw, Cloud,
+  ChevronDown, Globe, Cpu, Wifi, Info, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import RFB from '@novnc/novnc';
 import AwsConsole from './components/AwsConsole';
@@ -275,18 +276,25 @@ const ClientVncConsole = ({ name, username, password, ips = [], onClose }) => {
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('landing'); // 'landing' | 'cabinet'
-  const [cabinetTab, setCabinetTab] = useState('servers'); // 'servers' | 'order' | 'billing'
+  const [cabinetTab, setCabinetTab] = useState('servers'); // 'servers' | 'order' | 'billing' | 'balancers' | 'placeholder'
+  const [placeholderTabName, setPlaceholderTabName] = useState('');
   
   // VDS Lists & Balance
   const [vms, setVms] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [balance, setBalance] = useState(50.0); // Default user balance
-  const [billingRate, setBillingRate] = useState(0.0); // Cost/sec
+  const [balance, setBalance] = useState(4250.0); // Default user balance in Rubles
+  const [billingRate, setBillingRate] = useState(0.0); // Cost/sec in Rubles
   
+  // Projects State
+  const [projectsList, setProjectsList] = useState(['Общий проект', 'Проект Production', 'Проект Staging']);
+  const [selectedProject, setSelectedProject] = useState('Общий проект');
+  const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+
   // Modals
   const [openConsoleName, setOpenConsoleName] = useState(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [paymentAmount, setPaymentAmount] = useState('20');
+  const [paymentAmount, setPaymentAmount] = useState('500');
   const [orderingInProgress, setOrderingInProgress] = useState(false);
 
   // VDS Configuration state
@@ -296,6 +304,33 @@ const App = () => {
   const [memoryGb, setMemoryGb] = useState(4);
   const [diskGb, setDiskGb] = useState(30);
 
+  // Load Balancers State
+  const [balancers, setBalancers] = useState([
+    {
+      id: 'lb-mskh492',
+      name: 'balancer-moscow-1',
+      region: 'Москва',
+      region_code: 'moscow',
+      tariff_id: 2,
+      nodes: 1,
+      bandwidth: '1000 Мбит/с',
+      price_month: 250,
+      price_hour: 0.34,
+      maintenance: 'В любое время',
+      ip: '185.120.10.84',
+      status: 'Running',
+      created_at: '08.06.2026, 12:45:20'
+    }
+  ]);
+  const [activeBalancerView, setActiveBalancerView] = useState('list'); // 'list' | 'create'
+  
+  // Balancer form states
+  const [selectedRegion, setSelectedRegion] = useState('moscow');
+  const [selectedTariffId, setSelectedTariffId] = useState(2);
+  const [selectedMaintenance, setSelectedMaintenance] = useState('anytime');
+  const [pricingPeriod, setPricingPeriod] = useState('day'); // 'hour' | 'day' | 'month'
+  const [showTerminalModal, setShowTerminalModal] = useState(false);
+
   useEffect(() => {
     if (activeTab === 'cabinet') {
       fetchVDS();
@@ -304,7 +339,7 @@ const App = () => {
     }
   }, [activeTab]);
 
-  // Pay-as-you-go ticker loop in frontend
+  // Pay-as-you-go ticker loop in frontend (scaled for Rubles)
   useEffect(() => {
     const ticker = setInterval(() => {
       if (activeTab === 'cabinet' && billingRate > 0) {
@@ -317,24 +352,29 @@ const App = () => {
     return () => clearInterval(ticker);
   }, [activeTab, billingRate]);
 
-  // Recalculate billing rate based on running servers
+  // Recalculate billing rate based on running servers and load balancers
   useEffect(() => {
     let rate = 0;
     vms.forEach(vm => {
       if (vm.status === 'Running') {
-        // Mock client pricing: 1 core = $0.00003/sec, 1GB RAM = $0.00001/sec, 1GB SSD = $0.0000001/sec
-        rate += vm.cpu * 0.00003 + vm.ram * 0.00001 + vm.disk * 0.0000001;
+        // Rubles pricing: 1 core = 0.002 ₽/sec, 1GB RAM = 0.001 ₽/sec, 1GB SSD = 0.0001 ₽/sec
+        rate += vm.cpu * 0.002 + vm.ram * 0.001 + vm.disk * 0.0001;
+      }
+    });
+    balancers.forEach(lb => {
+      if (lb.status === 'Running') {
+        // Convert hourly price to per-second: price_hour / 3600
+        rate += lb.price_hour / 3600;
       }
     });
     setBillingRate(rate);
-  }, [vms]);
+  }, [vms, balancers]);
 
   const fetchVDS = async () => {
     try {
       const response = await fetch('/api/vms');
       if (response.ok) {
         const data = await response.json();
-        // Filter VDS: only client-created servers or template-based vms for client demonstration
         const clientVms = data.filter(vm => 
           (vm.labels && vm.labels["hosting.antigravity.io/owner"] === "client-01") ||
           vm.name.startsWith("client-") ||
@@ -355,10 +395,10 @@ const App = () => {
     if (!vdsName.trim()) return;
 
     const cleanName = "client-" + vdsName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-    const costPerHour = cpuCores * 0.1 + memoryGb * 0.04 + diskGb * 0.002;
+    const costPerMonth = cpuCores * 150 + memoryGb * 50 + diskGb * 3;
     
-    if (balance < 5.0) {
-      alert("Недостаточно средств. Минимальный баланс для заказа сервера — $5.00. Пожалуйста, пополните счет во вкладке 'Оплата'.");
+    if (balance < 350.0) {
+      alert("Недостаточно средств. Минимальный баланс для заказа сервера — 350.00 ₽. Пожалуйста, пополните счет во вкладке 'Баланс и платежи'.");
       setCabinetTab('billing');
       return;
     }
@@ -386,8 +426,8 @@ const App = () => {
 
       const resData = await response.json();
       
-      // Deduct setup fee from balance
-      setBalance(prev => prev - 2.50); // $2.50 setup fee
+      // Deduct setup fee from balance in Rubles
+      setBalance(prev => prev - 150.0); // 150 ₽ setup fee
       setVdsName('');
       fetchVDS();
       setCabinetTab('servers');
@@ -427,7 +467,81 @@ const App = () => {
     if (isNaN(amt) || amt <= 0) return;
     setBalance(prev => prev + amt);
     setShowPaymentModal(false);
-    alert(`Счет успешно пополнен на $${amt.toFixed(2)}!`);
+    alert(`Счет успешно пополнен на ${amt.toFixed(2)} ₽!`);
+  };
+
+  const handleCreateProject = (e) => {
+    e.preventDefault();
+    if (!newProjectName.trim()) return;
+    if (projectsList.includes(newProjectName.trim())) {
+      alert("Проект с таким названием уже существует.");
+      return;
+    }
+    setProjectsList(prev => [...prev, newProjectName.trim()]);
+    setSelectedProject(newProjectName.trim());
+    setNewProjectName('');
+    setShowProjectDropdown(false);
+    alert(`Проект "${newProjectName.trim()}" успешно создан!`);
+  };
+
+  const handleOrderBalancer = (e) => {
+    e.preventDefault();
+    
+    const selectedTariff = [
+      { id: 1, nodes: 1, bandwidth: '500 Мбит/с', price_month: 149, price_hour: 0.2 },
+      { id: 2, nodes: 1, bandwidth: '1000 Мбит/с', price_month: 250, price_hour: 0.34 },
+      { id: 3, nodes: 2, bandwidth: '1000 Мбит/с', price_month: 749, price_hour: 1.02 }
+    ].find(t => t.id === selectedTariffId);
+
+    if (balance < 250.0) {
+      alert("Недостаточно средств для заказа балансировщика. Минимальный баланс — 250.00 ₽.");
+      setCabinetTab('billing');
+      return;
+    }
+
+    setOrderingInProgress(true);
+    
+    setTimeout(() => {
+      const regionName = selectedRegion === 'moscow' ? 'Москва' : selectedRegion === 'amsterdam' ? 'Амстердам' : 'Франкфурт';
+      const newLb = {
+        id: 'lb-' + Math.random().toString(36).substr(2, 7),
+        name: `balancer-${selectedRegion}-${balancers.length + 1}`,
+        region: regionName,
+        region_code: selectedRegion,
+        tariff_id: selectedTariff.id,
+        nodes: selectedTariff.nodes,
+        bandwidth: selectedTariff.bandwidth,
+        price_month: selectedTariff.price_month,
+        price_hour: selectedTariff.price_hour,
+        maintenance: selectedMaintenance === 'anytime' ? 'В любое время' : selectedMaintenance === 'night' ? 'Ночью' : 'В выходные',
+        ip: '194.87.95.' + Math.floor(Math.random() * 254 + 1),
+        status: 'Creating',
+        created_at: new Date().toLocaleString('ru-RU')
+      };
+
+      setBalancers(prev => [...prev, newLb]);
+      setBalance(prev => prev - 50.0); // technical setup / deposit fee (50 ₽)
+      setOrderingInProgress(false);
+      setActiveBalancerView('list');
+      
+      // Deploy simulation
+      setTimeout(() => {
+        setBalancers(prev => prev.map(lb => lb.id === newLb.id ? { ...lb, status: 'Running' } : lb));
+      }, 5000);
+
+      alert(`Балансировщик ${newLb.name} успешно заказан и разворачивается в регионе ${regionName}!\nВыделенный IP: ${newLb.ip}\nСписание за первый час (включая инсталляцию): 50.00 ₽.`);
+    }, 1200);
+  };
+
+  const handleDeleteBalancer = (id, name) => {
+    if (!confirm(`Вы уверены, что хотите удалить балансировщик ${name}?`)) return;
+    setBalancers(prev => prev.filter(lb => lb.id !== id));
+    alert(`Балансировщик ${name} успешно удален, ресурсы освобождены.`);
+  };
+
+  const handleSelectPlaceholderTab = (tabName) => {
+    setPlaceholderTabName(tabName);
+    setCabinetTab('placeholder');
   };
 
   return (
@@ -534,101 +648,306 @@ const App = () => {
 
       {/* Authenticated Client Cabinet */}
       {activeTab === 'cabinet' && (
-        <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        <div className="app-layout">
           
-          {/* Cabinet Header */}
-          <header className="header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Layers size={22} color="#38bdf8" />
-              <strong style={{ fontSize: '1.1rem', color: '#f8fafc' }}>Aegis Cabinet</strong>
-              <span style={{ fontSize: '0.65rem', background: 'rgba(56,189,248,0.1)', color: '#38bdf8', border: '1px solid rgba(56,189,248,0.2)', padding: '2px 6px' }}>CLIENT PORTAL</span>
+          {/* Left Sidebar */}
+          <aside className="sidebar">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 8px', marginBottom: '8px' }}>
+              <Layers size={26} color="#5c64ec" />
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.3px' }}>Aegis Cabinet</span>
+                <span style={{ fontSize: '0.6rem', color: '#8c93ff', fontWeight: 700, textTransform: 'uppercase', width: 'max-content' }}>CLIENT PORTAL</span>
+              </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.02)', padding: '6px 12px', border: '1px solid var(--border-color)', fontSize: '0.85rem' }}>
-                <Wallet size={14} color="#10b981" />
-                <span>Баланс: <strong style={{ color: '#10b981', fontFamily: 'monospace' }}>${balance.toFixed(4)}</strong></span>
+            {/* Projects Dropdown */}
+            <div className="projects-dropdown">
+              <span className="projects-label">Проекты</span>
+              
+              <div style={{ position: 'relative' }}>
+                <button className="project-selector-btn" onClick={() => setShowProjectDropdown(!showProjectDropdown)}>
+                  <div className="project-info">
+                    <span className="project-bullet"></span>
+                    <span>{selectedProject}</span>
+                  </div>
+                  <ChevronDown size={14} />
+                </button>
+                
+                {showProjectDropdown && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    background: '#161b2a',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    marginTop: '4px',
+                    zIndex: 10,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                    padding: '8px'
+                  }}>
+                    {projectsList.map(proj => (
+                      <button 
+                        key={proj}
+                        onClick={() => {
+                          setSelectedProject(proj);
+                          setShowProjectDropdown(false);
+                        }}
+                        style={{
+                          width: '100%',
+                          textAlign: 'left',
+                          background: proj === selectedProject ? 'rgba(92,100,236,0.1)' : 'transparent',
+                          border: 'none',
+                          color: proj === selectedProject ? '#a3a8ff' : 'var(--text-secondary)',
+                          padding: '6px 10px',
+                          fontSize: '0.82rem',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          transition: 'all 0.15s'
+                        }}
+                      >
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: proj === selectedProject ? '#5c64ec' : '#64748b' }}></span>
+                        {proj}
+                      </button>
+                    ))}
+                    <div style={{ borderTop: '1px solid var(--border-color)', marginTop: '8px', paddingTop: '8px' }}>
+                      <form onSubmit={handleCreateProject} style={{ display: 'flex', gap: '6px' }}>
+                        <input 
+                          type="text" 
+                          placeholder="Новый проект" 
+                          value={newProjectName} 
+                          onChange={(e) => setNewProjectName(e.target.value)} 
+                          style={{
+                            flex: 1,
+                            background: 'rgba(0,0,0,0.3)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '4px',
+                            color: 'white',
+                            fontSize: '0.75rem',
+                            padding: '4px 6px',
+                            outline: 'none'
+                          }}
+                        />
+                        <button type="submit" className="btn btn-primary btn-sm" style={{ padding: '2px 8px', borderRadius: '4px' }}>+</button>
+                      </form>
+                    </div>
+                  </div>
+                )}
               </div>
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowPaymentModal(true)}>
-                Пополнить
-              </button>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderLeft: '1px solid var(--border-color)', paddingLeft: '14px', fontSize: '0.85rem', color: '#94a3b8' }}>
-                <User size={16} />
-                <span>client-01</span>
-              </div>
-              <button className="btn btn-danger btn-sm" onClick={() => setActiveTab('landing')}>Выйти</button>
             </div>
-          </header>
 
-          <div className="main-content" style={{ display: 'grid', gridTemplateColumns: '250px 1fr', gap: '30px' }}>
-            
             {/* Sidebar Navigation */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div className="sidebar-nav">
               <button 
-                className={`btn btn-secondary`} 
-                onClick={() => setCabinetTab('servers')}
-                style={{ 
-                  justifyContent: 'flex-start', 
-                  background: cabinetTab === 'servers' ? 'rgba(56, 189, 248, 0.08)' : 'transparent',
-                  borderColor: cabinetTab === 'servers' ? '#38bdf8' : 'transparent',
-                  color: cabinetTab === 'servers' ? '#38bdf8' : '#94a3b8'
-                }}
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'AI-агенты' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('AI-агенты')}
               >
-                <Activity size={16} />
-                Мои VDS серверы
+                <span>AI-агенты</span>
               </button>
               
               <button 
-                className={`btn btn-secondary`} 
-                onClick={() => setCabinetTab('aws')}
-                style={{ 
-                  justifyContent: 'flex-start', 
-                  background: cabinetTab === 'aws' ? 'rgba(56, 189, 248, 0.08)' : 'transparent',
-                  borderColor: cabinetTab === 'aws' ? '#38bdf8' : 'transparent',
-                  color: cabinetTab === 'aws' ? '#38bdf8' : '#94a3b8'
-                }}
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'App Platform' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('App Platform')}
               >
-                <Cloud size={16} />
-                AWS Консоль
-              </button>
-              
-              <button 
-                className={`btn btn-secondary`} 
-                onClick={() => setCabinetTab('order')}
-                style={{ 
-                  justifyContent: 'flex-start', 
-                  background: cabinetTab === 'order' ? 'rgba(56, 189, 248, 0.08)' : 'transparent',
-                  borderColor: cabinetTab === 'order' ? '#38bdf8' : 'transparent',
-                  color: cabinetTab === 'order' ? '#38bdf8' : '#94a3b8'
-                }}
-              >
-                <Plus size={16} />
-                Заказать VDS
+                <span>App Platform</span>
               </button>
 
               <button 
-                className={`btn btn-secondary`} 
-                onClick={() => setCabinetTab('billing')}
-                style={{ 
-                  justifyContent: 'flex-start', 
-                  background: cabinetTab === 'billing' ? 'rgba(56, 189, 248, 0.08)' : 'transparent',
-                  borderColor: cabinetTab === 'billing' ? '#38bdf8' : 'transparent',
-                  color: cabinetTab === 'billing' ? '#38bdf8' : '#94a3b8'
-                }}
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'Облако 5 ГГц' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('Облако 5 ГГц')}
               >
-                <DollarSign size={16} />
-                Оплата и Баланс
+                <span>Облако 5 ГГц</span>
+                <span className="nav-tag tag-new">НОВОЕ</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'Облачные серверы' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('Облачные серверы')}
+              >
+                <span>Облачные серверы</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'servers' || cabinetTab === 'order' ? 'active' : ''}`}
+                onClick={() => setCabinetTab('servers')}
+              >
+                <span>Выделенные серверы</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'Облако VMware' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('Облако VMware')}
+              >
+                <span>Облако VMware</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'Мониторинг' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('Мониторинг')}
+              >
+                <span>Мониторинг</span>
+                <span className="nav-tag tag-new">НОВОЕ</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'Базы данных' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('Базы данных')}
+              >
+                <span>Базы данных</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'Хранилище S3' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('Хранилище S3')}
+              >
+                <span>Хранилище S3</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'Kubernetes' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('Kubernetes')}
+              >
+                <span>Kubernetes</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'balancers' ? 'active' : ''}`}
+                onClick={() => setCabinetTab('balancers')}
+              >
+                <span>Балансировщики</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'Сети' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('Сети')}
+              >
+                <span>Сети</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'CDN' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('CDN')}
+              >
+                <span>CDN</span>
+                <span className="nav-tag tag-new">НОВОЕ</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'Сетевые диски' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('Сетевые диски')}
+              >
+                <span>Сетевые диски</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'Домены и SSL' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('Домены и SSL')}
+              >
+                <span>Домены и SSL</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'Почта' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('Почта')}
+              >
+                <span>Почта</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'billing' ? 'active' : ''}`}
+                onClick={() => setCabinetTab('billing')}
+              >
+                <span>Баланс и платежи</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'aws' ? 'active' : ''}`}
+                onClick={() => setCabinetTab('aws')}
+              >
+                <span>AWS Консоль</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'Уведомления' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('Уведомления')}
+              >
+                <span>Уведомления</span>
+              </button>
+
+              <button 
+                className={`nav-item ${cabinetTab === 'placeholder' && placeholderTabName === 'Документация' ? 'active' : ''}`}
+                onClick={() => handleSelectPlaceholderTab('Документация')}
+              >
+                <span>Документация</span>
               </button>
             </div>
+          </aside>
 
-            {/* Cabinet Page Content */}
-            <div>
+          {/* Main Content Area */}
+          <main className="main-content-layout">
+            
+            {/* Left/Middle Column (Page Content) */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '24px' }}>
               
+              {/* Sleek Top Bar with Wallet & Account */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                gap: '16px',
+                paddingBottom: '16px',
+                borderBottom: '1px solid var(--border-color)',
+                marginBottom: '10px'
+              }}>
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '10px', 
+                  background: 'rgba(255,255,255,0.02)', 
+                  padding: '6px 14px', 
+                  border: '1px solid var(--border-color)', 
+                  borderRadius: '8px',
+                  fontSize: '0.85rem' 
+                }}>
+                  <Wallet size={15} color="#10b981" />
+                  <span style={{ color: 'var(--text-secondary)' }}>Баланс:</span>
+                  <strong style={{ color: '#10b981', fontFamily: 'monospace', fontSize: '0.9rem' }}>{balance.toFixed(2)} ₽</strong>
+                  {billingRate > 0 && (
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      (-{(billingRate * 3600).toFixed(2)} ₽/ч)
+                    </span>
+                  )}
+                </div>
+                
+                <button className="btn btn-secondary btn-sm" onClick={() => setShowPaymentModal(true)}>
+                  Пополнить
+                </button>
+                
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '8px', 
+                  borderLeft: '1px solid var(--border-color)', 
+                  paddingLeft: '14px', 
+                  fontSize: '0.85rem', 
+                  color: 'var(--text-secondary)' 
+                }}>
+                  <User size={16} color="#5c64ec" />
+                  <strong>client-01</strong>
+                </div>
+                
+                <button className="btn btn-danger btn-sm" onClick={() => setActiveTab('landing')}>Выйти</button>
+              </div>
+
               {/* TAB 1: Servers List */}
               {cabinetTab === 'servers' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h2 style={{ fontSize: '1.3rem', fontWeight: 'bold' }}>Ваши виртуальные серверы</h2>
+                    <h2 style={{ fontSize: '1.4rem', fontWeight: 700 }}>Выделенные серверы</h2>
                     <button className="btn btn-primary btn-sm" onClick={() => setCabinetTab('order')}>
                       <Plus size={14} /> Заказать сервер
                     </button>
@@ -640,13 +959,13 @@ const App = () => {
                     </div>
                   ) : vms.length === 0 ? (
                     <div className="card" style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>
-                      <p style={{ fontSize: '1.2rem', marginBottom: '16px' }}>У вас пока нет активных VDS серверов.</p>
+                      <p style={{ fontSize: '1.2rem', marginBottom: '16px' }}>У вас пока нет active выделенных серверов.</p>
                       <button className="btn btn-primary" onClick={() => setCabinetTab('order')}>
                         Заказать первый сервер
                       </button>
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '20px' }}>
                       {vms.map(vm => (
                         <div key={vm.name} className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '220px' }}>
                           <div>
@@ -690,8 +1009,8 @@ const App = () => {
                                 <button className="btn btn-secondary btn-sm" onClick={() => handlePowerAction(vm.name, 'stop')} style={{ flex: 1 }}>
                                   <Square size={12} /> Стоп
                                 </button>
-                                <button className="btn btn-primary btn-sm" onClick={() => setOpenConsoleName(vm.name)} style={{ flex: 1, color: '#000' }}>
-                                  <Monitor size={12} /> Экран (VNC)
+                                <button className="btn btn-primary btn-sm" onClick={() => setOpenConsoleName(vm.name)} style={{ flex: 1, color: '#fff' }}>
+                                  <Monitor size={12} /> Консоль (VNC)
                                 </button>
                               </>
                             ) : (
@@ -710,14 +1029,14 @@ const App = () => {
                 </div>
               )}
 
-               {/* TAB: AWS Console */}
-               {cabinetTab === 'aws' && (
-                 <AwsConsole mode="client" />
-               )}
+              {/* TAB: AWS Console */}
+              {cabinetTab === 'aws' && (
+                <AwsConsole mode="client" />
+              )}
 
               {/* TAB 2: Order VDS */}
               {cabinetTab === 'order' && (
-                <div className="card" style={{ maxWidth: '600px', margin: '0 auto' }}>
+                <div className="card" style={{ maxWidth: '600px', margin: '0 auto', width: '100%' }}>
                   <h3 style={{ fontSize: '1.2rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginBottom: '16px' }}>
                     Заказ нового VDS сервера
                   </h3>
@@ -765,7 +1084,7 @@ const App = () => {
                       <input 
                         type="range" min="1" max="8" value={cpuCores}
                         onChange={(e) => setCpuCores(parseInt(e.target.value))}
-                        style={{ width: '100%', accentColor: '#38bdf8' }}
+                        style={{ width: '100%', accentColor: '#5c64ec' }}
                       />
                     </div>
 
@@ -778,7 +1097,7 @@ const App = () => {
                       <input 
                         type="range" min="1" max="16" value={memoryGb}
                         onChange={(e) => setMemoryGb(parseInt(e.target.value))}
-                        style={{ width: '100%', accentColor: '#38bdf8' }}
+                        style={{ width: '100%', accentColor: '#5c64ec' }}
                       />
                     </div>
 
@@ -791,12 +1110,12 @@ const App = () => {
                       <input 
                         type="range" min="10" max="150" step="10" value={diskGb}
                         onChange={(e) => setDiskGb(parseInt(e.target.value))}
-                        style={{ width: '100%', accentColor: '#38bdf8' }}
+                        style={{ width: '100%', accentColor: '#5c64ec' }}
                       />
                     </div>
 
                     <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', padding: '12px', fontSize: '0.82rem', color: '#94a3b8' }}>
-                      Стоимость аренды: <strong style={{ color: '#10b981' }}>${(cpuCores * 0.1 + memoryGb * 0.04 + diskGb * 0.002).toFixed(2)} / месяц</strong> <br />
+                      Стоимость аренды: <strong style={{ color: '#10b981' }}>{(cpuCores * 150 + memoryGb * 50 + diskGb * 3).toFixed(0)} ₽ / месяц</strong> <br />
                       Тарификация: <strong style={{ color: '#38bdf8' }}>Посекундное списание (Pay-as-you-go)</strong>
                     </div>
 
@@ -818,13 +1137,13 @@ const App = () => {
                     <div style={{ background: 'rgba(0,0,0,0.2)', padding: '16px', textAlign: 'center' }}>
                       <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Баланс ЛК</span>
                       <div style={{ fontSize: '2.2rem', fontWeight: 'bold', color: '#10b981', fontFamily: 'monospace', margin: '6px 0' }}>
-                        ${balance.toFixed(4)}
+                        {balance.toFixed(2)} ₽
                       </div>
                       <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Посекундное списание</span>
                     </div>
 
                     <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
-                      Текущий расход ресурсов: <strong style={{ color: '#38bdf8' }}>${(billingRate * 3600).toFixed(4)}/час</strong>
+                      Текущий расход ресурсов: <strong style={{ color: '#38bdf8' }}>{(billingRate * 3600).toFixed(2)} ₽/час</strong>
                     </div>
 
                     <button className="btn btn-primary" onClick={() => setShowPaymentModal(true)}>
@@ -841,7 +1160,7 @@ const App = () => {
                       </p>
                       <ul style={{ paddingLeft: '20px' }}>
                         <li>Если сервер **Выключен (Stopped)**, списания за CPU и RAM прекращаются. Вы платите только за хранение SSD-диска.</li>
-                        <li>При создании сервера списывается разовый технический сбор за инсталляцию образа ($2.50).</li>
+                        <li>При создании сервера списывается разовый технический сбор за инсталляцию образа (150 ₽).</li>
                         <li>При нулевом балансе все серверы клиента автоматически выключаются во избежание образования задолженности.</li>
                       </ul>
                       <div style={{ background: 'rgba(56,189,248,0.04)', border: '1px solid #38bdf8', padding: '10px', color: '#38bdf8', fontSize: '0.8rem', marginTop: '10px' }}>
@@ -853,8 +1172,364 @@ const App = () => {
                 </div>
               )}
 
+              {/* TAB 4: Balancers (Mock Load Balancers Dashboard & Order Form) */}
+              {cabinetTab === 'balancers' && (
+                <div>
+                  
+                  {activeBalancerView === 'list' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h2 style={{ fontSize: '1.4rem', fontWeight: 700 }}>Балансировщики нагрузки</h2>
+                        <button className="btn btn-primary btn-sm" onClick={() => setActiveBalancerView('create')}>
+                          <Plus size={14} /> Создать балансировщик
+                        </button>
+                      </div>
+
+                      {balancers.length === 0 ? (
+                        <div className="card" style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>
+                          <p style={{ fontSize: '1.2rem', marginBottom: '16px' }}>У вас пока нет активных балансировщиков.</p>
+                          <button className="btn btn-primary" onClick={() => setActiveBalancerView('create')}>
+                            Создать балансировщик
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '20px' }}>
+                          {balancers.map(lb => (
+                            <div key={lb.id} className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '220px' }}>
+                              <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                  <div>
+                                    <h4 style={{ fontSize: '1.1rem', margin: 0, fontWeight: 'bold' }}>{lb.name}</h4>
+                                    <span style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>
+                                      Регион: {lb.region}
+                                    </span>
+                                  </div>
+                                  <span className={`status-badge ${lb.status === 'Running' ? 'running' : 'pending'}`}>
+                                    <span className="status-dot"></span>
+                                    {lb.status === 'Running' ? 'Активен' : 'Создание'}
+                                  </span>
+                                </div>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', margin: '14px 0', padding: '10px', background: 'rgba(0,0,0,0.2)', fontSize: '0.8rem' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>Ноды:</span>
+                                    <strong>{lb.nodes} {lb.nodes === 1 ? 'нода' : 'ноды'}</strong>
+                                  </div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>Канал:</span>
+                                    <strong>{lb.bandwidth}</strong>
+                                  </div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>Окно обслуж.:</span>
+                                    <strong>{lb.maintenance}</strong>
+                                  </div>
+                                </div>
+
+                                <div style={{ fontSize: '0.78rem', color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: '4px', fontFamily: 'monospace' }}>
+                                  <div>Публичный IP: <strong style={{ color: '#38bdf8' }}>{lb.ip}</strong></div>
+                                  <div>Тариф: <strong style={{ color: '#f8fafc' }}>{lb.price_month} ₽/мес ({lb.price_hour} ₽/час)</strong></div>
+                                </div>
+                              </div>
+
+                              <div style={{ display: 'flex', gap: '6px', borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '14px' }}>
+                                <button className="btn btn-secondary btn-sm" style={{ flex: 1 }} onClick={() => alert(`Правила балансировки для ${lb.name} (IP: ${lb.ip}):\n\nPort 80 -> Target Group: client-web-app (Port 8080)\nPort 443 -> Target Group: client-web-app (Port 8443)`)}>
+                                  Настройки
+                                </button>
+                                <button className="btn btn-danger btn-sm" onClick={() => handleDeleteBalancer(lb.id, lb.name)}>
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {activeBalancerView === 'create' && (
+                    <div>
+                      {/* Back breadcrumb */}
+                      <button className="back-button" onClick={() => setActiveBalancerView('list')}>
+                        <ChevronLeft size={16} /> Назад
+                      </button>
+                      
+                      <div className="balancer-creation-container">
+                        
+                        {/* Left Side creation panels */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                          <h2 className="balancer-title">Создать балансировщик</h2>
+                          
+                          {/* SECTION 1: Region */}
+                          <div className="section-card">
+                            <span className="section-title">1. Регион</span>
+                            
+                            <div className="regions-grid">
+                              {/* Saint Petersburg */}
+                              <div className="region-card disabled">
+                                <div className="region-header">
+                                  <span style={{ fontSize: '1.4rem' }}>🇷🇺</span>
+                                  <span className="latency-badge gray">Распродано</span>
+                                </div>
+                                <div className="region-info">
+                                  <span className="region-name">Санкт-Петербург</span>
+                                  <span className="region-country">Россия</span>
+                                </div>
+                              </div>
+                              
+                              {/* Moscow */}
+                              <div 
+                                className={`region-card ${selectedRegion === 'moscow' ? 'selected' : ''}`}
+                                onClick={() => setSelectedRegion('moscow')}
+                              >
+                                <div className="region-header">
+                                  <span style={{ fontSize: '1.4rem' }}>🇷🇺</span>
+                                  <span className="latency-badge green">
+                                    <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#10b981' }}></span>
+                                    48 мсек
+                                  </span>
+                                </div>
+                                <div className="region-info">
+                                  <span className="region-name">Москва</span>
+                                  <span className="region-country">Россия · MSK-1</span>
+                                </div>
+                              </div>
+
+                              {/* Amsterdam */}
+                              <div 
+                                className={`region-card ${selectedRegion === 'amsterdam' ? 'selected' : ''}`}
+                                onClick={() => setSelectedRegion('amsterdam')}
+                              >
+                                <div className="region-header">
+                                  <span style={{ fontSize: '1.4rem' }}>🇳🇱</span>
+                                  <span className="latency-badge green">
+                                    <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#10b981' }}></span>
+                                    85 мсек
+                                  </span>
+                                </div>
+                                <div className="region-info">
+                                  <span className="region-name">Амстердам</span>
+                                  <span className="region-country">Нидерланды · AMS-1</span>
+                                </div>
+                              </div>
+
+                              {/* Frankfurt */}
+                              <div 
+                                className={`region-card ${selectedRegion === 'frankfurt' ? 'selected' : ''}`}
+                                onClick={() => setSelectedRegion('frankfurt')}
+                              >
+                                <div className="region-header">
+                                  <span style={{ fontSize: '1.4rem' }}>🇩🇪</span>
+                                  <span className="latency-badge green">
+                                    <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#10b981' }}></span>
+                                    89 мсек
+                                  </span>
+                                </div>
+                                <div className="region-info">
+                                  <span className="region-name">Франкфурт</span>
+                                  <span className="region-country">Германия · FRA-1</span>
+                                </div>
+                              </div>
+
+                            </div>
+                          </div>
+
+                          {/* SECTION 2: Tariff */}
+                          <div className="section-card">
+                            <span className="section-title">2. Тариф</span>
+                            
+                            <div className="tariffs-list">
+                              {/* Row 1 */}
+                              <div 
+                                className={`tariff-row ${selectedTariffId === 1 ? 'selected' : ''}`}
+                                onClick={() => setSelectedTariffId(1)}
+                              >
+                                <span className="tariff-nodes">1 нода</span>
+                                <span className="tariff-bandwidth">500 Мбит/с</span>
+                                <span className="tariff-price-month">149 ₽/мес</span>
+                                <span className="tariff-price-hour">0,2 ₽/час</span>
+                              </div>
+
+                              {/* Row 2 */}
+                              <div 
+                                className={`tariff-row ${selectedTariffId === 2 ? 'selected' : ''}`}
+                                onClick={() => setSelectedTariffId(2)}
+                              >
+                                <span className="tariff-nodes">1 нода</span>
+                                <span className="tariff-bandwidth">1000 Мбит/с</span>
+                                <span className="tariff-price-month">250 ₽/мес</span>
+                                <span className="tariff-price-hour">0,34 ₽/час</span>
+                              </div>
+
+                              {/* Row 3 */}
+                              <div 
+                                className={`tariff-row ${selectedTariffId === 3 ? 'selected' : ''}`}
+                                onClick={() => setSelectedTariffId(3)}
+                              >
+                                <span className="tariff-nodes">2 ноды</span>
+                                <span className="tariff-bandwidth">1000 Мбит/с</span>
+                                <span className="tariff-price-month">749 ₽/мес</span>
+                                <span className="tariff-price-hour">1,02 ₽/час</span>
+                              </div>
+
+                            </div>
+                            
+                            {/* Maintenance window selector */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
+                              <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                Окно обслуживания балансировщика
+                                <HelpCircle size={14} style={{ color: 'var(--text-muted)', cursor: 'pointer' }} onClick={() => alert("Время проведения технических регламентов и обновлений ПО балансировщика.")} />
+                              </label>
+                              <select 
+                                className="form-input form-select"
+                                value={selectedMaintenance}
+                                onChange={(e) => setSelectedMaintenance(e.target.value)}
+                                style={{ background: '#161b2a', borderRadius: '8px' }}
+                              >
+                                <option value="anytime">В любое время</option>
+                                <option value="night">Только ночью (с 02:00 до 06:00)</option>
+                                <option value="weekend">В выходные дни (Сб-Вс)</option>
+                              </select>
+                            </div>
+
+                          </div>
+
+                          {/* SECTION 3: Network */}
+                          <div className="section-card">
+                            <span className="section-title">3. Сеть</span>
+                            <div className="info-banner">
+                              <Info size={18} className="info-banner-icon" />
+                              <span>Приватная сеть нужна, чтобы изолировать ресурсы друг от друга или запретить к ним доступ из интернета</span>
+                            </div>
+                          </div>
+
+                        </div>
+
+                        {/* Right Pricing Sidebar */}
+                        <div className="pricing-sidebar">
+                          <span className="pricing-sidebar-title font-bold">Цена</span>
+                          
+                          {/* Period Selector Tabs */}
+                          <div className="period-toggle">
+                            <button 
+                              className={`period-btn ${pricingPeriod === 'hour' ? 'active' : ''}`}
+                              onClick={() => setPricingPeriod('hour')}
+                            >
+                              Час
+                            </button>
+                            <button 
+                              className={`period-btn ${pricingPeriod === 'day' ? 'active' : ''}`}
+                              onClick={() => setPricingPeriod('day')}
+                            >
+                              День
+                            </button>
+                            <button 
+                              className={`period-btn ${pricingPeriod === 'month' ? 'active' : ''}`}
+                              onClick={() => setPricingPeriod('month')}
+                            >
+                              Мес
+                            </button>
+                          </div>
+
+                          {/* Pricing breakdown */}
+                          <div className="pricing-details">
+                            <div className="pricing-detail-row">
+                              <span className="pricing-detail-label">Регион</span>
+                              <span className="pricing-detail-value">
+                                {selectedRegion === 'moscow' ? 'Москва' : selectedRegion === 'amsterdam' ? 'Амстердам' : 'Франкфурт'}
+                              </span>
+                            </div>
+                            <div className="pricing-detail-row">
+                              <span className="pricing-detail-label">Ноды</span>
+                              <span className="pricing-detail-value">
+                                {selectedTariffId === 3 ? 2 : 1}
+                              </span>
+                            </div>
+                            <div className="pricing-detail-row">
+                              <span className="pricing-detail-label">Канал</span>
+                              <span className="pricing-detail-value">
+                                {selectedTariffId === 1 ? '500 Мбит/с' : '1000 Мбит/с'}
+                              </span>
+                            </div>
+                            <div className="pricing-detail-row">
+                              <span className="pricing-detail-label">Конфигурация</span>
+                              <span className="pricing-detail-value font-mono">
+                                {pricingPeriod === 'hour' && `${selectedTariffId === 1 ? '0,20' : selectedTariffId === 2 ? '0,34' : '1,02'} ₽/час`}
+                                {pricingPeriod === 'day' && `${selectedTariffId === 1 ? '4,90' : selectedTariffId === 2 ? '8,20' : '24,50'} ₽/день`}
+                                {pricingPeriod === 'month' && `${selectedTariffId === 1 ? '149' : selectedTariffId === 2 ? '250' : '749'} ₽/мес`}
+                              </span>
+                            </div>
+                            <div className="pricing-detail-row">
+                              <span className="pricing-detail-label">Публичный IP</span>
+                              <span className="pricing-detail-value font-mono">
+                                {pricingPeriod === 'hour' && '0,24 ₽/час'}
+                                {pricingPeriod === 'day' && '5,9 ₽/день'}
+                                {pricingPeriod === 'month' && '180 ₽/мес'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Total pricing */}
+                          <div className="pricing-total-container">
+                            <span className="pricing-total-label">Итого</span>
+                            <span className="pricing-total-value font-mono text-xl">
+                              {pricingPeriod === 'hour' && `${(selectedTariffId === 1 ? 0.44 : selectedTariffId === 2 ? 0.58 : 1.26).toFixed(2)} ₽/час`}
+                              {pricingPeriod === 'day' && `${(selectedTariffId === 1 ? 10.8 : selectedTariffId === 2 ? 14.1 : 30.4).toFixed(1)} ₽/день`}
+                              {pricingPeriod === 'month' && `${(selectedTariffId === 1 ? 329 : selectedTariffId === 2 ? 430 : 929)} ₽/мес`}
+                            </span>
+                          </div>
+
+                          {/* Action button */}
+                          <div className="action-buttons-group">
+                            <button className="order-btn" onClick={handleOrderBalancer} disabled={orderingInProgress}>
+                              {orderingInProgress ? "Секунду..." : "Заказать"}
+                            </button>
+                            <button className="terminal-icon-btn" onClick={() => setShowTerminalModal(true)}>
+                              <Terminal size={18} />
+                            </button>
+                          </div>
+
+                          <span className="pricing-discount-text">
+                            Скидки до 10% — при пополнении сразу на несколько месяцев
+                          </span>
+
+                        </div>
+
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              )}
+
+              {/* TAB 5: Placeholder for features not in demo */}
+              {cabinetTab === 'placeholder' && (
+                <div className="card" style={{ padding: '40px', textAlign: 'center', maxWidth: '600px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
+                  <Globe size={48} style={{ color: 'var(--primary)', margin: '0 auto', opacity: 0.8 }} />
+                  <h3 style={{ fontSize: '1.3rem', fontWeight: 'bold' }}>Раздел "{placeholderTabName}" в разработке</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                    В рамках демонстрационной версии **Aegis Cloud Engine** этот раздел пока закрыт. 
+                    Вы можете опробовать работу других, полностью интерактивных разделов платформы:
+                  </p>
+                  
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center', marginTop: '10px' }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setCabinetTab('servers')}>
+                      Выделенные серверы
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => { setCabinetTab('balancers'); setActiveBalancerView('create'); }}>
+                      Балансировщики
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setCabinetTab('aws')}>
+                      AWS Консоль
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setCabinetTab('billing')}>
+                      Баланс и платежи
+                    </button>
+                  </div>
+                </div>
+              )}
+
             </div>
-          </div>
+          </main>
         </div>
       )}
 
@@ -865,14 +1540,13 @@ const App = () => {
           username="root"
           password={vms.find(v => v.name === openConsoleName)?.credentials?.password || ''}
           ips={vms.find(v => v.name === openConsoleName)?.ips || []}
-          onClose={() => setOpenConsoleName(null)}
         />
       )}
 
       {/* Mock Payment Modal */}
       {showPaymentModal && (
         <div className="console-modal-backdrop">
-          <div className="card" style={{ width: '400px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+          <div className="card" style={{ width: '400px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginBottom: '16px' }}>
               <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Пополнение счета (Mock Pay)</h3>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowPaymentModal(false)}>
@@ -882,11 +1556,11 @@ const App = () => {
 
             <form onSubmit={handlePaymentSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Сумма пополнения (USD)</label>
+                <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Сумма пополнения (RUB)</label>
                 <input 
                   type="number" 
-                  min="5" 
-                  max="500"
+                  min="100" 
+                  max="10000"
                   className="form-input" 
                   value={paymentAmount}
                   onChange={(e) => setPaymentAmount(e.target.value)}
@@ -905,10 +1579,83 @@ const App = () => {
                 />
               </div>
 
-              <button className="btn btn-primary" type="submit" style={{ padding: '10px', marginTop: '10px' }}>
-                Оплатить ${parseFloat(paymentAmount || 0).toFixed(2)}
+              <button className="btn btn-primary" type="submit" style={{ padding: '10px', marginTop: '10px', borderRadius: '8px' }}>
+                Оплатить {parseFloat(paymentAmount || 0).toFixed(2)} ₽
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* IaC & API Terminal Modal */}
+      {showTerminalModal && (
+        <div className="console-modal-backdrop">
+          <div className="card" style={{ width: '600px', maxWidth: '90vw', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '1.1rem', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Terminal size={18} color="#5c64ec" />
+                <span>Интеграция API и Terraform</span>
+              </h3>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowTerminalModal(false)}>
+                <X size={14} />
+              </button>
+            </div>
+
+            <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '16px', lineHeight: 1.4 }}>
+              Вы можете управлять инфраструктурой Aegis Cloud Engine автоматически. 
+              Ниже приведены примеры для развертывания выбранного балансировщика.
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <strong style={{ fontSize: '0.82rem', color: '#f8fafc' }}>Terraform (aegis.tf):</strong>
+              <pre style={{
+                background: '#0a0d16',
+                border: '1px solid var(--border-color)',
+                padding: '12px',
+                borderRadius: '8px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.78rem',
+                color: '#38bdf8',
+                overflowX: 'auto',
+                margin: 0
+              }}>
+{`resource "aegis_load_balancer" "lb_${selectedRegion}" {
+  name        = "balancer-${selectedRegion}"
+  region      = "${selectedRegion === 'moscow' ? 'ru-msk-1' : selectedRegion === 'amsterdam' ? 'nl-ams-1' : 'de-fra-1'}"
+  nodes_count = ${selectedTariffId === 3 ? 2 : 1}
+  bandwidth   = ${selectedTariffId === 1 ? 500 : 1000}
+  maintenance = "${selectedMaintenance}"
+}`}
+              </pre>
+
+              <strong style={{ fontSize: '0.82rem', color: '#f8fafc', marginTop: '8px' }}>cURL API запрос:</strong>
+              <pre style={{
+                background: '#0a0d16',
+                border: '1px solid var(--border-color)',
+                padding: '12px',
+                borderRadius: '8px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.78rem',
+                color: '#10b981',
+                overflowX: 'auto',
+                margin: 0
+              }}>
+{`curl -X POST https://api.aegis-cloud.io/v1/balancers \\
+  -H "Authorization: Bearer \${AEGIS_API_TOKEN}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "name": "balancer-${selectedRegion}",
+    "region": "${selectedRegion === 'moscow' ? 'ru-msk-1' : selectedRegion === 'amsterdam' ? 'nl-ams-1' : 'de-fra-1'}",
+    "nodes_count": ${selectedTariffId === 3 ? 2 : 1},
+    "bandwidth_mbps": ${selectedTariffId === 1 ? 500 : 1000},
+    "maintenance_window": "${selectedMaintenance}"
+  }'`}
+              </pre>
+            </div>
+
+            <button className="btn btn-secondary" style={{ width: '100%', marginTop: '20px', borderRadius: '8px' }} onClick={() => setShowTerminalModal(false)}>
+              Закрыть окно
+            </button>
           </div>
         </div>
       )}
@@ -918,3 +1665,4 @@ const App = () => {
 };
 
 export default App;
+

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, Cloud } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, Cloud, ChevronDown, LogOut, Key } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -17,6 +17,14 @@ import ExternalServerDetail from './components/ExternalServerDetail';
 import ConnectServerModal from './components/ConnectServerModal';
 
 const App = () => {
+  const [authenticated, setAuthenticated] = useState(!!localStorage.getItem('aegis_admin_token'));
+  const [tokenInput, setTokenInput] = useState('');
+  
+  const [projectsList, setProjectsList] = useState(['Общий проект', 'Администрирование']);
+  const [selectedProject, setSelectedProject] = useState('Общий проект');
+  const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+
   const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'images' | 'docker' | 'external'
   const [vms, setVms] = useState([]);
   const [customImages, setCustomImages] = useState([]);
@@ -185,94 +193,278 @@ const App = () => {
     }
   };
 
-  return (
-    <div className="app-container">
-      {/* Шапка */}
-      <header className="header">
-        <div className="logo-section">
-          <Layers className="logo-icon" size={26} />
-          <span className="logo-text">Antigravity Hosting</span>
-          <span className="logo-badge">KubeVirt Edition</span>
-        </div>
-        
-        {/* Кнопки переключения вкладок */}
-        <div style={{ display: 'flex', gap: '8px', background: 'rgba(0, 0, 0, 0.04)', padding: '4px', borderRadius: '0px', border: '1px solid var(--border-color)' }}>
-          <button 
-            className={`btn btn-sm ${activeTab === 'dashboard' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'dashboard' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
-            onClick={() => setActiveTab('dashboard')}
-          >
-            <LayoutDashboard size={14} />
-            Дашборд
-          </button>
-          <button 
-            className={`btn btn-sm ${activeTab === 'aegis' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'aegis' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
-            onClick={() => setActiveTab('aegis')}
-          >
-            <Layers size={14} />
-            Aegis-HCI
-          </button>
-          <button 
-            className={`btn btn-sm ${activeTab === 'aws' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'aws' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
-            onClick={() => setActiveTab('aws')}
-          >
-            <Cloud size={14} />
-            AWS Console
-          </button>
-          <button 
-            className={`btn btn-sm ${activeTab === 'vms' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'vms' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
-            onClick={() => setActiveTab('vms')}
-          >
-            <Activity size={14} />
-            Виртуальные машины
-          </button>
-          <button 
-            className={`btn btn-sm ${activeTab === 'images' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'images' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
-            onClick={() => setActiveTab('images')}
-          >
-            <FolderOpen size={14} />
-            Образы дисков
-          </button>
-          <button 
-            className={`btn btn-sm ${activeTab === 'external' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'external' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
-            onClick={() => setActiveTab('external')}
-          >
-            <Link2 size={14} />
-            Внешние серверы
-          </button>
-          <button 
-            className={`btn btn-sm ${activeTab === 'docker' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'docker' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
-            onClick={() => setActiveTab('docker')}
-          >
-            <Shield size={14} />
-            Docker Админка
-          </button>
-          <button 
-            className={`btn btn-sm ${activeTab === 'infra' ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ color: activeTab === 'infra' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
-            onClick={() => setActiveTab('infra')}
-          >
-            <Terminal size={14} />
-            Инфраструктура
-          </button>
-        </div>
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (tokenInput.trim() === 'aegis-admin-secret-key-2026') {
+      localStorage.setItem('aegis_admin_token', tokenInput.trim());
+      setAuthenticated(true);
+    } else {
+      alert('Неверный ключ доступа (Admin Token). Пожалуйста, введите корректный ключ.');
+    }
+  };
 
-        <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            <ShieldCheck size={16} color="var(--success)" />
-            <span>K3s Cluster: <strong style={{ color: 'var(--success)' }}>Active</strong></span>
+  const handleLogout = () => {
+    localStorage.removeItem('aegis_admin_token');
+    setAuthenticated(false);
+  };
+
+  const handleCreateProject = (e) => {
+    e.preventDefault();
+    if (!newProjectName.trim()) return;
+    if (projectsList.includes(newProjectName.trim())) {
+      alert("Проект с таким названием уже существует.");
+      return;
+    }
+    setProjectsList(prev => [...prev, newProjectName.trim()]);
+    setSelectedProject(newProjectName.trim());
+    setNewProjectName('');
+    setShowProjectDropdown(false);
+    alert(`Проект "${newProjectName.trim()}" успешно создан!`);
+  };
+
+  if (!authenticated) {
+    return (
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        backgroundColor: '#0a0d16',
+        backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(92, 100, 236, 0.08) 0%, transparent 50%)',
+        fontFamily: 'var(--font-sans)',
+        padding: '20px'
+      }}>
+        <div className="card" style={{
+          width: '420px',
+          padding: '36px 30px',
+          background: '#111522',
+          border: '1px solid var(--border-color)',
+          borderRadius: '12px',
+          boxShadow: '0 24px 64px rgba(0, 0, 0, 0.4)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '24px'
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', textAlign: 'center' }}>
+            <div style={{ background: 'rgba(92, 100, 236, 0.1)', padding: '14px', borderRadius: '12px', color: '#5c64ec' }}>
+              <Shield size={36} />
+            </div>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '10px 0 2px 0', color: 'white' }}>Aegis Admin Panel</h2>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+              Для доступа к консоли администрирования гипервизора введите ключ авторизации API-Key
+            </p>
+          </div>
+
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Admin Token</label>
+              <div style={{ position: 'relative' }}>
+                <Key size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input 
+                  type="password"
+                  className="form-input"
+                  style={{ width: '100%', paddingLeft: '38px', background: '#0a0d16', borderRadius: '8px' }}
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="Введите ключ доступа..."
+                  required
+                />
+              </div>
+              <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginTop: '4px', lineHeight: 1.3 }}>
+                Подсказка: стандартный демонстрационный ключ: <br/>
+                <code style={{ color: '#a3a8ff', fontFamily: 'var(--font-mono)' }}>aegis-admin-secret-key-2026</code>
+              </small>
+            </div>
+
+            <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: '0.9rem', borderRadius: '8px', marginTop: '8px' }}>
+              Авторизоваться
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-layout">
+      
+      {/* Left Sidebar */}
+      <aside className="sidebar">
+        {/* Logo section */}
+        <div className="sidebar-logo">
+          <Layers className="logo-icon" size={26} />
+          <div className="logo-text-group">
+            <span className="logo-text">Aegis Admin</span>
+            <span className="logo-badge">KubeVirt Edition</span>
           </div>
         </div>
-      </header>
 
-      {/* Основной контент */}
-      <main className="main-content">
+        {/* Projects dropdown */}
+        <div className="projects-dropdown">
+          <span className="projects-label">Проекты</span>
+          
+          <div style={{ position: 'relative' }}>
+            <button className="project-selector-btn" onClick={() => setShowProjectDropdown(!showProjectDropdown)}>
+              <div className="project-info">
+                <span className="project-bullet"></span>
+                <span>{selectedProject}</span>
+              </div>
+              <ChevronDown size={14} />
+            </button>
+            
+            {showProjectDropdown && (
+              <div style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                right: 0,
+                background: '#161b2a',
+                border: '1px solid var(--border-color)',
+                borderRadius: '8px',
+                marginTop: '4px',
+                zIndex: 10,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                padding: '8px'
+              }}>
+                {projectsList.map(proj => (
+                  <button 
+                    key={proj}
+                    onClick={() => {
+                      setSelectedProject(proj);
+                      setShowProjectDropdown(false);
+                    }}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      background: proj === selectedProject ? 'rgba(92,100,236,0.1)' : 'transparent',
+                      border: 'none',
+                      color: proj === selectedProject ? '#a3a8ff' : 'var(--text-secondary)',
+                      padding: '6px 10px',
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      borderRadius: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: proj === selectedProject ? '#5c64ec' : '#64748b' }}></span>
+                    {proj}
+                  </button>
+                ))}
+                <div style={{ borderTop: '1px solid var(--border-color)', marginTop: '8px', paddingTop: '8px' }}>
+                  <form onSubmit={handleCreateProject} style={{ display: 'flex', gap: '6px' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Новый проект" 
+                      value={newProjectName} 
+                      onChange={(e) => setNewProjectName(e.target.value)} 
+                      style={{
+                        flex: 1,
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '4px',
+                        color: 'white',
+                        fontSize: '0.75rem',
+                        padding: '4px 6px',
+                        outline: 'none'
+                      }}
+                    />
+                    <button type="submit" className="btn btn-primary btn-sm" style={{ padding: '2px 8px', borderRadius: '4px' }}>+</button>
+                  </form>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Sidebar Nav Links */}
+        <div className="sidebar-nav">
+          <button 
+            className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setActiveTab('dashboard')}
+          >
+            <LayoutDashboard size={16} />
+            <span>Дашборд</span>
+          </button>
+          
+          <button 
+            className={`nav-item ${activeTab === 'aegis' ? 'active' : ''}`}
+            onClick={() => setActiveTab('aegis')}
+          >
+            <Layers size={16} />
+            <span>Aegis-HCI</span>
+          </button>
+
+          <button 
+            className={`nav-item ${activeTab === 'aws' ? 'active' : ''}`}
+            onClick={() => setActiveTab('aws')}
+          >
+            <Cloud size={16} />
+            <span>AWS Console</span>
+          </button>
+
+          <button 
+            className={`nav-item ${activeTab === 'vms' ? 'active' : ''}`}
+            onClick={() => setActiveTab('vms')}
+          >
+            <Activity size={16} />
+            <span>Виртуальные машины</span>
+          </button>
+
+          <button 
+            className={`nav-item ${activeTab === 'images' ? 'active' : ''}`}
+            onClick={() => setActiveTab('images')}
+          >
+            <FolderOpen size={16} />
+            <span>Образы дисков</span>
+          </button>
+
+          <button 
+            className={`nav-item ${activeTab === 'external' ? 'active' : ''}`}
+            onClick={() => setActiveTab('external')}
+          >
+            <Link2 size={16} />
+            <span>Внешние серверы</span>
+          </button>
+
+          <button 
+            className={`nav-item ${activeTab === 'docker' ? 'active' : ''}`}
+            onClick={() => setActiveTab('docker')}
+          >
+            <Shield size={16} />
+            <span>Docker Админка</span>
+          </button>
+
+          <button 
+            className={`nav-item ${activeTab === 'infra' ? 'active' : ''}`}
+            onClick={() => setActiveTab('infra')}
+          >
+            <Terminal size={16} />
+            <span>Инфраструктура</span>
+          </button>
+        </div>
+
+        {/* Sidebar Footer with cluster status and logout */}
+        <div className="sidebar-footer">
+          <div className="cluster-status" style={{ marginBottom: '12px' }}>
+            <span className="status-indicator active"></span>
+            <span>K3s Cluster: <strong style={{ color: 'var(--success)' }}>Active</strong></span>
+          </div>
+          <button 
+            className="btn btn-secondary btn-sm" 
+            style={{ width: '100%', justifyContent: 'center', gap: '8px', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.15)', background: 'rgba(239, 68, 68, 0.04)' }}
+            onClick={handleLogout}
+          >
+            <LogOut size={14} />
+            Выйти из панели
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content View */}
+      <main className="main-content-layout">
         
         {/* Вкладка 1: Дашборд */}
         {activeTab === 'dashboard' && (

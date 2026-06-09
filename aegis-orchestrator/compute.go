@@ -234,14 +234,23 @@ func setupLowLevelContainer(c *Container) {
 	}
 	_ = os.WriteFile(filepath.Join(c.CgroupPath, "cpuset.cpus"), []byte(cpusStr), 0644)
 
-	// 2. Spawn isolated process using Linux namespaces (CLONE_NEWPID, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWUTS, CLONE_NEWIPC)
+	// 2. Spawn isolated process using Linux namespaces (CLONE_NEWPID, CLONE_NEWNET, CLONE_NEWNS, CLONE_NEWUTS, CLONE_NEWIPC, CLONE_NEWUSER)
 	// We run a sleep loop shell inside namespaces
 	cmd := exec.Command("/bin/sh", "-c", "while true; do sleep 15; done")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWNET | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC,
+		Cloneflags: syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWNET | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWUSER,
 	}
 
 	err = cmd.Start()
+	if err != nil {
+		fmt.Printf("[Aegis-Compute] Предупреждение: не удалось запустить с CLONE_NEWUSER (%v). Пробуем запустить без изоляции пользовательского неймспейса...\n", err)
+		cmd = exec.Command("/bin/sh", "-c", "while true; do sleep 15; done")
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Cloneflags: syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWNET | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC,
+		}
+		err = cmd.Start()
+	}
+
 	if err != nil {
 		fmt.Printf("[Aegis-Compute] Ошибка запуска процесса в namespace: %v\n", err)
 		return

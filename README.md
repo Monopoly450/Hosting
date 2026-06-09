@@ -936,7 +936,7 @@ services:
     environment:
       - POSTGRES_DB=aegis
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -952,6 +952,8 @@ services:
       dockerfile: Dockerfile
     container_name: hosting-backend
     network_mode: host
+    privileged: true
+    pid: host
     restart: unless-stopped
     depends_on:
       db:
@@ -963,11 +965,14 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       # Папка для загрузки и хранения кастомных образов ОС и настроек серверов
       - ./data:/app/data:rw
+      # Пробрасываем корень проекта для Git-интеграции
+      - .:/app/repo:rw
     environment:
       - PORT=8000
       - HOST=0.0.0.0
       - IMAGES_DIR=/app/data/images
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/aegis
+      - DATABASE_URL=${DATABASE_URL}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
     logging:
       driver: "json-file"
       options:
@@ -1003,7 +1008,8 @@ services:
       - ./data:/app/data:rw
     environment:
       - PORT=8001
-      - DB_CONN_STR=postgresql://postgres:postgres@127.0.0.1:5432/aegis?sslmode=disable
+      - DB_CONN_STR=${DB_CONN_STR}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
     logging:
       driver: "json-file"
       options:
@@ -1029,7 +1035,25 @@ volumes:
   postgres_data:
 ```
 
-### 10.2. Сборка и первый запуск
+### 10.2. Настройка переменных окружения (`.env`)
+
+Для безопасного управления паролями и токенами создайте файл `.env` в корневой директории проекта:
+
+```ini
+# Настройки PostgreSQL
+POSTGRES_DB=aegis
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=aegis-secure-db-pass-2026
+
+# Токен администратора для авторизации в API
+ADMIN_TOKEN=aegis-admin-secret-key-2026
+
+# Ссылки для подключения к базе данных для бэкенда и Go-оркестратора
+DATABASE_URL=postgresql+asyncpg://postgres:aegis-secure-db-pass-2026@127.0.0.1:5432/aegis
+DB_CONN_STR=postgresql://postgres:aegis-secure-db-pass-2026@127.0.0.1:5432/aegis?sslmode=disable
+```
+
+### 10.3. Сборка и первый запуск
 
 Сборка статических файлов фронтенда администратора (`frontend`) и личного кабинета пользователя (`vds`) происходит автоматически на этапе сборки Docker-образов (благодаря multi-stage сборке Node -> Nginx в Dockerfile каждого фронтенд-модуля). Это полностью избавляет от необходимости предварительно настраивать Node.js на хост-сервере.
 
@@ -1048,26 +1072,19 @@ volumes:
    sudo docker compose logs aegis-orchestrator
    ```
 
-### 10.3. Архитектура веб-серверов фронтенда (Nginx в Docker)
+### 10.4. Архитектура веб-серверов фронтенда (Nginx SSL/HTTPS в Docker)
 
-В новой архитектуре Aegis Cloud Engine вам больше не нужно устанавливать и настраивать Nginx на хост-сервере. Каждый фронтенд-сервис:
-*   `hosting-frontend` (порт `8080`) — консоль администратора
-*   `vds-frontend` (порт `8081`) — личный кабинет пользователя
+В новой архитектуре Aegis Cloud Engine вам больше не нужно вручную устанавливать и настраивать Nginx на хост-сервере для работы по HTTPS. Каждый фронтенд-сервис:
+*   `hosting-frontend` (порты `8080` / `8443` SSL) — консоль администратора
+*   `vds-frontend` (порты `8081` / `8444` SSL) — личный кабинет пользователя
 
-уже содержит внутри себя легковесный веб-сервер Nginx (см. `frontend/Dockerfile` и `vds/Dockerfile`). При сборке образов статические файлы React компилируются через Node.js и копируются напрямую в образ Nginx.
+уже содержит внутри себя веб-сервер Nginx (см. `frontend/Dockerfile` и `vds/Dockerfile`). При первом запуске скрипт-обертка `start-nginx.sh` внутри контейнера проверяет наличие ключей SSL и автоматически генерирует самоподписанные сертификаты безопасности с помощью утилиты OpenSSL.
 
-Поскольку контейнеры запущены в режиме `network_mode: host`, они автоматически биндятся на порты `8080` и `8081` вашего физического сервера / виртуалки.
+Поскольку контейнеры запущены в режиме `network_mode: host`, они автоматически биндятся на порты `8080/8443` и `8081/8444` вашего физического сервера / виртуалки. Запросы на HTTP порты (8080/8081) автоматически перенаправляются на HTTPS.
 
-#### Дополнительно: Настройка внешнего Nginx в качестве Reverse Proxy (SSL / HTTPS)
-Если вы хотите привязать доменное имя и защитить панель сертификатом SSL (Let's Encrypt), вы можете установить Nginx на хост-систему:
-```bash
-sudo apt update && sudo apt install nginx certbot python3-certbot-nginx -y
-```
-И настроить конфигурационный файл (например, `/etc/nginx/sites-available/aegis`) для проксирования на локальные порты `8080` и `8081`.
+### 10.5. Настройка СУБД PostgreSQL и автоинициализация схемы
 
-### 10.4. Настройка СУБД PostgreSQL и автоинициализация схемы
-
-Для перехода с файлового JSON-хранилища на централизованную базу данных в проект была интегрирована СУБД PostgreSQL. Это обеспечивает транзакционную надежность, отказоустойчивость и возможность масштабирования, когда несколько нод панели управления или Go-оркестраторов работают с единым источником данных.
+Для перехода с файлового JSON-хранилища на централизованную базу данных в проект была интегрирована СУБД PostgreSQL. Это обеспечивает транзакционную надежность, отказоустойчивость и возможность масштабирования, когда несколько нод панели управления или Go-оркестров работают с единым источником данных.
 
 #### Архитектура и Переменные Окружения
 Оба основных сервиса управления используют единую СУБД:

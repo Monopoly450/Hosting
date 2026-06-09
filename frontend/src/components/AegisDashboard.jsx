@@ -65,7 +65,8 @@ const AegisDashboard = () => {
 
   // Setup SSE Connection
   useEffect(() => {
-    eventSourceRef.current = new EventSource('/api/aegis/stream');
+    const adminToken = localStorage.getItem('aegis_admin_token') || 'aegis-admin-secret-key-2026';
+    eventSourceRef.current = new EventSource(`/api/aegis/stream?token=${adminToken}`);
 
     eventSourceRef.current.onmessage = (event) => {
       try {
