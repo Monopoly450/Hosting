@@ -25,6 +25,8 @@ services:
       dockerfile: Dockerfile
     container_name: hosting-backend
     network_mode: host
+    privileged: true
+    pid: host
     restart: unless-stopped
     depends_on:
       db:

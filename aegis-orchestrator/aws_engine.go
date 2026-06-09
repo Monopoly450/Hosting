@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -284,6 +285,33 @@ func CheckIAMPermission(username, action, resource string) bool {
 	return allowed
 }
 
+var (
+	protocolRegex  = regexp.MustCompile(`^(?i:tcp|udp|icmp|all)$`)
+	portRangeRegex = regexp.MustCompile(`^(?i:all)$|^\d+$|^\d+-\d+$`)
+	sourceRegex    = regexp.MustCompile(`^[a-zA-Z0-9./:]+$`)
+)
+
+func ValidateSecurityGroupRules(rules []SecurityGroupRule) error {
+	for i, r := range rules {
+		if r.Type != "Inbound" && r.Type != "Outbound" {
+			return fmt.Errorf("rule %d: invalid type (must be Inbound or Outbound): %s", i, r.Type)
+		}
+		if r.Protocol == "" {
+			return fmt.Errorf("rule %d: protocol cannot be empty", i)
+		}
+		if !protocolRegex.MatchString(r.Protocol) {
+			return fmt.Errorf("rule %d: invalid protocol: %s", i, r.Protocol)
+		}
+		if r.PortRange != "" && !portRangeRegex.MatchString(r.PortRange) {
+			return fmt.Errorf("rule %d: invalid port range: %s", i, r.PortRange)
+		}
+		if r.Source != "" && !sourceRegex.MatchString(r.Source) {
+			return fmt.Errorf("rule %d: invalid source: %s", i, r.Source)
+		}
+	}
+	return nil
+}
+
 // Compiles stateful rules to actual Linux iptables rules
 func ApplySecurityGroupRules(containerID string, rules []SecurityGroupRule) {
 	fmt.Printf("[AWS-VPC] Компиляция Security Group правил для контейнера %s...\n", containerID)
@@ -293,11 +321,6 @@ func ApplySecurityGroupRules(containerID string, rules []SecurityGroupRule) {
 		return
 	}
 
-	// For real Linux: we find the container PID and execute iptables commands inside the container's net namespace
-	// We run: ip netns exec <ns> iptables -F INPUT (etc.)
-	// Since our containers run in custom namespaces, we can enter the net namespace of the container PID:
-	// "nsenter -t <pid> -n iptables ..."
-	
 	state.mu.RLock()
 	var containerPID int
 	for _, c := range state.Containers {
@@ -314,32 +337,49 @@ func ApplySecurityGroupRules(containerID string, rules []SecurityGroupRule) {
 
 	go func() {
 		// 1. Flush INPUT rules inside container net namespace
-		cmdStr := fmt.Sprintf("nsenter -t %d -n iptables -F INPUT", containerPID)
-		_ = exec.Command("/bin/sh", "-c", cmdStr).Run()
+		_ = exec.Command("nsenter", "-t", fmt.Sprintf("%d", containerPID), "-n", "iptables", "-F", "INPUT").Run()
 
 		// 2. Set default policy to DROP for INPUT (Stateful incoming firewall)
-		_ = exec.Command("/bin/sh", "-c", fmt.Sprintf("nsenter -t %d -n iptables -P INPUT DROP", containerPID)).Run()
+		_ = exec.Command("nsenter", "-t", fmt.Sprintf("%d", containerPID), "-n", "iptables", "-P", "INPUT", "DROP").Run()
 
 		// 3. Allow established/related sessions (Stateful rule!)
-		_ = exec.Command("/bin/sh", "-c", fmt.Sprintf("nsenter -t %d -n iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT", containerPID)).Run()
+		_ = exec.Command("nsenter", "-t", fmt.Sprintf("%d", containerPID), "-n", "iptables", "-A", "INPUT", "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT").Run()
 
 		// 4. Loop through and apply rules
 		for _, r := range rules {
 			if r.Type != "Inbound" {
 				continue
 			}
-			
-			// Build iptables rule
-			ruleCmd := fmt.Sprintf("nsenter -t %d -n iptables -A INPUT -p %s", containerPID, r.Protocol)
-			if r.PortRange != "all" && r.PortRange != "" {
-				ruleCmd += fmt.Sprintf(" --dport %s", r.PortRange)
-			}
-			if r.Source != "0.0.0.0/0" && r.Source != "" {
-				ruleCmd += fmt.Sprintf(" -s %s", r.Source)
-			}
-			ruleCmd += " -j ACCEPT"
 
-			_ = exec.Command("/bin/sh", "-c", ruleCmd).Run()
+			// Validate rule again (just in case)
+			if !protocolRegex.MatchString(r.Protocol) ||
+				(r.PortRange != "" && !portRangeRegex.MatchString(r.PortRange)) ||
+				(r.Source != "" && !sourceRegex.MatchString(r.Source)) {
+				fmt.Printf("[AWS-VPC] Пропуск некорректного правила Security Group: %+v\n", r)
+				continue
+			}
+
+			// Build args list for exec.Command
+			args := []string{"-t", fmt.Sprintf("%d", containerPID), "-n", "iptables", "-A", "INPUT"}
+			
+			proto := strings.ToLower(r.Protocol)
+			if proto != "all" {
+				args = append(args, "-p", proto)
+				if r.PortRange != "all" && r.PortRange != "" {
+					args = append(args, "--dport", r.PortRange)
+				}
+			} else {
+				if r.PortRange != "all" && r.PortRange != "" {
+					fmt.Printf("[AWS-VPC] Предупреждение: --dport %s не может быть применен для протокола 'all'. Игнорируем порт.\n", r.PortRange)
+				}
+			}
+
+			if r.Source != "0.0.0.0/0" && r.Source != "" {
+				args = append(args, "-s", r.Source)
+			}
+			args = append(args, "-j", "ACCEPT")
+
+			_ = exec.Command("nsenter", args...).Run()
 		}
 
 		fmt.Printf("[AWS-VPC] Успешно применены правила iptables для PID %d\n", containerPID)

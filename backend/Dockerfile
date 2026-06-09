@@ -2,10 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Устанавливаем системные зависимости (curl, git)
+# Устанавливаем системные зависимости (curl, git, iptables, util-linux)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
+    iptables \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Копируем и устанавливаем Python-зависимости

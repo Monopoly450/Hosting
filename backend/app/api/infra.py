@@ -65,55 +65,34 @@ def get_git_info():
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Ошибка локального Git: {str(e)}")
     
-    repo_path = get_repo_host_path(client)
-    
-    # Запускаем команды через nsenter на хосте
+    repo_path = "/app/repo"
     try:
-        # Получаем последний коммит
-        git_log_cmd = f"cd {repo_path} && git log -n 1 --format='%H|%an|%ad|%s'"
-        log_res = client.containers.run(
-            image="postgres:15-alpine",
-            command=["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", git_log_cmd],
-            privileged=True,
-            pid_mode="host",
-            remove=True
-        ).decode('utf-8').strip()
-        
+        # Запустим команды в смонтированной папке репозитория
+        log_res = subprocess.run(
+            ["git", "log", "-n", "1", "--format=%H|%an|%ad|%s"], 
+            cwd=repo_path, capture_output=True, text=True, timeout=5
+        ).stdout.strip()
         parts = log_res.split('|', 3)
         commit_hash = parts[0] if len(parts) > 0 else "N/A"
         author = parts[1] if len(parts) > 1 else "N/A"
         date = parts[2] if len(parts) > 2 else "N/A"
         subject = parts[3] if len(parts) > 3 else "N/A"
         
-        # Получаем текущую ветку
-        git_branch_cmd = f"cd {repo_path} && git rev-parse --abbrev-ref HEAD"
-        branch = client.containers.run(
-            image="postgres:15-alpine",
-            command=["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", git_branch_cmd],
-            privileged=True,
-            pid_mode="host",
-            remove=True
-        ).decode('utf-8').strip()
+        branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], 
+            cwd=repo_path, capture_output=True, text=True, timeout=5
+        ).stdout.strip()
         
-        # Получаем статус (изменения)
-        git_status_cmd = f"cd {repo_path} && git status --short"
-        status_res = client.containers.run(
-            image="postgres:15-alpine",
-            command=["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", git_status_cmd],
-            privileged=True,
-            pid_mode="host",
-            remove=True
-        ).decode('utf-8').strip()
+        status_res = subprocess.run(
+            ["git", "status", "--short"], 
+            cwd=repo_path, capture_output=True, text=True, timeout=5
+        ).stdout.strip()
         
-        # Проверяем, есть ли обновления в репозитории (git fetch && git status -uno)
-        git_fetch_cmd = f"cd {repo_path} && git fetch && git status -uno"
-        fetch_res = client.containers.run(
-            image="postgres:15-alpine",
-            command=["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", git_fetch_cmd],
-            privileged=True,
-            pid_mode="host",
-            remove=True
-        ).decode('utf-8').strip()
+        # Для git fetch && git status -uno мы используем nsenter на хосте
+        host_repo_path = "/Users/vladislavkarasev/Documents/Хостинг"
+        git_fetch_cmd = f"cd {host_repo_path} && git fetch && git status -uno"
+        nsenter_cmd = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", git_fetch_cmd]
+        fetch_res = subprocess.run(nsenter_cmd, capture_output=True, text=True, timeout=10).stdout.strip()
         
         up_to_date = "your branch is up to date" in fetch_res.lower()
         behind = "behind" in fetch_res.lower()
@@ -137,7 +116,6 @@ def get_git_info():
             "local_changes": status_res
         }
     except Exception as e:
-        # Если nsenter завершился с ошибкой, попробуем запустить локально в контейнере в /app/repo
         try:
             log_res = subprocess.run(
                 ["git", "log", "-n", "1", "--format=%H|%an|%ad|%s"], 
@@ -161,7 +139,7 @@ def get_git_info():
                 "author": parts[1] if len(parts) > 1 else "N/A",
                 "date": parts[2] if len(parts) > 2 else "N/A",
                 "subject": parts[3] if len(parts) > 3 else "N/A",
-                "status_text": "Local container mode (Host command execution failed)",
+                "status_text": "Local container mode (Fallback)",
                 "local_changes": status_res
             }
         except Exception as local_err:
@@ -170,41 +148,26 @@ def get_git_info():
 @router.post("/git-pull")
 def git_pull():
     """Выполняет git pull и перезапуск/пересборку docker-compose на хосте"""
-    client = get_docker_client()
-    if not client:
-        # Пытаемся сделать git pull локально в контейнере
-        try:
-            git_pull_res = subprocess.run(["git", "pull"], cwd="/app/repo", capture_output=True, text=True, timeout=15)
-            return {
-                "status": "partial_success",
-                "output": f"Docker Daemon недоступен. Выполнен git pull локально в контейнере:\n{git_pull_res.stdout}\n{git_pull_res.stderr}"
-            }
-        except Exception as e:
-            raise HTTPException(status_code=503, detail=f"Docker недоступен, локальный git pull завершился ошибкой: {str(e)}")
-    
-    repo_path = get_repo_host_path(client)
-    
-    # Выполняем git pull и docker compose up -d --build на хосте
-    # Это пересоберет образы с новым кодом без полной перезагрузки ОС хоста!
-    cmd = f"cd {repo_path} && git pull && docker compose up -d --build"
+    host_repo_path = "/Users/vladislavkarasev/Documents/Хостинг"
+    cmd = f"cd {host_repo_path} && git pull && docker compose up -d --build"
     try:
-        output = client.containers.run(
-            image="postgres:15-alpine",
-            command=["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", cmd],
-            privileged=True,
-            pid_mode="host",
-            remove=True
-        ).decode('utf-8')
-        return {"status": "success", "output": output}
+        nsenter_cmd = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", cmd]
+        res = subprocess.run(nsenter_cmd, capture_output=True, text=True, timeout=60)
+        output = res.stdout + res.stderr
+        if res.returncode == 0:
+            return {"status": "success", "output": output}
+        else:
+            raise Exception(f"nsenter failed: {output}")
     except Exception as e:
-        # Попробуем альтернативный запуск просто git pull в контейнере и перезапуск через SDK
         try:
             git_pull_res = subprocess.run(["git", "pull"], cwd="/app/repo", capture_output=True, text=True, timeout=15)
+            client = get_docker_client()
             restarted = []
-            for c in client.containers.list(all=True):
-                if c.name in ["hosting-frontend", "vds-frontend", "aegis-orchestrator", "hosting-backend"]:
-                    c.restart(timeout=10)
-                    restarted.append(c.name)
+            if client:
+                for c in client.containers.list(all=True):
+                    if c.name in ["hosting-frontend", "vds-frontend", "aegis-orchestrator", "hosting-backend"]:
+                        c.restart(timeout=10)
+                        restarted.append(c.name)
             return {
                 "status": "partial_success",
                 "output": f"Git pull (local container):\n{git_pull_res.stdout}\n{git_pull_res.stderr}\n\nРестарт контейнеров: {', '.join(restarted)}"
@@ -219,7 +182,6 @@ def get_service_logs(service: str = Query(..., description="Имя сервис�
     if not client:
         raise HTTPException(status_code=503, detail="Docker Daemon недоступен.")
     
-    # Сопоставляем человекочитаемые имена с реальными именами контейнеров
     service_map = {
         "backend": "hosting-backend",
         "frontend": "hosting-frontend",
@@ -239,33 +201,18 @@ def get_service_logs(service: str = Query(..., description="Имя сервис�
 @router.post("/execute-command")
 def execute_command(req: CommandRequest):
     """Выполняет произвольную команду на хост-сервере через nsenter"""
-    client = get_docker_client()
-    if not client:
-        # Попробуем запустить локально в контейнере
-        try:
-            res = subprocess.run(req.command, shell=True, capture_output=True, text=True, timeout=10)
-            return {"status": "local_success", "output": f"Stdout:\n{res.stdout}\n\nStderr:\n{res.stderr}"}
-        except Exception as local_err:
-            raise HTTPException(status_code=503, detail=f"Docker недоступен, локальное выполнение завершилось ошибкой: {str(local_err)}")
-        
     cmd = req.command
-    # Базовая защита от вредоносных команд
     forbidden_keywords = ["rm -rf /", "mkfs", "dd ", "shutdown", "reboot", "poweroff"]
     for kw in forbidden_keywords:
         if kw in cmd:
             raise HTTPException(status_code=400, detail=f"Команда содержит запрещенный токен: '{kw}'")
             
     try:
-        output = client.containers.run(
-            image="postgres:15-alpine",
-            command=["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", cmd],
-            privileged=True,
-            pid_mode="host",
-            remove=True
-        ).decode('utf-8')
-        return {"status": "success", "output": output}
+        # Выполняем nsenter прямо через subprocess.run из привилегированного контейнера
+        nsenter_cmd = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c", cmd]
+        res = subprocess.run(nsenter_cmd, capture_output=True, text=True, timeout=30)
+        return {"status": "success", "output": res.stdout + res.stderr}
     except Exception as e:
-        # Локальный запуск в контейнере в качестве запасного варианта
         try:
             res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
             return {"status": "local_success", "output": f"Stdout:\n{res.stdout}\n\nStderr:\n{res.stderr}"}
