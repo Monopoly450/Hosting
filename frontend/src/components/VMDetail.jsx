@@ -372,12 +372,10 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
         </div>
 
         {/* Тело панели */}
-        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <div className="vm-detail-body" style={{ flex: 1, minHeight: 0 }}>
           
           {/* ЛЕВАЯ КОЛОНКА (Сайдбар информации и управления) */}
-          <div style={{
-            width: '330px',
-            borderRight: '1px solid var(--border-color)',
+          <div className="vm-detail-sidebar" style={{
             padding: '20px',
             display: 'flex',
             flexDirection: 'column',
@@ -654,16 +652,14 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
           </div>
 
           {/* ПРАВАЯ КОЛОНКА (Контент вкладок) */}
-          <div style={{
+          <div className="vm-detail-content" style={{
             flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
             padding: '24px',
             minHeight: 0
           }}>
             
             {/* Меню переключения вкладок */}
-            <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
               {vm.status === 'Running' && (
                 <>
                   <button 
@@ -1009,7 +1005,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', minHeight: 0 }}>
                       
                       {/* Шкалы ресурсов */}
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px' }}>
+                      <div className="responsive-grid-3" style={{ gap: '15px' }}>
                         {/* CPU */}
                         <div className="card" style={{ padding: '16px', background: 'rgba(0,0,0,0.01)' }}>
                           <div className="stat-item">

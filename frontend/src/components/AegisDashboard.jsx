@@ -444,7 +444,7 @@ const AegisDashboard = () => {
 
       {/* SUBTAB 1: COMPUTE ENGINE */}
       {subTab === 'compute' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '24px' }}>
+        <div className="responsive-grid-1-2">
           
           {/* Create container & settings */}
           <div>
@@ -568,7 +568,7 @@ const AegisDashboard = () => {
                 Инструмент No-Overselling (Сетка ядер CPU хоста)
               </h3>
               
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginTop: '16px' }}>
+              <div className="responsive-grid-4" style={{ marginTop: '16px' }}>
                 {[0, 1, 2, 3, 4, 5, 6, 7].map(core => {
                   const owner = pinnedCoresMap[core];
                   
@@ -673,7 +673,7 @@ const AegisDashboard = () => {
 
       {/* SUBTAB 2: NETWORK LAYER */}
       {subTab === 'network' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1.2fr', gap: '24px' }}>
+        <div className="responsive-grid-2-1">
           
           {/* Realtime Anti-DDoS Graph & Monitor */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -689,7 +689,7 @@ const AegisDashboard = () => {
               </div>
 
               {/* Network general stats */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '20px' }}>
+              <div className="responsive-grid-4" style={{ marginBottom: '20px' }}>
                 <div style={{ background: '#0d1117', border: '1px solid #30363d', padding: '10px' }}>
                   <span style={{ fontSize: '0.75rem', color: '#8b949e' }}>Сетевой стек</span>
                   <strong style={{ display: 'block', color: '#38bdf8', fontSize: '1rem', marginTop: '4px' }}>DPDK Bypass</strong>
@@ -850,7 +850,7 @@ const AegisDashboard = () => {
 
       {/* SUBTAB 3: STORAGE ENGINE */}
       {subTab === 'storage' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1.4fr', gap: '24px' }}>
+        <div className="responsive-grid-1-1">
           
           {/* Reed-Solomon Erasure Coding Visualizer */}
           <div style={{ background: '#161b22', border: '1px solid #30363d', padding: '20px', borderRadius: '0px' }}>
@@ -894,7 +894,7 @@ const AegisDashboard = () => {
             <div style={{ borderTop: '1px solid #30363d', paddingTop: '16px' }}>
               <h4 style={{ margin: '0 0 12px 0', fontSize: '0.95rem' }}>Узлы Хранения S3 Cluster</h4>
               
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+              <div className="responsive-grid-3">
                 {s3Nodes.map(n => (
                   <div 
                     key={n.id} 
@@ -1050,7 +1050,7 @@ const AegisDashboard = () => {
 
       {/* SUBTAB 4: METRICS AND BILLING */}
       {subTab === 'billing' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.5fr', gap: '24px' }}>
+        <div className="responsive-grid-1-1">
           
           {/* TSDB and Gorilla Compression ratio */}
           <div style={{ background: '#161b22', border: '1px solid #30363d', padding: '20px', borderRadius: '0px' }}>
@@ -1063,7 +1063,7 @@ const AegisDashboard = () => {
               Наша собственная TSDB на лету сжимает собираемые метрики (CPU, RAM) с помощью алгоритма Gorilla (Double-Delta для времени и XOR-сжатие чисел).
             </p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', margin: '20px 0' }}>
+            <div className="responsive-grid-1-1" style={{ margin: '20px 0', gap: '14px' }}>
               <div style={{ background: '#0d1117', border: '1px solid #30363d', padding: '16px', textAlign: 'center' }}>
                 <span style={{ fontSize: '0.75rem', color: '#8b949e', display: 'block' }}>Точек Метрик в памяти</span>
                 <strong style={{ fontSize: '1.8rem', color: '#fff', fontFamily: 'monospace' }}>

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Layers, Plus, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, 
   Play, Square, Trash2, Key, HelpCircle, User, DollarSign, Wallet, Monitor, X, AlertCircle, RefreshCw, Cloud,
-  ChevronDown, Globe, Cpu, Wifi, Info, ChevronLeft, ChevronRight
+  ChevronDown, Globe, Cpu, Wifi, Info, ChevronLeft, ChevronRight, Menu
 } from 'lucide-react';
 import RFB from '@novnc/novnc';
 import AwsConsole from './components/AwsConsole';
@@ -276,6 +276,7 @@ const ClientVncConsole = ({ name, username, password, ips = [], onClose }) => {
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('landing'); // 'landing' | 'cabinet'
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [cabinetTab, setCabinetTab] = useState('servers'); // 'servers' | 'order' | 'billing' | 'balancers' | 'placeholder'
   const [placeholderTabName, setPlaceholderTabName] = useState('');
   
@@ -542,6 +543,7 @@ const App = () => {
   const handleSelectPlaceholderTab = (tabName) => {
     setPlaceholderTabName(tabName);
     setCabinetTab('placeholder');
+    setSidebarOpen(false);
   };
 
   return (
@@ -584,7 +586,7 @@ const App = () => {
             </div>
 
             {/* Plans Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', maxWidth: '1000px', width: '100%', marginTop: '80px' }}>
+            <div className="responsive-grid-3" style={{ maxWidth: '1000px', width: '100%', marginTop: '80px' }}>
               
               <div className="pricing-plan-card card">
                 <div>
@@ -649,9 +651,23 @@ const App = () => {
       {/* Authenticated Client Cabinet */}
       {activeTab === 'cabinet' && (
         <div className="app-layout">
-          
+          {/* Mobile Header */}
+          <div className="mobile-header">
+            <button className="menu-toggle-btn" onClick={() => setSidebarOpen(true)}>
+              <Menu size={24} />
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Layers size={20} color="#5c64ec" />
+              <span style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>Aegis Cabinet</span>
+            </div>
+            <div style={{ width: 24 }}></div>
+          </div>
+
+          {/* Sidebar Overlay */}
+          <div className={`sidebar-overlay ${sidebarOpen ? 'visible' : ''}`} onClick={() => setSidebarOpen(false)}></div>
+
           {/* Left Sidebar */}
-          <aside className="sidebar">
+          <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 8px', marginBottom: '8px' }}>
               <Layers size={26} color="#5c64ec" />
               <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -773,7 +789,7 @@ const App = () => {
 
               <button 
                 className={`nav-item ${cabinetTab === 'servers' || cabinetTab === 'order' ? 'active' : ''}`}
-                onClick={() => setCabinetTab('servers')}
+                onClick={() => { setCabinetTab('servers'); setSidebarOpen(false); }}
               >
                 <span>Выделенные серверы</span>
               </button>
@@ -816,7 +832,7 @@ const App = () => {
 
               <button 
                 className={`nav-item ${cabinetTab === 'balancers' ? 'active' : ''}`}
-                onClick={() => setCabinetTab('balancers')}
+                onClick={() => { setCabinetTab('balancers'); setSidebarOpen(false); }}
               >
                 <span>Балансировщики</span>
               </button>
@@ -859,14 +875,14 @@ const App = () => {
 
               <button 
                 className={`nav-item ${cabinetTab === 'billing' ? 'active' : ''}`}
-                onClick={() => setCabinetTab('billing')}
+                onClick={() => { setCabinetTab('billing'); setSidebarOpen(false); }}
               >
                 <span>Баланс и платежи</span>
               </button>
 
               <button 
                 className={`nav-item ${cabinetTab === 'aws' ? 'active' : ''}`}
-                onClick={() => setCabinetTab('aws')}
+                onClick={() => { setCabinetTab('aws'); setSidebarOpen(false); }}
               >
                 <span>AWS Консоль</span>
               </button>
@@ -965,7 +981,7 @@ const App = () => {
                       </button>
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '20px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
                       {vms.map(vm => (
                         <div key={vm.name} className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '220px' }}>
                           <div>
@@ -1128,7 +1144,7 @@ const App = () => {
 
               {/* TAB 3: Billing & Payments */}
               {cabinetTab === 'billing' && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '24px' }}>
+                <div className="responsive-grid-1-2">
                   
                   {/* Account overview */}
                   <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -1193,7 +1209,7 @@ const App = () => {
                           </button>
                         </div>
                       ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '20px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
                           {balancers.map(lb => (
                             <div key={lb.id} className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '220px' }}>
                               <div>
@@ -1546,7 +1562,7 @@ const App = () => {
       {/* Mock Payment Modal */}
       {showPaymentModal && (
         <div className="console-modal-backdrop">
-          <div className="card" style={{ width: '400px', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '12px' }}>
+          <div className="card" style={{ width: '400px', maxWidth: '90vw', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px', marginBottom: '16px' }}>
               <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Пополнение счета (Mock Pay)</h3>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowPaymentModal(false)}>

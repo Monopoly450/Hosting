@@ -574,7 +574,7 @@ const AwsConsole = ({ mode = 'client' }) => {
     <div className="aws-console-dashboard" style={{ color: '#e2e8f0', background: '#0a0e17', border: '1px solid #1e293b', minHeight: '80vh', fontFamily: 'var(--font-sans)' }}>
       
       {/* AWS Top Header bar mimicking real AWS Console */}
-      <div style={{ background: '#19222d', padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #ff9900' }}>
+      <div className="aws-header-bar" style={{ background: '#19222d', padding: '12px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #ff9900' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ background: '#ff9900', color: '#19222d', padding: '6px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Cloud size={18} />
@@ -600,7 +600,7 @@ const AwsConsole = ({ mode = 'client' }) => {
       </div>
 
       {/* Sub Tabs Navigation */}
-      <div style={{ display: 'flex', background: '#121824', borderBottom: '1px solid #1e293b' }}>
+      <div className="aws-tab-bar" style={{ display: 'flex', background: '#121824', borderBottom: '1px solid #1e293b' }}>
         {[
           { id: 'ec2', label: 'EC2 Dashboard (Серверы)', icon: <Server size={14} /> },
           { id: 'security', label: 'VPC Security Groups (Сеть)', icon: <Shield size={14} /> },
@@ -635,7 +635,7 @@ const AwsConsole = ({ mode = 'client' }) => {
 
         {/* TAB 1: EC2 INSTANCES */}
         {activeTab === 'ec2' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1.2fr', gap: '24px' }}>
+          <div className="aws-layout-grid" style={{ display: 'grid', gridTemplateColumns: '1.8fr 1.2fr', gap: '24px' }}>
             
             {/* Instances list */}
             <div>
@@ -783,7 +783,7 @@ const AwsConsole = ({ mode = 'client' }) => {
 
         {/* TAB 2: SECURITY GROUPS */}
         {activeTab === 'security' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '24px' }}>
+          <div className="aws-layout-grid" style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '24px' }}>
             
             {/* SGs List & Create */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -905,7 +905,7 @@ const AwsConsole = ({ mode = 'client' }) => {
                   {/* Add rule inline form */}
                   <div style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid #1e293b', padding: '16px', marginBottom: '24px' }}>
                     <h5 style={{ margin: '0 0 12px 0', fontSize: '0.85rem', color: '#fff' }}>Добавить входящее правило</h5>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1.5fr 1fr', gap: '10px', alignItems: 'end' }}>
+                    <div className="aws-subgrid" style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1.5fr 1fr', gap: '10px', alignItems: 'end' }}>
                       <div>
                         <label style={{ display: 'block', fontSize: '0.7rem', color: '#94a3b8', marginBottom: '4px' }}>Протокол</label>
                         <select className="form-input form-select" style={{ width: '100%', padding: '6px' }} value={newRuleProto} onChange={(e) => setNewRuleProto(e.target.value)}>
@@ -967,7 +967,7 @@ const AwsConsole = ({ mode = 'client' }) => {
 
         {/* TAB 3: S3 STORAGE */}
         {activeTab === 's3' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '24px' }}>
+          <div className="aws-layout-grid" style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '24px' }}>
             
             {/* Buckets list & Create */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -1102,7 +1102,7 @@ const AwsConsole = ({ mode = 'client' }) => {
                       Загрузить объект (Имитация S3 API PUT)
                     </h5>
                     
-                    <form onSubmit={handleUploadS3Object} style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 1fr', gap: '12px', alignItems: 'end' }}>
+                    <form onSubmit={handleUploadS3Object} className="aws-subgrid" style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 1fr', gap: '12px', alignItems: 'end' }}>
                       <div>
                         <label style={{ display: 'block', fontSize: '0.7rem', color: '#94a3b8', marginBottom: '4px' }}>Ключ / Путь к файлу</label>
                         <input 
@@ -1147,7 +1147,7 @@ const AwsConsole = ({ mode = 'client' }) => {
 
         {/* TAB 4: IAM MANAGER */}
         {activeTab === 'iam' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '24px' }}>
+          <div className="aws-layout-grid" style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.8fr', gap: '24px' }}>
             
             {/* Users list & Create */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -1291,7 +1291,7 @@ const AwsConsole = ({ mode = 'client' }) => {
                       Симулятор политик доступа (IAM Policy Simulator)
                     </h3>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr', gap: '12px', alignItems: 'end', marginBottom: '16px' }}>
+                    <div className="aws-subgrid" style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr', gap: '12px', alignItems: 'end', marginBottom: '16px' }}>
                       <div>
                         <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>Запрашиваемое действие (Action)</label>
                         <select 
@@ -1399,7 +1399,7 @@ const AwsConsole = ({ mode = 'client' }) => {
               </p>
 
               {/* Shard breakdown visual cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px', textAlign: 'center' }}>
+              <div className="aws-rs-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px', textAlign: 'center' }}>
                 {[...Array(6)].map((_, i) => {
                   const isParity = i >= 4;
                   return (
@@ -1479,6 +1479,31 @@ const AwsConsole = ({ mode = 'client' }) => {
         }
         .aws-console-dashboard tr:hover {
           background: rgba(255, 255, 255, 0.01);
+        }
+        @media (max-width: 1024px) {
+          .aws-layout-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .aws-subgrid {
+            grid-template-columns: 1fr !important;
+          }
+          .aws-header-bar {
+            flex-direction: column !important;
+            gap: 12px !important;
+            align-items: flex-start !important;
+          }
+          .aws-tab-bar {
+            flex-wrap: wrap !important;
+          }
+          .aws-tab-bar button {
+            flex: 1 1 auto !important;
+            padding: 10px 12px !important;
+            text-align: center !important;
+            justify-content: center !important;
+          }
+          .aws-rs-grid {
+            grid-template-columns: repeat(3, 1fr) !important;
+          }
         }
       `}</style>
       

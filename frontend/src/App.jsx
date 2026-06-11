@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, Cloud, ChevronDown, LogOut, Key } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, Cloud, ChevronDown, LogOut, Key, Menu } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -19,6 +19,7 @@ import ConnectServerModal from './components/ConnectServerModal';
 const App = () => {
   const [authenticated, setAuthenticated] = useState(!!localStorage.getItem('aegis_admin_token'));
   const [tokenInput, setTokenInput] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   
   const [projectsList, setProjectsList] = useState(['Общий проект', 'Администрирование']);
   const [selectedProject, setSelectedProject] = useState('Общий проект');
@@ -287,9 +288,23 @@ const App = () => {
 
   return (
     <div className="app-layout">
-      
+      {/* Mobile Header */}
+      <div className="mobile-header">
+        <button className="menu-toggle-btn" onClick={() => setSidebarOpen(true)}>
+          <Menu size={24} />
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Layers size={20} color="#5c64ec" />
+          <span style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>Aegis Admin</span>
+        </div>
+        <div style={{ width: 24 }}></div>
+      </div>
+
+      {/* Sidebar Overlay */}
+      <div className={`sidebar-overlay ${sidebarOpen ? 'visible' : ''}`} onClick={() => setSidebarOpen(false)}></div>
+
       {/* Left Sidebar */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         {/* Logo section */}
         <div className="sidebar-logo">
           <Layers className="logo-icon" size={26} />
@@ -383,7 +398,7 @@ const App = () => {
         <div className="sidebar-nav">
           <button 
             className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
           >
             <LayoutDashboard size={16} />
             <span>Дашборд</span>
@@ -391,7 +406,7 @@ const App = () => {
           
           <button 
             className={`nav-item ${activeTab === 'aegis' ? 'active' : ''}`}
-            onClick={() => setActiveTab('aegis')}
+            onClick={() => { setActiveTab('aegis'); setSidebarOpen(false); }}
           >
             <Layers size={16} />
             <span>Aegis-HCI</span>
@@ -399,7 +414,7 @@ const App = () => {
 
           <button 
             className={`nav-item ${activeTab === 'aws' ? 'active' : ''}`}
-            onClick={() => setActiveTab('aws')}
+            onClick={() => { setActiveTab('aws'); setSidebarOpen(false); }}
           >
             <Cloud size={16} />
             <span>AWS Console</span>
@@ -407,7 +422,7 @@ const App = () => {
 
           <button 
             className={`nav-item ${activeTab === 'vms' ? 'active' : ''}`}
-            onClick={() => setActiveTab('vms')}
+            onClick={() => { setActiveTab('vms'); setSidebarOpen(false); }}
           >
             <Activity size={16} />
             <span>Виртуальные машины</span>
@@ -415,7 +430,7 @@ const App = () => {
 
           <button 
             className={`nav-item ${activeTab === 'images' ? 'active' : ''}`}
-            onClick={() => setActiveTab('images')}
+            onClick={() => { setActiveTab('images'); setSidebarOpen(false); }}
           >
             <FolderOpen size={16} />
             <span>Образы дисков</span>
@@ -423,7 +438,7 @@ const App = () => {
 
           <button 
             className={`nav-item ${activeTab === 'external' ? 'active' : ''}`}
-            onClick={() => setActiveTab('external')}
+            onClick={() => { setActiveTab('external'); setSidebarOpen(false); }}
           >
             <Link2 size={16} />
             <span>Внешние серверы</span>
@@ -431,7 +446,7 @@ const App = () => {
 
           <button 
             className={`nav-item ${activeTab === 'docker' ? 'active' : ''}`}
-            onClick={() => setActiveTab('docker')}
+            onClick={() => { setActiveTab('docker'); setSidebarOpen(false); }}
           >
             <Shield size={16} />
             <span>Docker Админка</span>
@@ -439,7 +454,7 @@ const App = () => {
 
           <button 
             className={`nav-item ${activeTab === 'infra' ? 'active' : ''}`}
-            onClick={() => setActiveTab('infra')}
+            onClick={() => { setActiveTab('infra'); setSidebarOpen(false); }}
           >
             <Terminal size={16} />
             <span>Инфраструктура</span>
@@ -483,7 +498,7 @@ const App = () => {
                 {/* Селектор ОС */}
                 <div className="form-group">
                   <span className="form-label">Тип операционной системы</span>
-                  <div className="template-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+                  <div className="template-grid">
                     <div 
                       className={`template-option ${osType === 'ubuntu' ? 'selected' : ''}`}
                       onClick={() => !formLoading && setOsType('ubuntu')}
