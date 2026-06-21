@@ -361,12 +361,12 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       <div className="console-container" style={{ width: '95vw', maxWidth: '1200px', height: '90vh', display: 'flex', flexDirection: 'column' }}>
         
         {/* Шапка модального окна */}
-        <div className="console-header" style={{ background: 'rgba(255,255,255,0.95)' }}>
-          <div className="console-title" style={{ fontSize: '1.1rem' }}>
-            <Activity className="logo-icon" size={20} />
-            <span>Панель управления ВМ: <strong>{vm.name}</strong></span>
+        <div className="console-header" style={{ background: '#151929', borderBottom: '1px solid var(--border-color)', color: '#ffffff' }}>
+          <div className="console-title" style={{ fontSize: '1.1rem', color: '#ffffff' }}>
+            <Activity className="logo-icon" size={20} color="#5c64ec" />
+            <span>Панель управления ВМ: <strong style={{ color: '#5c64ec' }}>{vm.name}</strong></span>
           </div>
-          <button className="btn btn-danger btn-icon-only btn-sm" onClick={onClose}>
+          <button className="btn btn-secondary btn-icon-only btn-sm" onClick={onClose} style={{ color: 'var(--text-muted)' }}>
             <X size={16} />
           </button>
         </div>
@@ -744,15 +744,18 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                   display: 'flex', 
                   flexDirection: 'column', 
                   alignItems: 'center', 
-                  justifyContent: 'center', 
+                  justifyContent: 'flex-start', 
                   flex: 1, 
-                  gap: '25px', 
+                  gap: '16px', 
                   textAlign: 'center', 
-                  padding: '40px', 
-                  background: 'rgba(255, 255, 255, 0.4)', 
+                  padding: '24px', 
+                  background: 'rgba(18, 22, 37, 0.85)', 
                   backdropFilter: 'blur(10px)', 
                   border: '1px solid var(--border-color)', 
-                  borderRadius: '8px' 
+                  borderRadius: '8px',
+                  overflowY: 'auto',
+                  maxHeight: '100%',
+                  boxSizing: 'border-box'
                 }}>
                   <style>{`
                     @keyframes spin-circle {
@@ -765,24 +768,24 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                       100% { opacity: 0.6; }
                     }
                   `}</style>
-                  <div style={{ position: 'relative', width: '140px', height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ position: 'relative', width: '100px', height: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     {/* SVG Circular Progress Loader */}
-                    <svg width="140" height="140" viewBox="0 0 140 140" style={{ transform: 'rotate(-90deg)', animation: 'spin-circle 2s linear infinite' }}>
-                      <circle cx="70" cy="70" r="55" fill="transparent" stroke="rgba(0,0,0,0.05)" strokeWidth="6" />
+                    <svg width="100" height="100" viewBox="0 0 140 140" style={{ transform: 'rotate(-90deg)', animation: 'spin-circle 2s linear infinite' }}>
+                      <circle cx="70" cy="70" r="55" fill="transparent" stroke="rgba(255,255,255,0.03)" strokeWidth="6" />
                       <circle cx="70" cy="70" r="55" fill="transparent" stroke="var(--primary)" strokeWidth="6" 
                         strokeDasharray="345.5" strokeDashoffset="120" 
                         style={{ strokeLinecap: 'round' }}
                       />
                     </svg>
                     <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                      <Activity size={32} color="var(--primary)" style={{ animation: 'pulse-text 1.5s ease-in-out infinite' }} />
-                      <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-secondary)', marginTop: '6px' }}>Настройка...</span>
+                      <Activity size={24} color="var(--primary)" style={{ animation: 'pulse-text 1.5s ease-in-out infinite' }} />
+                      <span style={{ fontSize: '0.65rem', fontWeight: 'bold', color: 'var(--text-muted)', marginTop: '4px' }}>Настройка...</span>
                     </div>
                   </div>
                   
                   <div>
-                    <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>Настройка гостевой операционной системы</h3>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px', maxWidth: '440px', lineHeight: '1.4' }}>
+                    <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ffffff', margin: 0 }}>Настройка гостевой операционной системы</h3>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '6px', maxWidth: '440px', lineHeight: '1.4' }}>
                       Виртуальная машина успешно запущена. Ожидаем завершения настройки сети (DHCP) и запуска гостевых служб.
                     </p>
                   </div>
@@ -792,51 +795,52 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                     display: 'flex', 
                     flexDirection: 'column', 
                     gap: '8px', 
-                    padding: '15px 20px', 
-                    background: 'rgba(0,0,0,0.02)', 
-                    border: '1px solid var(--border-color)', 
+                    padding: '12px 16px', 
+                    background: 'rgba(10, 13, 22, 0.6)', 
+                    border: '1px solid #1f283e', 
                     borderRadius: '6px', 
                     width: '100%', 
                     maxWidth: '380px', 
                     boxSizing: 'border-box',
-                    textAlign: 'left'
+                    textAlign: 'left',
+                    flexShrink: 0
                   }}>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 600, borderBottom: '1px solid rgba(0,0,0,0.05)', paddingBottom: '6px', marginBottom: '4px', color: 'var(--text-primary)' }}>🔑 Реквизиты для входа (после настройки сети):</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Логин:</span>
-                      <strong style={{ color: 'var(--text-primary)' }}>{vm.credentials?.username || 'root'}</strong>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '6px', marginBottom: '4px', color: '#ffffff' }}>🔑 Реквизиты для входа (после настройки сети):</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Логин:</span>
+                      <strong style={{ color: '#ffffff' }}>{vm.credentials?.username || 'root'}</strong>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Пароль:</span>
-                      <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{vm.credentials?.password || 'N/A'}</strong>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Пароль:</span>
+                      <strong style={{ color: '#ffffff', fontFamily: 'var(--font-mono)' }}>{vm.credentials?.password || 'N/A'}</strong>
                     </div>
                   </div>
 
                   {/* Step checklist */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', maxWidth: '380px', borderTop: '1px solid var(--border-color)', paddingTop: '20px', textAlign: 'left' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>1. Создание диска ВМ</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '380px', borderTop: '1px solid var(--border-color)', paddingTop: '12px', textAlign: 'left', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>1. Создание диска ВМ</span>
                       <span style={{ color: 'var(--success)', fontWeight: 600 }}>Выполнено ✓</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>2. Запуск контейнера виртуализации</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>2. Запуск контейнера виртуализации</span>
                       <span style={{ color: 'var(--success)', fontWeight: 600 }}>Выполнено ✓</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
-                      <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>3. Настройка сетевого адаптера и агента</span>
-                      <span style={{ color: 'var(--primary)', fontWeight: 600, animation: 'pulse-text 1s infinite' }}>Ожидание сети...</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem' }}>
+                      <span style={{ color: '#ffffff', fontWeight: 600 }}>3. Настройка сетевого адаптера и агента</span>
+                      <span style={{ color: '#38bdf8', fontWeight: 600, animation: 'pulse-text 1s infinite' }}>Ожидание сети...</span>
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', width: '100%' }}>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.02)', padding: '10px 15px', border: '1px solid var(--border-color)', borderRadius: '4px', maxWidth: '440px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', width: '100%', flexShrink: 0 }}>
+                    <div style={{ fontSize: '0.75rem', color: '#a3a8ff', background: 'rgba(92, 100, 236, 0.08)', padding: '8px 12px', border: '1px solid rgba(92, 100, 236, 0.3)', borderRadius: '6px', maxWidth: '440px' }}>
                       💡 <strong>Вы можете запустить аварийную noVNC консоль</strong> для просмотра хода загрузки ОС или ручной настройки сетевого интерфейса.
                     </div>
                     {activeTab === 'vnc' && (
                       <button 
-                        className="btn btn-secondary btn-sm"
+                        className="btn btn-primary btn-sm"
                         onClick={() => setBypassVncProgress(true)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '0px' }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', borderRadius: '4px', border: 'none', fontWeight: 600, cursor: 'pointer' }}
                       >
                         <Monitor size={14} /> Открыть аварийную noVNC консоль
                       </button>
