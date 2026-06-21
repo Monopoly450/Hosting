@@ -151,13 +151,15 @@ done
 log "Определение сетевой конфигурации:"
 echo "1) Bridge (Мост) - для локальной сети/роутера (требует Promiscuous Mode / доп. MAC)"
 echo "2) NAT / Masquerade - для облачных VPS ( Selectel, Hetzner, DigitalOcean, RuVDS и т.д. )"
-if [ -t 0 ]; then
-    read -p "Выберите режим (1 или 2, по умолчанию 2): " NET_MODE
-else
-    NET_MODE="2"
+if [ -z "$NET_MODE" ]; then
+    if [ -t 0 ]; then
+        read -p "Выберите режим (1 или 2, по умолчанию 1): " NET_MODE
+    else
+        NET_MODE="1"
+    fi
 fi
 if [ "$NET_MODE" != "1" ] && [ "$NET_MODE" != "2" ]; then
-    NET_MODE="2"
+    NET_MODE="1"
 fi
 
 if [ "$NET_MODE" = "1" ]; then
