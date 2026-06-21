@@ -318,6 +318,76 @@ const App = () => {
   const [paymentAmount, setPaymentAmount] = useState('500');
   const [orderingInProgress, setOrderingInProgress] = useState(false);
 
+  // AI Agents State
+  const [aiAgents, setAiAgents] = useState([
+    { id: 1, name: 'devops-ops-1', role: 'DevOps Engineer', status: 'Running', tasks: 48, logs: ['[INFO] Monitoring CPU usage...', '[INFO] K3s cluster health check: OK', '[INFO] Scanning for port leaks...'] },
+    { id: 2, name: 'qa-tester-bot', role: 'QA Automator', status: 'Idle', tasks: 124, logs: ['[INFO] Running test suite...', '[SUCCESS] All 14 tests passed.', '[INFO] Idle waiting for deployments.'] }
+  ]);
+  const [newAgentName, setNewAgentName] = useState('');
+  const [newAgentRole, setNewAgentRole] = useState('DevOps Engineer');
+  const [activeAgentLogs, setActiveAgentLogs] = useState(null);
+
+  // App Platform State
+  const [apps, setApps] = useState([
+    { id: 1, name: 'aegis-landing-page', repo: 'https://github.com/aegis/landing', type: 'Vite', status: 'Active', url: 'https://aegis-app.ru' },
+    { id: 2, name: 'customer-portal-api', repo: 'https://github.com/aegis/portal-api', type: 'Node.js', status: 'Active', url: 'https://api.aegis-app.ru' }
+  ]);
+  const [newAppName, setNewAppName] = useState('');
+  const [newAppRepo, setNewAppRepo] = useState('');
+  const [newAppType, setNewAppType] = useState('Vite');
+  const [deployLog, setDeployLog] = useState(null);
+
+  // Databases State
+  const [dbClusters, setDbClusters] = useState([
+    { id: 1, name: 'pg-main-cluster', type: 'PostgreSQL 16', status: 'Active', size: '42 GB', conn: 'postgresql://client:pwd@pg-main:5432/db' },
+    { id: 2, name: 'cache-redis', type: 'Redis 7.2', status: 'Active', size: '512 MB', conn: 'redis://cache-redis:6379' }
+  ]);
+  const [newDbName, setNewDbName] = useState('');
+  const [newDbType, setNewDbType] = useState('PostgreSQL 16');
+
+  // S3 Storage State
+  const [s3Buckets, setS3Buckets] = useState([
+    { name: 'user-backups-bucket', access: 'Private', size: '124 GB', files: ['backup-2026-06-20.tar.gz (5.2 GB)', 'backup-2026-06-19.tar.gz (5.2 GB)'] },
+    { name: 'static-media-public', access: 'Public', size: '12 GB', files: ['logo.png (24 KB)', 'intro-video.mp4 (42 MB)'] }
+  ]);
+  const [activeBucket, setActiveBucket] = useState(null);
+  const [newBucketName, setNewBucketName] = useState('');
+
+  // Domains State
+  const [domains, setDomains] = useState([
+    { name: 'aegis-app.ru', status: 'Active', ssl: 'Valid', dns: [{ type: 'A', name: '@', value: '192.168.31.29' }, { type: 'CNAME', name: 'www', value: 'aegis-app.ru' }] }
+  ]);
+  const [newDomainName, setNewDomainName] = useState('');
+  const [activeDnsDomain, setActiveDnsDomain] = useState(null);
+
+  // Email State
+  const [emails, setEmails] = useState([
+    { address: 'info@aegis-app.ru', status: 'Active', usage: '120 MB / 10 GB' }
+  ]);
+  const [newEmailUser, setNewEmailUser] = useState('');
+
+  // Kubernetes State
+  const [k8sClusters, setK8sClusters] = useState([
+    { name: 'k8s-prod-cluster', version: 'v1.30.1', status: 'Running', nodes: 3 }
+  ]);
+
+  // Network Disks State
+  const [networkDisks, setNetworkDisks] = useState([
+    { name: 'system-disk-new', size: '20 GiB', status: 'Attached', attachedTo: 'new' },
+    { name: 'extra-storage-backup', size: '100 GiB', status: 'Detached', attachedTo: 'None' }
+  ]);
+
+  // VPC Networks State
+  const [subnets, setSubnets] = useState([
+    { name: 'aegis-vpc-01', range: '172.20.0.0/16', gateway: '172.20.0.1' },
+    { name: 'bridge-network', range: '172.20.0.0/24', gateway: '172.20.0.1' }
+  ]);
+
+  // CDN Domains
+  const [cdnDomains, setCdnDomains] = useState([
+    { domain: 'cdn.aegis-app.ru', origin: '192.168.31.29', hitRatio: '96.8%' }
+  ]);
+
   // VDS Configuration state
   const [vdsName, setVdsName] = useState('');
   const [osType, setOsType] = useState('ubuntu'); // 'ubuntu' | 'windows'
@@ -561,8 +631,12 @@ const App = () => {
   };
 
   const handleSelectPlaceholderTab = (tabName) => {
-    setPlaceholderTabName(tabName);
-    setCabinetTab('placeholder');
+    if (tabName === 'Облачные серверы') {
+      setCabinetTab('servers');
+    } else {
+      setPlaceholderTabName(tabName);
+      setCabinetTab('placeholder');
+    }
     setSidebarOpen(false);
   };
 
@@ -1601,28 +1675,913 @@ const App = () => {
 
               {/* TAB 5: Placeholder for features not in demo */}
               {cabinetTab === 'placeholder' && (
-                <div className="card" style={{ padding: '40px', textAlign: 'center', maxWidth: '600px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
-                  <Globe size={48} style={{ color: 'var(--primary)', margin: '0 auto', opacity: 0.8 }} />
-                  <h3 style={{ fontSize: '1.3rem', fontWeight: 'bold' }}>Раздел "{placeholderTabName}" в разработке</h3>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.6 }}>
-                    В рамках демонстрационной версии **Aegis Cloud Engine** этот раздел пока закрыт. 
-                    Вы можете опробовать работу других, полностью интерактивных разделов платформы:
-                  </p>
-                  
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center', marginTop: '10px' }}>
-                    <button className="btn btn-secondary btn-sm" onClick={() => setCabinetTab('servers')}>
-                      Выделенные серверы
-                    </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => { setCabinetTab('balancers'); setActiveBalancerView('create'); }}>
-                      Балансировщики
-                    </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => setCabinetTab('aws')}>
-                      AWS Консоль
-                    </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => setCabinetTab('billing')}>
-                      Баланс и платежи
-                    </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <h2 style={{ fontSize: '1.4rem', fontWeight: 700 }}>{placeholderTabName}</h2>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                        {placeholderTabName === 'AI-агенты' && 'Автономные DevOps & QA разработчики в ваших контейнерах'}
+                        {placeholderTabName === 'App Platform' && 'Быстрое развертывание веб-приложений и статических сайтов напрямую из Git'}
+                        {placeholderTabName === 'Облако 5 ГГц' && 'Высокопроизводительные серверы на базе AMD EPYC c частотой до 5.0 ГГц'}
+                        {placeholderTabName === 'Облако VMware' && 'Управление выделенными гипервизорами ESXi и пулами ресурсов vSphere'}
+                        {placeholderTabName === 'Мониторинг' && 'Статистика загрузки и метрики производительности ваших серверов'}
+                        {placeholderTabName === 'Базы данных' && 'Управляемые кластеры PostgreSQL, Redis, MySQL и ClickHouse'}
+                        {placeholderTabName === 'Хранилище S3' && 'Надежное и масштабируемое объектное хранилище, совместимое с API S3'}
+                        {placeholderTabName === 'Kubernetes' && 'Управляемые производственные кластеры K8s (K3s) с автоматическим масштабированием'}
+                        {placeholderTabName === 'Сети' && 'Настройка приватных подсетей VPC, NAT-шлюзов, маршрутизации и Firewall'}
+                        {placeholderTabName === 'CDN' && 'Глобальная сеть дистрибуции контента с кэшированием на Edge-серверах'}
+                        {placeholderTabName === 'Сетевые диски' && 'Управление блочными NVMe и SSD накопителями для виртуальных машин'}
+                        {placeholderTabName === 'Домены и SSL' && 'Регистрация доменов, редактирование DNS записей и бесплатные SSL сертификаты'}
+                        {placeholderTabName === 'Почта' && 'Корпоративные почтовые ящики на вашем домене с защитой от спама'}
+                        {placeholderTabName === 'Уведомления' && 'Журнал системных оповещений и событий безопасности'}
+                        {placeholderTabName === 'Документация' && 'Справочный центр, API спецификации и инструкции по настройке'}
+                      </p>
+                    </div>
                   </div>
+
+                  {/* AI AGENTS TAB */}
+                  {placeholderTabName === 'AI-агенты' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div className="vms-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+                        {aiAgents.map(agent => (
+                          <div key={agent.id} className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <Terminal size={18} color="var(--primary)" />
+                                <strong style={{ fontSize: '1rem' }}>{agent.name}</strong>
+                              </div>
+                              <span className={`status-badge ${agent.status === 'Running' ? 'status-active' : 'status-stopped'}`}>
+                                {agent.status === 'Running' ? 'Запущен' : 'Остановлен'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                              <div>Роль: <strong style={{ color: 'var(--text-primary)' }}>{agent.role}</strong></div>
+                              <div>Выполнено задач: <strong style={{ color: 'var(--text-primary)' }}>{agent.tasks}</strong></div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
+                              <button className="btn btn-secondary btn-sm" onClick={() => {
+                                setActiveAgentLogs(agent);
+                              }}>
+                                Логи работы
+                              </button>
+                              <button className="btn btn-danger btn-sm" style={{ padding: '4px 10px' }} onClick={() => {
+                                setAiAgents(prev => prev.filter(a => a.id !== agent.id));
+                              }}>
+                                Удалить
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px' }}>Создать нового AI-агента</h3>
+                        <form onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!newAgentName.trim()) return;
+                          const newAgent = {
+                            id: Date.now(),
+                            name: newAgentName.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+                            role: newAgentRole,
+                            status: 'Running',
+                            tasks: 0,
+                            logs: ['[INFO] Agent initialized.', `[INFO] Role assigned: ${newAgentRole}`, '[INFO] Connecting to Git repository...']
+                          };
+                          setAiAgents(prev => [...prev, newAgent]);
+                          setNewAgentName('');
+                          alert(`Агент ${newAgent.name} успешно запущен в кластере!`);
+                        }} style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-end' }}>
+                          <div style={{ flex: 1, minWidth: '200px' }}>
+                            <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '6px' }}>Имя агента</label>
+                            <input 
+                              type="text" 
+                              className="form-control" 
+                              placeholder="my-devops-helper"
+                              value={newAgentName}
+                              onChange={e => setNewAgentName(e.target.value)}
+                            />
+                          </div>
+                          <div style={{ width: '220px' }}>
+                            <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '6px' }}>Специализация</label>
+                            <select 
+                              className="form-control"
+                              value={newAgentRole}
+                              onChange={e => setNewAgentRole(e.target.value)}
+                            >
+                              <option value="DevOps Engineer">DevOps Engineer (CI/CD, K8s)</option>
+                              <option value="QA Automator">QA Automator (Тесты, Сценарии)</option>
+                              <option value="Fullstack Developer">Fullstack Developer (Кодинг, Рефакторинг)</option>
+                            </select>
+                          </div>
+                          <button className="btn btn-primary" type="submit" style={{ height: '38px', borderRadius: '8px' }}>
+                            Запустить AI-агента
+                          </button>
+                        </form>
+                      </div>
+
+                      {activeAgentLogs && (
+                        <div className="console-modal-backdrop" onClick={() => setActiveAgentLogs(null)}>
+                          <div className="console-container" style={{ maxWidth: '650px', height: '400px' }} onClick={e => e.stopPropagation()}>
+                            <div className="console-header">
+                              <div className="console-title">
+                                <Terminal size={16} />
+                                <span>Логи агента: <strong>{activeAgentLogs.name}</strong></span>
+                              </div>
+                              <button className="btn btn-danger btn-icon-only btn-sm" onClick={() => setActiveAgentLogs(null)}>
+                                <X size={16} />
+                              </button>
+                            </div>
+                            <div className="console-canvas-container" style={{ background: '#000000', padding: '15px', color: '#00ff00', fontFamily: 'monospace', overflowY: 'auto', flex: 1, fontSize: '0.85rem' }}>
+                              {activeAgentLogs.logs.map((log, i) => (
+                                <div key={i}>{log}</div>
+                              ))}
+                              <div>[INFO] Waiting for tasks...</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* APP PLATFORM TAB */}
+                  {placeholderTabName === 'App Platform' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div className="vms-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+                        {apps.map(app => (
+                          <div key={app.id} className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Cloud size={18} color="#38bdf8" />
+                                <strong style={{ fontSize: '1rem' }}>{app.name}</strong>
+                              </div>
+                              <span className="status-badge status-active">Active</span>
+                            </div>
+                            <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <div>Репозиторий: <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>{app.repo}</span></div>
+                              <div>Среда: <strong style={{ color: 'var(--text-primary)' }}>{app.type}</strong></div>
+                              <div>Адрес: <a href={app.url} target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>{app.url}</a></div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
+                              <button className="btn btn-secondary btn-sm" onClick={() => {
+                                setDeployLog(app.name);
+                                alert(`Деплой приложения ${app.name} запущен. Проверка изменений в Git...`);
+                              }}>
+                                Деплой
+                              </button>
+                              <button className="btn btn-danger btn-sm" onClick={() => setApps(prev => prev.filter(a => a.id !== app.id))}>
+                                Удалить
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px' }}>Развернуть новое веб-приложение</h3>
+                        <form onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!newAppName.trim() || !newAppRepo.trim()) return;
+                          const newApp = {
+                            id: Date.now(),
+                            name: newAppName.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+                            repo: newAppRepo,
+                            type: newAppType,
+                            status: 'Active',
+                            url: `https://${newAppName}.aegis-app.ru`
+                          };
+                          setApps(prev => [...prev, newApp]);
+                          setNewAppName('');
+                          setNewAppRepo('');
+                          alert(`Сборка приложения ${newApp.name} успешно запущена! Домен ${newApp.url} будет активен после завершения сборки.`);
+                        }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+                            <div style={{ flex: 1, minWidth: '200px' }}>
+                              <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '6px' }}>Название приложения</label>
+                              <input 
+                                type="text" 
+                                className="form-control" 
+                                placeholder="my-react-app"
+                                value={newAppName}
+                                onChange={e => setNewAppName(e.target.value)}
+                              />
+                            </div>
+                            <div style={{ flex: 2, minWidth: '300px' }}>
+                              <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '6px' }}>Ссылка на GitHub/GitLab репозиторий</label>
+                              <input 
+                                type="text" 
+                                className="form-control" 
+                                placeholder="https://github.com/username/project"
+                                value={newAppRepo}
+                                onChange={e => setNewAppRepo(e.target.value)}
+                              />
+                            </div>
+                            <div style={{ width: '180px' }}>
+                              <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '6px' }}>Среда сборщика</label>
+                              <select 
+                                className="form-control"
+                                value={newAppType}
+                                onChange={e => setNewAppType(e.target.value)}
+                              >
+                                <option value="Vite">Vite (React / Vue)</option>
+                                <option value="Next.js">Next.js (React / SSR)</option>
+                                <option value="Node.js">Node.js Express</option>
+                                <option value="Docker">Dockerfile (Custom)</option>
+                              </select>
+                            </div>
+                          </div>
+                          <button className="btn btn-primary" type="submit" style={{ alignSelf: 'flex-start' }}>
+                            Запустить деплой из Git
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* HIGH FREQUENCY CLOUD TAB */}
+                  {placeholderTabName === 'Облако 5 ГГц' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div className="card" style={{ padding: '24px', background: 'linear-gradient(135deg, rgba(92,100,236,0.1) 0%, rgba(56,189,248,0.05) 100%)', border: '1px solid rgba(92,100,236,0.2)' }}>
+                        <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '8px', color: '#fff' }}>Мощность процессоров AMD EPYC 5.0 ГГц</h3>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                          Виртуальные серверы на выделенных высокочастотных ядрах. Подходят для ресурсоемких СУБД, нагруженных API-серверов и систем автоматизации 1С. Частота ядер держится стабильно на уровне 5.0 ГГц без троттлинга.
+                        </p>
+                      </div>
+
+                      <div className="card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px' }}>Заказать Высокочастотный VDS</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px' }}>
+                            <div className="card" style={{ padding: '16px', border: '1px solid var(--primary)', background: 'rgba(92,100,236,0.02)', textAlign: 'center' }}>
+                              <h4 style={{ fontWeight: 750 }}>5GHz-Starter</h4>
+                              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '8px 0' }}>2 Core 5.0 GHz / 4 GB RAM / 40 GB NVMe</p>
+                              <strong style={{ fontSize: '1.1rem', color: 'var(--primary)' }}>750 ₽/мес</strong>
+                              <button className="btn btn-primary btn-sm" style={{ width: '100%', marginTop: '12px' }} onClick={() => {
+                                alert("Высокочастотный сервер заказан! Идет создание виртуальной машины...");
+                                setCabinetTab('servers');
+                              }}>
+                                Заказать
+                              </button>
+                            </div>
+                            <div className="card" style={{ padding: '16px', textAlign: 'center' }}>
+                              <h4 style={{ fontWeight: 750 }}>5GHz-Medium</h4>
+                              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '8px 0' }}>4 Core 5.0 GHz / 8 GB RAM / 80 GB NVMe</p>
+                              <strong style={{ fontSize: '1.1rem' }}>1490 ₽/мес</strong>
+                              <button className="btn btn-secondary btn-sm" style={{ width: '100%', marginTop: '12px' }} onClick={() => {
+                                alert("Высокочастотный сервер заказан! Идет создание виртуальной машины...");
+                                setCabinetTab('servers');
+                              }}>
+                                Заказать
+                              </button>
+                            </div>
+                            <div className="card" style={{ padding: '16px', textAlign: 'center' }}>
+                              <h4 style={{ fontWeight: 750 }}>5GHz-Pro</h4>
+                              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '8px 0' }}>8 Core 5.0 GHz / 16 GB RAM / 160 GB NVMe</p>
+                              <strong style={{ fontSize: '1.1rem' }}>2990 ₽/мес</strong>
+                              <button className="btn btn-secondary btn-sm" style={{ width: '100%', marginTop: '12px' }} onClick={() => {
+                                alert("Высокочастотный сервер заказан! Идет создание виртуальной машины...");
+                                setCabinetTab('servers');
+                              }}>
+                                Заказать
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* VMWARE TAB */}
+                  {placeholderTabName === 'Облако VMware' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px' }}>
+                        <div className="card" style={{ padding: '20px' }}>
+                          <h4 style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Активные хосты ESXi</h4>
+                          <strong style={{ fontSize: '1.8rem', display: 'block', margin: '10px 0' }}>2 / 2</strong>
+                          <span style={{ fontSize: '0.78rem', color: '#10b981' }}>Все гипервизоры онлайн</span>
+                        </div>
+                        <div className="card" style={{ padding: '20px' }}>
+                          <h4 style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Выделенная память</h4>
+                          <strong style={{ fontSize: '1.8rem', display: 'block', margin: '10px 0' }}>48 / 64 GiB</strong>
+                          <div style={{ height: '4px', background: 'var(--border-color)', borderRadius: '2px', overflow: 'hidden' }}>
+                            <div style={{ width: '75%', height: '100%', background: 'var(--primary)' }}></div>
+                          </div>
+                        </div>
+                        <div className="card" style={{ padding: '20px' }}>
+                          <h4 style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Статус DRS / HA</h4>
+                          <strong style={{ fontSize: '1.8rem', display: 'block', margin: '10px 0', color: '#10b981' }}>Активен</strong>
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Автоматический балансировщик</span>
+                        </div>
+                      </div>
+
+                      <div className="card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px' }}>Список гипервизоров vSphere</h3>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                              <th style={{ padding: '10px' }}>Хост ESXi</th>
+                              <th style={{ padding: '10px' }}>Процессор</th>
+                              <th style={{ padding: '10px' }}>RAM</th>
+                              <th style={{ padding: '10px' }}>Сетевой трафик</th>
+                              <th style={{ padding: '10px' }}>Статус</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                              <td style={{ padding: '12px 10px', fontWeight: 600 }}>esxi-node-01.aegis.cloud</td>
+                              <td style={{ padding: '12px 10px' }}>Intel Xeon (32 vCPUs)</td>
+                              <td style={{ padding: '12px 10px' }}>24 GB / 32 GB</td>
+                              <td style={{ padding: '12px 10px' }}>148 Mbps</td>
+                              <td style={{ padding: '12px 10px' }}><span style={{ color: '#10b981' }}>● Online</span></td>
+                            </tr>
+                            <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                              <td style={{ padding: '12px 10px', fontWeight: 600 }}>esxi-node-02.aegis.cloud</td>
+                              <td style={{ padding: '12px 10px' }}>Intel Xeon (32 vCPUs)</td>
+                              <td style={{ padding: '12px 10px' }}>24 GB / 32 GB</td>
+                              <td style={{ padding: '12px 10px' }}>82 Mbps</td>
+                              <td style={{ padding: '12px 10px' }}><span style={{ color: '#10b981' }}>● Online</span></td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* MONITORING TAB */}
+                  {placeholderTabName === 'Мониторинг' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+                        <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <h4 style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Загрузка процессоров (Средняя)</h4>
+                          <strong style={{ fontSize: '2rem' }}>38%</strong>
+                          <div style={{ height: '6px', background: 'var(--border-color)', borderRadius: '3px', overflow: 'hidden' }}>
+                            <div style={{ width: '38%', height: '100%', background: 'var(--primary)' }}></div>
+                          </div>
+                        </div>
+                        <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <h4 style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Использование оперативной памяти</h4>
+                          <strong style={{ fontSize: '2rem' }}>1.42 / 2.0 GiB</strong>
+                          <div style={{ height: '6px', background: 'var(--border-color)', borderRadius: '3px', overflow: 'hidden' }}>
+                            <div style={{ width: '71%', height: '100%', background: 'var(--primary)' }}></div>
+                          </div>
+                        </div>
+                        <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <h4 style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Входящий / Исходящий трафик</h4>
+                          <strong style={{ fontSize: '1.2rem' }}>↓ 14.8 Mbps / ↑ 3.2 Mbps</strong>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Задержка сети: 4.2 мс</div>
+                        </div>
+                      </div>
+
+                      <div className="card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px' }}>Активные алерты и журналы событий</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.82rem' }}>
+                          <div style={{ display: 'flex', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                            <span style={{ color: 'var(--danger)' }}>[ALERT]</span>
+                            <span style={{ color: 'var(--text-secondary)' }}>21.06.2026 21:55:02</span>
+                            <strong>Порт SSH (22) открыт для всех источников на VM gggg</strong>
+                          </div>
+                          <div style={{ display: 'flex', gap: '12px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                            <span style={{ color: '#10b981' }}>[INFO]</span>
+                            <span style={{ color: 'var(--text-secondary)' }}>21.06.2026 21:05:00</span>
+                            <span>Бэкап диска VM gggg успешно создан и сохранен в S3</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* MANAGED DATABASES TAB */}
+                  {placeholderTabName === 'Базы данных' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div className="vms-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+                        {dbClusters.map(db => (
+                          <div key={db.id} className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <FolderOpen size={18} color="var(--primary)" />
+                                <strong style={{ fontSize: '1rem' }}>{db.name}</strong>
+                              </div>
+                              <span className="status-badge status-active">Running</span>
+                            </div>
+                            <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <div>СУБД: <strong style={{ color: 'var(--text-primary)' }}>{db.type}</strong></div>
+                              <div>Размер на диске: <strong style={{ color: 'var(--text-primary)' }}>{db.size}</strong></div>
+                              <div>Строка подключения: <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)', wordBreak: 'break-all' }}>{db.conn}</span></div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
+                              <button className="btn btn-secondary btn-sm" onClick={() => alert(`Бэкап базы ${db.name} создан.`)}>
+                                Бэкап
+                              </button>
+                              <button className="btn btn-danger btn-sm" onClick={() => setDbClusters(prev => prev.filter(d => d.id !== db.id))}>
+                                Удалить
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px' }}>Создать управляемый кластер БД</h3>
+                        <form onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!newDbName.trim()) return;
+                          const newDb = {
+                            id: Date.now(),
+                            name: newDbName.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+                            type: newDbType,
+                            status: 'Active',
+                            size: '0 B',
+                            conn: `${newDbType.toLowerCase().split(' ')[0]}://client:pwd@${newDbName}:5432/db`
+                          };
+                          setDbClusters(prev => [...prev, newDb]);
+                          setNewDbName('');
+                          alert(`Кластер базы данных ${newDb.name} успешно создан!`);
+                        }} style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-end' }}>
+                          <div style={{ flex: 1, minWidth: '200px' }}>
+                            <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '6px' }}>Имя базы данных</label>
+                            <input 
+                              type="text" 
+                              className="form-control" 
+                              placeholder="my-postgres-db"
+                              value={newDbName}
+                              onChange={e => setNewDbName(e.target.value)}
+                            />
+                          </div>
+                          <div style={{ width: '200px' }}>
+                            <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '6px' }}>Движок базы</label>
+                            <select 
+                              className="form-control"
+                              value={newDbType}
+                              onChange={e => setNewDbType(e.target.value)}
+                            >
+                              <option value="PostgreSQL 16">PostgreSQL 16</option>
+                              <option value="MySQL 8.0">MySQL 8.0</option>
+                              <option value="Redis 7.2">Redis 7.2</option>
+                              <option value="ClickHouse">ClickHouse Cluster</option>
+                            </select>
+                          </div>
+                          <button className="btn btn-primary" type="submit" style={{ height: '38px', borderRadius: '8px' }}>
+                            Создать базу
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* S3 OBJECT STORAGE TAB */}
+                  {placeholderTabName === 'Хранилище S3' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div className="vms-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+                        {s3Buckets.map(bucket => (
+                          <div key={bucket.name} className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <FolderOpen size={18} color="var(--primary)" />
+                                <strong style={{ fontSize: '1rem' }}>{bucket.name}</strong>
+                              </div>
+                              <span className="status-badge status-active">{bucket.access}</span>
+                            </div>
+                            <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                              Размер хранилища: <strong style={{ color: 'var(--text-primary)' }}>{bucket.size}</strong>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
+                              <button className="btn btn-secondary btn-sm" onClick={() => setActiveBucket(bucket)}>
+                                Обзор файлов
+                              </button>
+                              <button className="btn btn-danger btn-sm" onClick={() => setS3Buckets(prev => prev.filter(b => b.name !== bucket.name))}>
+                                Удалить
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px' }}>Создать новый S3 бакет</h3>
+                        <form onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!newBucketName.trim()) return;
+                          const newB = {
+                            name: newBucketName.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+                            access: 'Private',
+                            size: '0 B',
+                            files: []
+                          };
+                          setS3Buckets(prev => [...prev, newB]);
+                          setNewBucketName('');
+                          alert(`Бакет S3 ${newB.name} создан!`);
+                        }} style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-end' }}>
+                          <div style={{ flex: 1, minWidth: '200px' }}>
+                            <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '6px' }}>Название бакета</label>
+                            <input 
+                              type="text" 
+                              className="form-control" 
+                              placeholder="my-static-assets"
+                              value={newBucketName}
+                              onChange={e => setNewBucketName(e.target.value)}
+                            />
+                          </div>
+                          <button className="btn btn-primary" type="submit" style={{ height: '38px', borderRadius: '8px' }}>
+                            Создать бакет
+                          </button>
+                        </form>
+                      </div>
+
+                      {activeBucket && (
+                        <div className="console-modal-backdrop" onClick={() => setActiveBucket(null)}>
+                          <div className="console-container" style={{ maxWidth: '600px', height: '380px' }} onClick={e => e.stopPropagation()}>
+                            <div className="console-header">
+                              <div className="console-title">
+                                <FolderOpen size={16} />
+                                <span>Бакет: <strong>{activeBucket.name}</strong></span>
+                              </div>
+                              <button className="btn btn-danger btn-icon-only btn-sm" onClick={() => setActiveBucket(null)}>
+                                <X size={16} />
+                              </button>
+                            </div>
+                            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px', overflowY: 'auto', flex: 1 }}>
+                              <h4 style={{ fontWeight: 600, fontSize: '0.9rem' }}>Файлы в бакете:</h4>
+                              {activeBucket.files.length === 0 ? (
+                                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Файлов нет. Загрузите первый файл.</p>
+                              ) : (
+                                <ul style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.82rem' }}>
+                                  {activeBucket.files.map((file, i) => (
+                                    <li key={i} style={{ padding: '8px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-color)' }}>
+                                      📄 {file}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                              <button className="btn btn-primary btn-sm" style={{ alignSelf: 'flex-start', marginTop: '10px' }} onClick={() => {
+                                const filename = prompt("Введите имя файла для загрузки (симуляция):", "document.pdf");
+                                if (filename) {
+                                  setS3Buckets(prev => prev.map(b => b.name === activeBucket.name ? { ...b, files: [...b.files, `${filename} (2.4 MB)`] } : b));
+                                  setActiveBucket(prev => ({ ...prev, files: [...prev.files, `${filename} (2.4 MB)`] }));
+                                }
+                              }}>
+                                Загрузить файл
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* KUBERNETES TAB */}
+                  {placeholderTabName === 'Kubernetes' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      {k8sClusters.map(cluster => (
+                        <div key={cluster.name} className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <Layers size={22} color="var(--primary)" />
+                              <div>
+                                <strong style={{ fontSize: '1.1rem', display: 'block' }}>{cluster.name}</strong>
+                                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Версия K8s: {cluster.version}</span>
+                              </div>
+                            </div>
+                            <span className="status-badge status-active">Running</span>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', fontSize: '0.85rem' }}>
+                            <div className="card" style={{ padding: '12px' }}>
+                              <span style={{ color: 'var(--text-secondary)' }}>Количество нод:</span>
+                              <strong style={{ display: 'block', fontSize: '1.2rem', marginTop: '4px' }}>{cluster.nodes}</strong>
+                            </div>
+                            <div className="card" style={{ padding: '12px' }}>
+                              <span style={{ color: 'var(--text-secondary)' }}>Ресурсы пула:</span>
+                              <strong style={{ display: 'block', fontSize: '1.2rem', marginTop: '4px' }}>6 Cores / 12 GB RAM</strong>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
+                            <button className="btn btn-secondary btn-sm" onClick={() => alert("kubeconfig скачан в буфер обмена (симуляция).")}>
+                              Скачать kubeconfig
+                            </button>
+                            <button className="btn btn-primary btn-sm" onClick={() => {
+                              setK8sClusters(prev => prev.map(c => c.name === cluster.name ? { ...c, nodes: c.nodes + 1 } : c));
+                            }}>
+                              Добавить ноду
+                            </button>
+                            {cluster.nodes > 1 && (
+                              <button className="btn btn-danger btn-sm" onClick={() => {
+                                setK8sClusters(prev => prev.map(c => c.name === cluster.name ? { ...c, nodes: c.nodes - 1 } : c));
+                              }}>
+                                Удалить ноду
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* NETWORKS TAB */}
+                  {placeholderTabName === 'Сети' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div className="card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px' }}>Приватные подсети VPC</h3>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                              <th style={{ padding: '10px' }}>Название сети</th>
+                              <th style={{ padding: '10px' }}>Диапазон CIDR</th>
+                              <th style={{ padding: '10px' }}>Шлюз</th>
+                              <th style={{ padding: '10px' }}>Статус</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {subnets.map(s => (
+                              <tr key={s.name} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                <td style={{ padding: '12px 10px', fontWeight: 600 }}>{s.name}</td>
+                                <td style={{ padding: '12px 10px' }}>{s.range}</td>
+                                <td style={{ padding: '12px 10px' }}>{s.gateway}</td>
+                                <td style={{ padding: '12px 10px' }}><span style={{ color: '#10b981' }}>Active</span></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* CDN TAB */}
+                  {placeholderTabName === 'CDN' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div className="vms-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+                        {cdnDomains.map(c => (
+                          <div key={c.domain} className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <strong style={{ fontSize: '1rem' }}>{c.domain}</strong>
+                              <span className="status-badge status-active">Active</span>
+                            </div>
+                            <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                              <div>Источник: <strong style={{ color: 'var(--text-primary)' }}>{c.origin}</strong></div>
+                              <div>Кэш хит-рейт: <strong style={{ color: '#10b981' }}>{c.hitRatio}</strong></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* NETWORK DISKS TAB */}
+                  {placeholderTabName === 'Сетевые диски' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div className="card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px' }}>Список блочных накопителей (NVMe / SSD)</h3>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                              <th style={{ padding: '10px' }}>Имя диска</th>
+                              <th style={{ padding: '10px' }}>Размер</th>
+                              <th style={{ padding: '10px' }}>Подключен к VM</th>
+                              <th style={{ padding: '10px' }}>Статус</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {networkDisks.map(d => (
+                              <tr key={d.name} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                <td style={{ padding: '12px 10px', fontWeight: 600 }}>{d.name}</td>
+                                <td style={{ padding: '12px 10px' }}>{d.size}</td>
+                                <td style={{ padding: '12px 10px' }}>{d.attachedTo}</td>
+                                <td style={{ padding: '12px 10px' }}>
+                                  <span className={`status-badge ${d.status === 'Attached' ? 'status-active' : 'status-stopped'}`}>
+                                    {d.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* DOMAINS AND SSL TAB */}
+                  {placeholderTabName === 'Домены и SSL' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div className="vms-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+                        {domains.map(dom => (
+                          <div key={dom.name} className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <strong style={{ fontSize: '1rem' }}>{dom.name}</strong>
+                              <span className="status-badge status-active">Активен</span>
+                            </div>
+                            <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <div>SSL-сертификат: <strong style={{ color: '#10b981' }}>{dom.ssl} (Let's Encrypt)</strong></div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
+                              <button className="btn btn-secondary btn-sm" onClick={() => setActiveDnsDomain(dom)}>
+                                DNS записи
+                              </button>
+                              <button className="btn btn-danger btn-sm" onClick={() => setDomains(prev => prev.filter(d => d.name !== dom.name))}>
+                                Удалить
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px' }}>Добавить / Зарегистрировать домен</h3>
+                        <form onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!newDomainName.trim()) return;
+                          const newD = {
+                            name: newDomainName.trim().toLowerCase(),
+                            status: 'Active',
+                            ssl: 'Valid',
+                            dns: [{ type: 'A', name: '@', value: '192.168.31.29' }]
+                          };
+                          setDomains(prev => [...prev, newD]);
+                          setNewDomainName('');
+                          alert(`Домен ${newD.name} успешно привязан! SSL сертификат будет выпущен автоматически.`);
+                        }} style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-end' }}>
+                          <div style={{ flex: 1, minWidth: '200px' }}>
+                            <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '6px' }}>Имя домена</label>
+                            <input 
+                              type="text" 
+                              className="form-control" 
+                              placeholder="my-domain.ru"
+                              value={newDomainName}
+                              onChange={e => setNewDomainName(e.target.value)}
+                            />
+                          </div>
+                          <button className="btn btn-primary" type="submit" style={{ height: '38px', borderRadius: '8px' }}>
+                            Добавить домен
+                          </button>
+                        </form>
+                      </div>
+
+                      {activeDnsDomain && (
+                        <div className="console-modal-backdrop" onClick={() => setActiveDnsDomain(null)}>
+                          <div className="console-container" style={{ maxWidth: '600px', height: '380px' }} onClick={e => e.stopPropagation()}>
+                            <div className="console-header">
+                              <div className="console-title">
+                                <Globe size={16} />
+                                <span>DNS-редактор: <strong>{activeDnsDomain.name}</strong></span>
+                              </div>
+                              <button className="btn btn-danger btn-icon-only btn-sm" onClick={() => setActiveDnsDomain(null)}>
+                                <X size={16} />
+                              </button>
+                            </div>
+                            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px', overflowY: 'auto', flex: 1 }}>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                                <thead>
+                                  <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                                    <th>Тип</th>
+                                    <th>Имя</th>
+                                    <th>Значение</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {activeDnsDomain.dns.map((dns, i) => (
+                                    <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                      <td style={{ padding: '8px 0', fontWeight: 600 }}>{dns.type}</td>
+                                      <td style={{ padding: '8px 0' }}>{dns.name}</td>
+                                      <td style={{ padding: '8px 0', fontFamily: 'monospace' }}>{dns.value}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                              <button className="btn btn-primary btn-sm" style={{ alignSelf: 'flex-start', marginTop: '10px' }} onClick={() => {
+                                const type = prompt("Тип записи (A / CNAME / TXT / MX):", "A");
+                                const name = prompt("Имя (хост):", "@");
+                                const value = prompt("Значение (IP или домен):", "192.168.31.29");
+                                if (type && name && value) {
+                                  setDomains(prev => prev.map(d => d.name === activeDnsDomain.name ? { ...d, dns: [...d.dns, { type, name, value }] } : d));
+                                  setActiveDnsDomain(prev => ({ ...prev, dns: [...prev.dns, { type, name, value }] }));
+                                }
+                              }}>
+                                Добавить DNS-запись
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* EMAIL TAB */}
+                  {placeholderTabName === 'Почта' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div className="card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px' }}>Активные почтовые ящики</h3>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                              <th style={{ padding: '10px' }}>Адрес почты</th>
+                              <th style={{ padding: '10px' }}>Занято диска</th>
+                              <th style={{ padding: '10px' }}>Статус</th>
+                              <th style={{ padding: '10px' }}>Действия</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {emails.map(mail => (
+                              <tr key={mail.address} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                <td style={{ padding: '12px 10px', fontWeight: 600 }}>{mail.address}</td>
+                                <td style={{ padding: '12px 10px' }}>{mail.usage}</td>
+                                <td style={{ padding: '12px 10px' }}><span style={{ color: '#10b981' }}>{mail.status}</span></td>
+                                <td style={{ padding: '12px 10px' }}>
+                                  <button className="btn btn-danger btn-sm" style={{ padding: '2px 8px', fontSize: '0.75rem' }} onClick={() => setEmails(prev => prev.filter(e => e.address !== mail.address))}>
+                                    Удалить
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px' }}>Создать почтовый ящик</h3>
+                        <form onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!newEmailUser.trim()) return;
+                          const newM = {
+                            address: `${newEmailUser.trim().toLowerCase()}@aegis-app.ru`,
+                            status: 'Active',
+                            usage: '0 B / 10 GB'
+                          };
+                          setEmails(prev => [...prev, newM]);
+                          setNewEmailUser('');
+                          alert(`Почтовый ящик ${newM.address} успешно создан!`);
+                        }} style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'flex-end' }}>
+                          <div style={{ flex: 1, minWidth: '150px' }}>
+                            <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '6px' }}>Логин ящика</label>
+                            <input 
+                              type="text" 
+                              className="form-control" 
+                              placeholder="support"
+                              value={newEmailUser}
+                              onChange={e => setNewEmailUser(e.target.value)}
+                            />
+                          </div>
+                          <div style={{ fontSize: '1.1rem', paddingBottom: '8px', color: 'var(--text-secondary)' }}>@aegis-app.ru</div>
+                          <button className="btn btn-primary" type="submit" style={{ height: '38px', borderRadius: '8px' }}>
+                            Создать ящик
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* NOTIFICATIONS TAB */}
+                  {placeholderTabName === 'Уведомления' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                      <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)', paddingBottom: '6px' }}>
+                          <span>Система мониторинга</span>
+                          <span>Сегодня, 21:55</span>
+                        </div>
+                        <h4 style={{ fontWeight: 600, fontSize: '0.95rem' }}>Успешный запуск виртуальной машины `new`</h4>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                          Виртуальная машина была успешно инициализирована CNI Multus и запущена на ноде. Гостевые службы `qemu-guest-agent` ответили статусом `Ready`.
+                        </p>
+                      </div>
+                      <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)', paddingBottom: '6px' }}>
+                          <span>Система биллинга</span>
+                          <span>Вчера, 12:00</span>
+                        </div>
+                        <h4 style={{ fontWeight: 600, fontSize: '0.95rem' }}>Посекундное списание за ресурсы</h4>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                          Ежедневный расчет завершен. Списано 12.50 ₽ за использование 1 виртуального сервера и сетевого диска.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* DOCUMENTATION TAB */}
+                  {placeholderTabName === 'Документация' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div className="card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '16px' }}>Быстрый старт: Инструкции для разработчиков</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', fontSize: '0.85rem', lineHeight: 1.6 }}>
+                          <div>
+                            <h4 style={{ fontWeight: 700, color: 'var(--primary)', marginBottom: '4px' }}>1. Подключение по SSH</h4>
+                            <p style={{ color: 'var(--text-secondary)' }}>
+                              Для подключения к любой Linux VM используйте сгенерированный пароль из личного кабинета. Имя пользователя по умолчанию: `ubuntu` (или `root`).
+                              <pre style={{ background: '#000000', padding: '10px', marginTop: '6px', color: '#00ff00', fontFamily: 'monospace', borderRadius: '4px' }}>
+                                ssh ubuntu@IP_АДРЕС_ВАШЕЙ_VM
+                              </pre>
+                            </p>
+                          </div>
+                          <hr style={{ borderColor: 'var(--border-color)' }} />
+                          <div>
+                            <h4 style={{ fontWeight: 700, color: 'var(--primary)', marginBottom: '4px' }}>2. Работа с S3 хранилищем через AWS CLI</h4>
+                            <p style={{ color: 'var(--text-secondary)' }}>
+                              Вы можете настроить стандартный AWS CLI клиент на работу с нашим S3 облаком:
+                              <pre style={{ background: '#000000', padding: '10px', marginTop: '6px', color: '#00ff00', fontFamily: 'monospace', borderRadius: '4px' }}>
+                                aws configure --profile aegis<br />
+                                # Endpoint URL: https://s3.aegis-app.ru
+                              </pre>
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
               )}
 
