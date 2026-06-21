@@ -14,7 +14,8 @@ const VncConsole = ({ name, username, password, onClose, isInline = false }) => 
 
     // Определяем URL вебсокета
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/vnc/${name}`;
+    const token = localStorage.getItem('aegis_admin_token') || 'aegis-admin-secret-key-2026';
+    const wsUrl = `${protocol}//${window.location.host}/api/vnc/${name}?token=${encodeURIComponent(token)}`;
     
     console.log(`Connecting to VNC WebSocket: ${wsUrl}`);
 

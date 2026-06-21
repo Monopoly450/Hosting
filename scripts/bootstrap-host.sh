@@ -129,6 +129,9 @@ sed "s|mountPath: /host${CNI_BIN_DIR}|mountPath: /host/var/lib/rancher/k3s/data|
 kubectl apply -f /tmp/multus-k3s.yml
 rm -f /tmp/multus-k3s.yml
 
+log "Патчинг лимитов ресурсов для Multus CNI (увеличиваем memory limit до 500Mi)..."
+kubectl patch daemonset kube-multus-ds -n kube-system --type='strategic' -p='{"spec":{"template":{"spec":{"containers":[{"name":"kube-multus","resources":{"limits":{"memory":"500Mi"},"requests":{"memory":"100Mi"}}}]}}}}' || true
+
 # Ждем запуска Multus
 log "Ожидание запуска Multus CNI..."
 kubectl rollout status daemonset/kube-multus-ds -n kube-system --timeout=120s

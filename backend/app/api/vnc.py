@@ -2,7 +2,7 @@ import asyncio
 import ssl
 import logging
 import websockets
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from app.core.k8s_client import K8sClient
 
 router = APIRouter()
@@ -17,7 +17,20 @@ async def forward(source, destination):
         logger.debug(f"Исключение при пересылке данных VNC: {e}")
 
 @router.websocket("/{name}")
-async def vnc_proxy(websocket: WebSocket, name: str, namespace: str = "default"):
+async def vnc_proxy(
+    websocket: WebSocket, 
+    name: str, 
+    namespace: str = "default",
+    token: str = Query(None)
+):
+    # Проверяем авторизационный токен
+    from app.core.auth import ADMIN_TOKEN
+    if not token or token != ADMIN_TOKEN:
+        logger.warning(f"Неавторизованное VNC подключение к VM: {name}")
+        await websocket.accept(subprotocol="binary")
+        await websocket.close(code=1008, reason="Unauthorized")
+        return
+
     # Принимаем WebSocket-соединение от браузера с указанием бинарного подпротокола
     await websocket.accept(subprotocol="binary")
     logger.info(f"Запрос VNC WebSocket для виртуалки: {name}")

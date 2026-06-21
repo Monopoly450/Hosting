@@ -20,7 +20,8 @@ const ClientVncConsole = ({ name, username, password, ips = [], onClose }) => {
     if (!canvasContainerRef.current) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/vnc/${name}`;
+    const token = localStorage.getItem('aegis_admin_token') || 'aegis-admin-secret-key-2026';
+    const wsUrl = `${protocol}//${window.location.host}/api/vnc/${name}?token=${encodeURIComponent(token)}`;
     
     console.log(`Client VNC connecting to: ${wsUrl}`);
 

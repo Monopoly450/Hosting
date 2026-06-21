@@ -109,7 +109,7 @@ if settings.BACKEND_CORS_ORIGINS:
 # Подключение роутеров с валидацией токена
 app.include_router(vms.router, prefix=f"{settings.API_V1_STR}/vms", tags=["vms"], dependencies=[Depends(verify_admin_token)])
 app.include_router(host.router, prefix=f"{settings.API_V1_STR}/host", tags=["host"], dependencies=[Depends(verify_admin_token)])
-app.include_router(vnc.router, prefix=f"{settings.API_V1_STR}/vnc", tags=["vnc"], dependencies=[Depends(verify_admin_token)])
+app.include_router(vnc.router, prefix=f"{settings.API_V1_STR}/vnc", tags=["vnc"])
 app.include_router(images.router, prefix=f"{settings.API_V1_STR}/images", tags=["images"], dependencies=[Depends(verify_admin_token)])
 app.include_router(docker_admin.router, prefix=f"{settings.API_V1_STR}/docker", tags=["docker"], dependencies=[Depends(verify_admin_token)])
 app.include_router(external_servers.router, prefix=f"{settings.API_V1_STR}/external-servers", tags=["external-servers"], dependencies=[Depends(verify_admin_token)])
