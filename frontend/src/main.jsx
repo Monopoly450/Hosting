@@ -13,7 +13,12 @@ window.fetch = async (url, options = {}) => {
       'X-Admin-Token': token
     };
   }
-  return originalFetch(url, options);
+  const response = await originalFetch(url, options);
+  if (response.status === 401 && !options._skipAuthRedirect && localStorage.getItem('aegis_admin_token')) {
+    localStorage.removeItem('aegis_admin_token');
+    window.location.reload();
+  }
+  return response;
 };
 
 ReactDOM.createRoot(document.getElementById('root')).render(

@@ -194,13 +194,30 @@ const App = () => {
     }
   };
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    if (tokenInput.trim() === 'aegis-admin-secret-key-2026') {
-      localStorage.setItem('aegis_admin_token', tokenInput.trim());
-      setAuthenticated(true);
-    } else {
-      alert('Неверный ключ доступа (Admin Token). Пожалуйста, введите корректный ключ.');
+    const token = tokenInput.trim();
+    if (!token) return;
+
+    try {
+      setFormLoading(true);
+      const response = await fetch('/api/host/metrics', {
+        headers: { 'X-Admin-Token': token },
+        _skipAuthRedirect: true
+      });
+      
+      if (response.status === 401) {
+        alert('Неверный ключ доступа (Admin Token). Пожалуйста, введите корректный ключ.');
+      } else if (!response.ok) {
+        throw new Error('Ошибка связи с сервером');
+      } else {
+        localStorage.setItem('aegis_admin_token', token);
+        setAuthenticated(true);
+      }
+    } catch (err) {
+      alert(`Не удалось проверить токен: ${err.message}`);
+    } finally {
+      setFormLoading(false);
     }
   };
 

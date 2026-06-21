@@ -279,7 +279,26 @@ const App = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [cabinetTab, setCabinetTab] = useState('servers'); // 'servers' | 'order' | 'billing' | 'balancers' | 'placeholder'
   const [placeholderTabName, setPlaceholderTabName] = useState('');
-  
+  const [authError, setAuthError] = useState(false);
+  const [apiTokenInput, setApiTokenInput] = useState('');
+
+  useEffect(() => {
+    const handleAuthError = () => {
+      setAuthError(true);
+    };
+    window.addEventListener('aegis-auth-error', handleAuthError);
+    return () => window.removeEventListener('aegis-auth-error', handleAuthError);
+  }, []);
+
+  const handleSaveApiToken = (e) => {
+    e.preventDefault();
+    if (!apiTokenInput.trim()) return;
+    localStorage.setItem('aegis_admin_token', apiTokenInput.trim());
+    setAuthError(false);
+    setLoading(true);
+    fetchVDS();
+  };
+
   // VDS Lists & Balance
   const [vms, setVms] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -548,6 +567,68 @@ const App = () => {
 
   return (
     <div className="cabinet-container">
+      {authError && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          backgroundColor: '#0a0d16',
+          backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(92, 100, 236, 0.08) 0%, transparent 50%)',
+          fontFamily: 'var(--font-sans)',
+          padding: '20px',
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 9999
+        }}>
+          <div className="card" style={{
+            width: '420px',
+            padding: '36px 30px',
+            background: '#111522',
+            border: '1px solid var(--border-color)',
+            borderRadius: '12px',
+            boxShadow: '0 24px 64px rgba(0, 0, 0, 0.4)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '24px'
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', textAlign: 'center' }}>
+              <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '14px', borderRadius: '12px', color: 'var(--danger)' }}>
+                <Shield size={36} />
+              </div>
+              <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '10px 0 2px 0', color: 'white' }}>Доступ ограничен</h2>
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                Личный кабинет получил ошибку авторизации (401) от бэкенда. Пожалуйста, введите ваш секретный API-токен:
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveApiToken} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>API Token (X-Admin-Token)</label>
+                <div style={{ position: 'relative' }}>
+                  <Key size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input 
+                    type="password"
+                    className="form-input"
+                    style={{ width: '100%', paddingLeft: '38px', background: '#0a0d16', borderRadius: '8px', border: '1px solid var(--border-color)', height: '40px', color: 'white' }}
+                    value={apiTokenInput}
+                    onChange={(e) => setApiTokenInput(e.target.value)}
+                    placeholder="Введите API-токен..."
+                    required
+                  />
+                </div>
+              </div>
+
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: '0.9rem', borderRadius: '8px', marginTop: '8px' }}>
+                Сохранить и обновить
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
       
       {/* Landing / Showcase Tab */}
       {activeTab === 'landing' && (

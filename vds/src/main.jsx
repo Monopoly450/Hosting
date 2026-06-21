@@ -13,7 +13,11 @@ window.fetch = async (url, options = {}) => {
       'X-Admin-Token': token
     };
   }
-  return originalFetch(url, options);
+  const response = await originalFetch(url, options);
+  if (response.status === 401 && !options._skipAuthRedirect) {
+    window.dispatchEvent(new CustomEvent('aegis-auth-error'));
+  }
+  return response;
 };
 
 ReactDOM.createRoot(document.getElementById('root')).render(
