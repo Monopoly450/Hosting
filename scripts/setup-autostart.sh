@@ -25,7 +25,7 @@ After=network.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/bash -c "ip link show br-vms &>/dev/null || (ip link add br-vms type bridge && ip addr add 172.20.0.1/24 dev br-vms && ip link set br-vms up); if systemctl list-unit-files | grep -q dnsmasq.service && systemctl is-enabled --quiet dnsmasq; then systemctl restart dnsmasq; fi"
+ExecStart=/bin/bash -c "ip link show br-vms &>/dev/null || (ip link add br-vms type bridge && ip addr add 172.20.0.1/24 dev br-vms && ip link set br-vms up)"
 
 [Install]
 WantedBy=multi-user.target
