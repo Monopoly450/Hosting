@@ -8,7 +8,7 @@ import RFB from '@novnc/novnc';
 import AwsConsole from './components/AwsConsole';
 
 // Self-contained VncConsole Component inside App.jsx for portability
-const ClientVncConsole = ({ name, username, password, ips = [], onClose }) => {
+const ClientVncConsole = ({ name, username, password, ips = [], vmStatus, onClose }) => {
   const canvasContainerRef = useRef(null);
   const rfbRef = useRef(null);
   const [status, setStatus] = useState('connecting'); // 'connecting' | 'connected' | 'disconnected' | 'error'
@@ -124,7 +124,7 @@ const ClientVncConsole = ({ name, username, password, ips = [], onClose }) => {
     }
   };
 
-  const showProgress = ips.length === 0 && !bypassProgress;
+  const showProgress = (ips.length === 0 || vmStatus === 'Importing' || vmStatus === 'Provisioning' || vmStatus === 'Starting') && !bypassProgress;
 
   return (
     <div className="console-modal-backdrop">
@@ -2611,9 +2611,11 @@ const App = () => {
       {openConsoleName && (
         <ClientVncConsole 
           name={openConsoleName}
-          username="root"
+          username="ubuntu"
           password={vms.find(v => v.name === openConsoleName)?.credentials?.password || ''}
           ips={vms.find(v => v.name === openConsoleName)?.ips || []}
+          vmStatus={vms.find(v => v.name === openConsoleName)?.status || ''}
+          onClose={() => setOpenConsoleName(null)}
         />
       )}
 

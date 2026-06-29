@@ -167,6 +167,11 @@ write_files:
             match:
               name: "e*"
             dhcp4: true
+  - path: /etc/systemd/system/getty@tty1.service.d/override.conf
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=-/sbin/agetty -o '-p -mx -- \\\\u' --autologin ubuntu --noclear tty1 $TERM
 runcmd:
   - echo "root:{password}" | chpasswd
   - echo "ubuntu:{password}" | chpasswd
@@ -175,6 +180,8 @@ runcmd:
   - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf || true
   - systemctl restart ssh || systemctl restart sshd
   - netplan apply || systemctl restart systemd-networkd || (ip link set enp1s0 up && dhclient enp1s0)
+  - systemctl daemon-reload
+  - systemctl restart getty@tty1.service
   - while ! ping -c 1 -W 2 security.ubuntu.com >/dev/null 2>&1; do sleep 2; done
   - i=1; while [ $i -le 50 ]; do apt-get update && apt-get install -y qemu-guest-agent && break || sleep 5; i=$((i+1)); done
   - systemctl enable --now qemu-guest-agent
