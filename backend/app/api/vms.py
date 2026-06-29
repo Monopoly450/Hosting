@@ -1,5 +1,6 @@
 import os
 import re
+import socket
 import paramiko
 import secrets
 import string
@@ -12,6 +13,22 @@ from app.services.ssh_inspector import SSHInspector
 
 router = APIRouter()
 logger = logging.getLogger("app.api.vms")
+
+def get_host_ip() -> str:
+    """Определяет IP хоста, доступный для подов K3s"""
+    env_host = os.getenv("HOST_IP") or os.getenv("AEGIS_HOST_IP")
+    if env_host:
+        return env_host
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if ip and ip != "127.0.0.1":
+            return ip
+    except Exception:
+        pass
+    return "172.20.0.1"
 
 # Зависимость для получения клиента K8s
 def get_k8s_client():
@@ -45,8 +62,8 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
     # Если выбран кастомный образ, загружаем его из локального хранилища бэкенда
     image_url = DEFAULT_UBUNTU_IMAGE
     if req.os_type == "custom" and req.custom_image:
-        # K3s нода обращается к бэкенду на localhost:8000
-        image_url = f"http://127.0.0.1:8000/static/images/{req.custom_image}"
+        host_ip = get_host_ip()
+        image_url = f"http://{host_ip}:8000/static/images/{req.custom_image}"
         
     return {
         "apiVersion": "kubevirt.io/v1",
@@ -125,7 +142,46 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
                         {
                             "name": "cloudinit",
                             "cloudInitNoCloud": {
-                                "userData": f"#cloud-config\nssh_pwauth: True\ndisable_root: false\nchpasswd:\n  list: |\n    root:{password}\n    ubuntu:{password}\n  expire: False\nusers:\n  - name: root\n    lock_passwd: false\n  - name: ubuntu\n    sudo: ['ALL=(ALL) NOPASSWD:ALL']\n    shell: /bin/bash\n    lock_passwd: false\nruncmd:\n  - echo \"root:{password}\" | chpasswd\n  - echo \"ubuntu:{password}\" | chpasswd\n  - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\n  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config\n  - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf || true\n  - systemctl restart ssh || systemctl restart sshd\n  - mkdir -p /etc/netplan\n  - printf 'network:\\n  version: 2\\n  ethernets:\\n    all-eth:\\n      match:\\n        name: \"e*\"\\n      dhcp4: true\\n' > /etc/netplan/99-dhcp.yaml\n  - netplan apply || systemctl restart systemd-networkd || (ip link set enp1s0 up && dhclient enp1s0)\n  - while ! ping -c 1 -W 2 security.ubuntu.com >/dev/null 2>&1; do sleep 2; done\n  - i=1; while [ $i -le 50 ]; do apt-get update && apt-get install -y qemu-guest-agent && break || sleep 5; i=$((i+1)); done\n  - systemctl enable --now qemu-guest-agent\n"
+                                "userData": f"""#cloud-config
+ssh_pwauth: True
+disable_root: false
+chpasswd:
+  list: |
+    root:{password}
+    ubuntu:{password}
+  expire: False
+users:
+  - name: root
+    lock_passwd: false
+  - name: ubuntu
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    shell: /bin/bash
+    lock_passwd: false
+write_files:
+  - path: /etc/netplan/99-dhcp.yaml
+    content: |
+      network:
+        version: 2
+        ethernets:
+          all-eth:
+            match:
+              name: "e*"
+            dhcp4: true
+runcmd:
+  - echo "root:{password}" | chpasswd
+  - echo "ubuntu:{password}" | chpasswd
+  - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+  - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf || true
+  - systemctl restart ssh || systemctl restart sshd
+  - netplan apply || systemctl restart systemd-networkd || (ip link set enp1s0 up && dhclient enp1s0)
+  - while ! ping -c 1 -W 2 security.ubuntu.com >/dev/null 2>&1; do sleep 2; done
+  - i=1; while [ $i -le 50 ]; do apt-get update && apt-get install -y qemu-guest-agent && break || sleep 5; i=$((i+1)); done
+  - systemctl enable --now qemu-guest-agent
+""",
+                                "metaData": f"""instance-id: {req.name}
+local-hostname: {req.name}
+"""
                             }
                         }
                     ]
@@ -167,7 +223,8 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
     iso_url = req.iso_url or DEFAULT_WINDOWS_ISO
     # Если Windows создается из кастомного образа ISO
     if req.os_type == "custom" and req.custom_image:
-        iso_url = f"http://127.0.0.1:8000/static/images/{req.custom_image}"
+        host_ip = get_host_ip()
+        iso_url = f"http://{host_ip}:8000/static/images/{req.custom_image}"
 
     return {
         "apiVersion": "kubevirt.io/v1",
