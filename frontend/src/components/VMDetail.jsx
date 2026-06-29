@@ -517,45 +517,6 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                           </button>
                         </div>
                       </div>
-
-                      <div style={{ 
-                        fontSize: '0.75rem', 
-                        color: 'var(--text-muted)', 
-                        background: 'rgba(245, 158, 11, 0.05)', 
-                        padding: '10px', 
-                        border: '1px solid rgba(245, 158, 11, 0.15)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '6px'
-                      }}>
-                        <div>⚠️ VM находится в приватной сети <code>{sshIp}</code>. Для внешнего доступа требуется настроить проброс на хосте.</div>
-                        <button 
-                          className="btn btn-warning btn-sm"
-                          disabled={applyingNat}
-                          onClick={handleApplyNat}
-                          style={{ 
-                            width: '100%', 
-                            borderRadius: '0px', 
-                            fontSize: '0.75rem', 
-                            padding: '6px 8px',
-                            background: 'rgba(245, 158, 11, 0.15)',
-                            color: 'rgb(245, 158, 11)',
-                            border: '1px solid rgba(245, 158, 11, 0.3)',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '4px'
-                          }}
-                        >
-                          {applyingNat ? (
-                            <>
-                              <span className="spinner" style={{ width: '10px', height: '10px', borderWidth: '1.5px', borderColor: 'rgb(245, 158, 11)' }} />
-                              Настройка правил...
-                            </>
-                          ) : '⚡ Настроить проброс портов на хосте'}
-                        </button>
-                      </div>
                     </>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

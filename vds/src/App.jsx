@@ -136,14 +136,9 @@ const ClientVncConsole = ({ name, username, password, ips = [], onClose }) => {
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
             {!showProgress && status === 'connected' && (
-              <>
-                <button className="btn btn-secondary btn-sm" onClick={() => sendString(password + "\n")}>
-                  Вставить пароль
-                </button>
-                <button className="btn btn-secondary btn-sm" onClick={handleCtrlAltDel}>
-                  Ctrl+Alt+Del
-                </button>
-              </>
+              <button className="btn btn-secondary btn-sm" onClick={handleCtrlAltDel}>
+                Ctrl+Alt+Del
+              </button>
             )}
             <button className="btn btn-danger btn-sm" onClick={onClose}>
               <X size={14} />
@@ -1148,9 +1143,11 @@ const App = () => {
                                   {vm.template} OS
                                 </span>
                               </div>
-                              <span className={`status-badge ${vm.status === 'Running' ? 'running' : 'stopped'}`}>
+                              <span className={`status-badge ${vm.status === 'Running' ? 'running' : (vm.status === 'Importing' || vm.status === 'Starting') ? 'pending' : 'stopped'}`}>
                                 <span className="status-dot"></span>
-                                {vm.status === 'Running' ? 'Активен' : 'Выключен'}
+                                {vm.status === 'Running' ? 'Активен' : 
+                                 vm.status === 'Importing' ? `Импорт (${vm.import_progress && vm.import_progress !== 'N/A' ? vm.import_progress : '0%'})` : 
+                                 vm.status === 'Starting' ? 'Запуск...' : 'Выключен'}
                               </span>
                             </div>
 
@@ -1168,6 +1165,26 @@ const App = () => {
                                 <strong>{vm.disk} GB</strong>
                               </div>
                             </div>
+
+                            {/* Прогресс импорта диска */}
+                            {vm.status === 'Importing' && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '12px', padding: '0 4px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#94a3b8' }}>
+                                  <span>Загрузка образа диска</span>
+                                  <span>{vm.import_progress && vm.import_progress !== 'N/A' ? vm.import_progress : '0%'}</span>
+                                </div>
+                                <div style={{ height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                                  <div 
+                                    style={{ 
+                                      width: vm.import_progress && vm.import_progress.includes('%') ? vm.import_progress : '0%',
+                                      height: '100%',
+                                      background: '#38bdf8',
+                                      transition: 'width 0.3s ease'
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            )}
 
                             <div style={{ fontSize: '0.78rem', color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: '4px', fontFamily: 'monospace' }}>
                               <div>IP-адрес: <strong style={{ color: '#38bdf8' }}>{vm.ips && vm.ips[0] ? vm.ips[0] : 'Назначается...'}</strong></div>
