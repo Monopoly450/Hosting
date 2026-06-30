@@ -89,23 +89,5 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  vds-frontend:
-    build:
-      context: ./vds
-      dockerfile: Dockerfile
-    container_name: vds-frontend
-    network_mode: host
-    restart: unless-stopped
-    depends_on:
-      - backend
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
 volumes:
   postgres_data:
-
-
-
