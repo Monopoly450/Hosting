@@ -333,7 +333,7 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                         {
                             "name": "virtio-drivers",
                             "containerDisk": {
-                                "image": "quay.io/kubevirt/virtio-container-disk"
+                                "image": "quay.io/kubevirt/virtio-container-disk:v1.0.0"
                             }
                         }
                     ]
