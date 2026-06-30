@@ -277,12 +277,14 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                             "disks": [
                                 {
                                     "name": "winhd",
+                                    "bootOrder": 2,
                                     "disk": {
                                         "bus": "virtio"
                                     }
                                 },
                                 {
                                     "name": "winiso",
+                                    "bootOrder": 1,
                                     "cdrom": {
                                         "bus": "sata"
                                     }
