@@ -196,12 +196,10 @@ const App = () => {
     if (selectedVMDetailName) return `Детали ВМ: ${selectedVMDetailName}`;
     switch (activeTab) {
       case 'dashboard': return 'Обзор инфраструктуры';
-      case 'vms': return 'Виртуальные машины';
+      case 'vms': return 'Серверы и Инстансы';
       case 'images': return 'Образы дисков';
       case 'docker': return 'Docker Управление';
-      case 'infra': return 'Настройки сети и NAT';
-      case 'external': return 'Внешние серверы';
-      default: return 'ByteBurnes';
+      case 'infra': return 'Инфраструктура';
     }
   };
 
@@ -264,7 +262,7 @@ const App = () => {
             onClick={() => { setActiveTab('vms'); setSelectedVMDetailName(null); }}
           >
             <Activity size={18} />
-            Виртуальные машины
+            Серверы и Инстансы
           </button>
 
           <button 
@@ -273,14 +271,6 @@ const App = () => {
           >
             <FolderOpen size={18} />
             Образы ОС
-          </button>
-
-          <button 
-            className={`nav-item ${activeTab === 'external' && !selectedVMDetailName ? 'active' : ''}`}
-            onClick={() => { setActiveTab('external'); setSelectedVMDetailName(null); }}
-          >
-            <Link2 size={18} />
-            Внешние серверы
           </button>
 
           <button 
@@ -423,31 +413,46 @@ const App = () => {
               </div>
             </div>
           ) : activeTab === 'vms' ? (
-            /* VMs List */
+            /* Combined Servers List */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="text-muted">Развёрнуто серверов: <strong>{vms.length}</strong></span>
-                <button className="btn btn-primary" onClick={() => setActiveTab('dashboard')}><Plus size={16}/> Развернуть новую</button>
+                <span className="text-muted">Всего серверов и инстансов: <strong>{vms.length + externalServers.length}</strong></span>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button className="btn btn-secondary" onClick={() => setShowConnectModal(true)}>
+                    <Link2 size={16}/> Внешний сервер
+                  </button>
+                  <button className="btn btn-primary" onClick={() => setActiveTab('dashboard')}>
+                    <Plus size={16}/> Локальная ВМ
+                  </button>
+                </div>
               </div>
 
-              {loading && vms.length === 0 ? (
+              {(loading && vms.length === 0) || (serversLoading && externalServers.length === 0) ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}><div className="spinner"></div></div>
-              ) : vms.length === 0 ? (
+              ) : (vms.length === 0 && externalServers.length === 0) ? (
                 <div className="glass-card" style={{ textAlign: 'center', padding: '64px 20px' }}>
-                  <Monitor size={48} color="var(--text-muted)" style={{ marginBottom: '16px' }} />
-                  <h3 className="section-title" style={{ justifyContent: 'center' }}>Нет виртуальных машин</h3>
-                  <p className="text-muted">Здесь будут отображаться ваши виртуальные машины.</p>
+                  <Server size={48} color="var(--text-muted)" style={{ marginBottom: '16px' }} />
+                  <h3 className="section-title" style={{ justifyContent: 'center' }}>Нет серверов и инстансов</h3>
+                  <p className="text-muted">Разверните новую виртуальную машину или подключите внешний Linux-сервер.</p>
                 </div>
               ) : (
                 <div className="grid-cols-3">
                   {vms.map(vm => (
                     <VMCard 
-                      key={vm.name} 
+                      key={`vm-${vm.name}`} 
                       vm={vm} 
                       onActionSuccess={fetchVMs}
                       onOpenConsole={(name) => setOpenConsoleName(name)}
                       onOpenEdit={(vmObj) => setEditingVM(vmObj)}
                       onOpenDetail={(name) => setSelectedVMDetailName(name)}
+                    />
+                  ))}
+                  {externalServers.map(server => (
+                    <ExternalServerCard 
+                      key={`ext-${server.id}`} 
+                      server={server} 
+                      onClick={() => server.status === 'Online' && setSelectedServerId(server.id)}
+                      onDeleteSuccess={fetchExternalServers}
                     />
                   ))}
                 </div>
@@ -459,33 +464,6 @@ const App = () => {
             <DockerPanel />
           ) : activeTab === 'infra' ? (
             <InfraPanel />
-          ) : activeTab === 'external' ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="text-muted">Подключено серверов: <strong>{externalServers.length}</strong></span>
-                <button className="btn btn-primary" onClick={() => setShowConnectModal(true)}><Plus size={16}/> Добавить внешний сервер</button>
-              </div>
-              {serversLoading && externalServers.length === 0 ? (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}><div className="spinner"></div></div>
-              ) : externalServers.length === 0 ? (
-                <div className="glass-card" style={{ textAlign: 'center', padding: '64px 20px' }}>
-                  <Server size={48} color="var(--text-muted)" style={{ marginBottom: '16px' }} />
-                  <h3 className="section-title" style={{ justifyContent: 'center' }}>Нет внешних серверов</h3>
-                  <p className="text-muted">Вы можете подключить любой Linux сервер по SSH для мониторинга.</p>
-                </div>
-              ) : (
-                <div className="grid-cols-3">
-                  {externalServers.map(server => (
-                    <ExternalServerCard 
-                      key={server.id} 
-                      server={server} 
-                      onClick={() => server.status === 'Online' && setSelectedServerId(server.id)}
-                      onDeleteSuccess={fetchExternalServers}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
           ) : null}
 
         </main>
