@@ -147,87 +147,53 @@ for i in {1..30}; do
     sleep 5
 done
 
-# Сетевой режим: Выбор
-log "Определение сетевой конфигурации:"
-echo "1) Bridge (Мост) - для локальной сети/роутера (требует Promiscuous Mode / доп. MAC)"
-echo "2) NAT / Masquerade - для облачных VPS ( Selectel, Hetzner, DigitalOcean, RuVDS и т.д. ) [РЕКОМЕНДУЕТСЯ]"
-if [ -z "$NET_MODE" ]; then
-    if [ -t 0 ]; then
-        read -p "Выберите режим (1 или 2, по умолчанию 2): " NET_MODE
-    else
-        NET_MODE="2"
-    fi
-fi
-if [ "$NET_MODE" != "1" ] && [ "$NET_MODE" != "2" ]; then
-    NET_MODE="2"
+# Сетевой режим: Принудительный NAT / Masquerade
+log "Настройка сети в режиме NAT / Masquerade на мосту br-vms (Изолированная сеть 172.20.0.0/24)..."
+
+# 1. Создание моста br-vms
+if ! ip link show br-vms &>/dev/null; then
+    ip link add br-vms type bridge
+    ip addr add 172.20.0.1/24 dev br-vms
+    ip link set br-vms up
 fi
 
-if [ "$NET_MODE" = "1" ]; then
-    log "Создание NetworkAttachmentDefinition в режиме Bridge (macvlan)..."
-    cat <<EOF | kubectl apply -f -
-apiVersion: "k8s.cni.cncf.io/v1"
-kind: NetworkAttachmentDefinition
-metadata:
-  name: bridge-network
-  namespace: default
-spec:
-  config: '{
-      "cniVersion": "0.3.1",
-      "name": "bridge-network",
-      "type": "macvlan",
-      "master": "${ACTIVE_IFACE}",
-      "mode": "bridge",
-      "ipam": {}
-    }'
-EOF
-    log "Сетевой мост bridge-network успешно создан на базе интерфейса ${ACTIVE_IFACE}!"
+# 2. Включение IP Forwarding
+sysctl -w net.ipv4.ip_forward=1
+echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/99-ip-forward.conf
+
+# 3. Настройка IPTables правил
+iptables -t nat -C POSTROUTING -s 172.20.0.0/24 -o "${ACTIVE_IFACE}" -j MASQUERADE &>/dev/null || \
+    iptables -t nat -A POSTROUTING -s 172.20.0.0/24 -o "${ACTIVE_IFACE}" -j MASQUERADE
+iptables -C FORWARD -i br-vms -j ACCEPT &>/dev/null || \
+    iptables -A FORWARD -i br-vms -j ACCEPT
+iptables -C FORWARD -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || \
+    iptables -A FORWARD -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# 4. Сохранение правил iptables
+if dpkg -l | grep -q iptables-persistent; then
+    netfilter-persistent save
 else
-    log "Настройка сети в режиме NAT / Masquerade на мосту br-vms..."
-    
-    # 1. Создание моста br-vms
-    if ! ip link show br-vms &>/dev/null; then
-        ip link add br-vms type bridge
-        ip addr add 172.20.0.1/24 dev br-vms
-        ip link set br-vms up
-    fi
-    
-    # 2. Включение IP Forwarding
-    sysctl -w net.ipv4.ip_forward=1
-    echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/99-ip-forward.conf
-    
-    # 3. Настройка IPTables правил
-    iptables -t nat -C POSTROUTING -s 172.20.0.0/24 -o "${ACTIVE_IFACE}" -j MASQUERADE &>/dev/null || \
-        iptables -t nat -A POSTROUTING -s 172.20.0.0/24 -o "${ACTIVE_IFACE}" -j MASQUERADE
-    iptables -C FORWARD -i br-vms -j ACCEPT &>/dev/null || \
-        iptables -A FORWARD -i br-vms -j ACCEPT
-    iptables -C FORWARD -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || \
-        iptables -A FORWARD -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT
+    log "Установка iptables-persistent..."
+    echo iptables-persistent iptables-persistent/italy select false | debconf-set-selections
+    echo iptables-persistent iptables-persistent/sec select false | debconf-set-selections
+    DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent
+    netfilter-persistent save
+fi
 
-    # 4. Сохранение правил iptables
-    if dpkg -l | grep -q iptables-persistent; then
-        netfilter-persistent save
-    else
-        log "Установка iptables-persistent..."
-        echo iptables-persistent iptables-persistent/italy select false | debconf-set-selections
-        echo iptables-persistent iptables-persistent/sec select false | debconf-set-selections
-        DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent
-        netfilter-persistent save
-    fi
-
-    # 5. Установка и настройка dnsmasq
-    log "Установка и настройка DHCP (dnsmasq) на интерфейсе br-vms..."
-    apt-get update && apt-get install -y dnsmasq
-    cat <<EOF > /etc/dnsmasq.d/aegis-dhcp.conf
+# 5. Установка и настройка dnsmasq
+log "Установка и настройка DHCP (dnsmasq) на интерфейсе br-vms..."
+apt-get update && apt-get install -y dnsmasq
+cat <<EOF > /etc/dnsmasq.d/aegis-dhcp.conf
 interface=br-vms
 bind-interfaces
 dhcp-range=172.20.0.10,172.20.0.250,12h
 dhcp-option=option:router,172.20.0.1
 dhcp-option=option:dns-server,8.8.8.8,1.1.1.1
 EOF
-    systemctl restart dnsmasq
+systemctl restart dnsmasq
 
-    # 6. Создание NetworkAttachmentDefinition типа bridge с host-local IPAM
-    cat <<EOF | kubectl apply -f -
+# 6. Создание NetworkAttachmentDefinition типа bridge с host-local IPAM
+cat <<EOF | kubectl apply -f -
 apiVersion: "k8s.cni.cncf.io/v1"
 kind: NetworkAttachmentDefinition
 metadata:
@@ -252,8 +218,7 @@ spec:
       }
   }'
 EOF
-    log "Сетевой мост bridge-network успешно настроен в режиме NAT (172.20.0.0/24)!"
-fi
+log "Сетевой мост bridge-network успешно настроен в режиме NAT (172.20.0.0/24)!"
 
 # 8. Установка KubeVirt
 log "Получение актуальной версии KubeVirt..."
