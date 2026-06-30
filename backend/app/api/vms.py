@@ -74,7 +74,7 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
         host_ip = get_host_ip()
         image_url = f"http://{host_ip}:8000/static/images/{req.custom_image}"
         
-    return {
+    manifest = {
         "apiVersion": "kubevirt.io/v1",
         "kind": "VirtualMachine",
         "metadata": {
@@ -236,6 +236,12 @@ local-hostname: {req.name}
             ]
         }
     }
+    # Инжектим дополнительные диски (PVC)
+    if extra_disks:
+        manifest["spec"]["template"]["spec"]["domain"]["devices"]["disks"].extend(extra_disks)
+        manifest["spec"]["template"]["spec"]["volumes"].extend(extra_volumes)
+        
+    return manifest
 
 def generate_windows_manifest(req: VMCreationRequest) -> dict:
     iso_url = req.iso_url or DEFAULT_WINDOWS_ISO

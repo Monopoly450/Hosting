@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, Package, HardDrive, Square } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -36,6 +36,8 @@ const App = () => {
   const [name, setName] = useState('');
   const [osType, setOsType] = useState('ubuntu'); // 'ubuntu' | 'windows' | 'custom'
   const [selectedCustomImage, setSelectedCustomImage] = useState('');
+    const [packages, setPackages] = useState("");
+  const [networkDrives, setNetworkDrives] = useState("");
   const [cpuCores, setCpuCores] = useState(2);
   const [memoryGb, setMemoryGb] = useState(2);
   const [diskGb, setDiskGb] = useState(20);
@@ -371,13 +373,65 @@ const App = () => {
                         required
                       />
                     </div>
-                    <div style={{ flex: '1 1 300px' }} className="input-group">
-                      <label className="input-label">Операционная система</label>
-                      <select className="form-control" value={osType} onChange={(e) => setOsType(e.target.value)}>
-                        <option value="ubuntu">Ubuntu Cloud</option>
-                        <option value="windows">Windows ISO</option>
-                        <option value="custom">Пользовательский образ</option>
-                      </select>
+
+                  </div>
+
+                  <div className="input-group" style={{ marginTop: '16px' }}>
+                    <label className="input-label">3. Операционная система</label>
+                    <div className="os-grid">
+                      <div className={`os-card ${osType === 'none' ? 'selected' : ''}`} onClick={() => setOsType('none')}>
+                        <div className="os-card-icon" style={{ color: '#94a3b8' }}><Info size={24} /></div>
+                        <div className="os-card-title">Без ОС</div>
+                        <div className="os-card-version">Отдадим быстрее</div>
+                      </div>
+                      
+                      <div className={`os-card ${osType === 'ubuntu' ? 'selected' : ''}`} onClick={() => setOsType('ubuntu')}>
+                        <div className="os-card-icon" style={{ color: '#f97316' }}><Server size={24} /></div>
+                        <div className="os-card-title">Ubuntu</div>
+                        <div className="os-card-version">Ubuntu 24.04 <ChevronDown size={14} /></div>
+                      </div>
+                      
+                      <div className={`os-card ${osType === 'centos' ? 'selected' : ''}`} onClick={() => setOsType('centos')}>
+                        <div className="os-card-icon" style={{ color: '#84cc16' }}><Server size={24} /></div>
+                        <div className="os-card-title">CentOS</div>
+                        <div className="os-card-version">CentOS 10 <ChevronDown size={14} /></div>
+                      </div>
+                      
+                      <div className={`os-card ${osType === 'debian' ? 'selected' : ''}`} onClick={() => setOsType('debian')}>
+                        <div className="os-card-icon" style={{ color: '#ef4444' }}><Server size={24} /></div>
+                        <div className="os-card-title">Debian</div>
+                        <div className="os-card-version">Debian 13 <ChevronDown size={14} /></div>
+                      </div>
+                      
+                      <div className={`os-card ${osType === 'bitrix' ? 'selected' : ''}`} onClick={() => setOsType('bitrix')}>
+                        <div className="os-card-icon" style={{ color: '#ef4444' }}><Activity size={24} /></div>
+                        <div className="os-card-title">BitrixVM</div>
+                        <div className="os-card-version">CentOS 9</div>
+                      </div>
+                      
+                      <div className={`os-card ${osType === 'vmware' ? 'selected' : ''}`} onClick={() => setOsType('vmware')}>
+                        <div className="os-card-icon" style={{ color: '#eab308' }}><Square size={24} /></div>
+                        <div className="os-card-title">VMWare ESXi</div>
+                        <div className="os-card-version">VMware ESXi 8 <ChevronDown size={14} /></div>
+                      </div>
+                      
+                      <div className={`os-card ${osType === 'proxmox' ? 'selected' : ''}`} onClick={() => setOsType('proxmox')}>
+                        <div className="os-card-icon" style={{ color: '#f97316' }}><Activity size={24} /></div>
+                        <div className="os-card-title">Proxmox</div>
+                        <div className="os-card-version">Proxmox 8 <ChevronDown size={14} /></div>
+                      </div>
+                      
+                      <div className={`os-card ${osType === 'custom' ? 'selected' : ''}`} style={{ borderColor: osType === 'custom' ? '#6366f1' : 'transparent', backgroundColor: osType === 'custom' ? 'var(--bg-surface-hover)' : 'var(--bg-surface)' }} onClick={() => setOsType('custom')}>
+                        <div className="os-card-icon" style={{ color: '#6366f1' }}><Info size={24} /></div>
+                        <div className="os-card-title">Свой образ</div>
+                        <div className="os-card-version" style={{ opacity: 0 }}>...</div>
+                      </div>
+                      
+                      <div className={`os-card ${osType === 'other' ? 'selected' : ''}`} onClick={() => setOsType('other')}>
+                        <div className="os-card-icon" style={{ color: '#94a3b8' }}><Info size={24} /></div>
+                        <div className="os-card-title">Хочу другое ПО</div>
+                        <div className="os-card-version">Оставить заявку</div>
+                      </div>
                     </div>
                   </div>
 
@@ -396,6 +450,32 @@ const App = () => {
                       </select>
                     </div>
                   )}
+
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '8px' }}>
+                    <div style={{ flex: '1 1 300px' }} className="input-group">
+                      <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Package size={16}/> Пакеты для установки (через запятую)</label>
+                      <input 
+                        type="text" 
+                        className="form-control" 
+                        placeholder="Например: nginx, docker.io, mc, htop"
+                        value={packages}
+                        onChange={(e) => setPackages(e.target.value)}
+                      />
+                      <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Установятся автоматически при первом запуске (только для Linux).</span>
+                    </div>
+                    <div style={{ flex: '1 1 300px' }} className="input-group">
+                      <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><HardDrive size={16}/> Сетевые диски (NFS / PVC)</label>
+                      <input 
+                        type="text" 
+                        className="form-control" 
+                        placeholder="Например: 192.168.1.10:/shared или pvc-name"
+                        value={networkDrives}
+                        onChange={(e) => setNetworkDrives(e.target.value)}
+                      />
+                      <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Сетевая шара будет смонтирована в /mnt/network_drive.</span>
+                    </div>
+                  </div>
+
 
                   <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
                     <div style={{ flex: '1 1 200px' }}>
