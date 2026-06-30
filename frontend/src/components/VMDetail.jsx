@@ -27,9 +27,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [cwd, setCwd] = useState('~');
   const [terminalHistory, setTerminalHistory] = useState([]);
   const [applyingNat, setApplyingNat] = useState(false);
-  
-  const [showVnc, setShowVnc] = useState(false);
-  const [showBackups, setShowBackups] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'vnc', 'backups'
 
   const terminalEndRef = useRef(null);
 
@@ -266,28 +264,37 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                 <button className="btn btn-secondary" onClick={() => handlePowerAction('restart')} disabled={actionLoading !== null}>
                   {actionLoading === 'restart' ? <span className="spinner"/> : <><RotateCw size={14} /> Reboot</>}
                 </button>
-                <button className="btn btn-primary" onClick={() => setShowVnc(!showVnc)}>
-                  <Monitor size={14} /> {showVnc ? 'Hide VNC' : 'VNC Console'}
-                </button>
               </>
             )}
-            <button className="btn btn-secondary" onClick={() => setShowBackups(!showBackups)}>💾 Backups</button>
+            
+            <div style={{ width: '1px', background: 'var(--border-subtle)', margin: '0 8px' }}></div>
+            
+            <button className={`btn ${activeTab === 'overview' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('overview')}>
+              <Activity size={14} /> Обзор
+            </button>
+            <button className={`btn ${activeTab === 'vnc' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('vnc')} disabled={vm.status !== 'Running'}>
+              <Monitor size={14} /> VNC
+            </button>
+            <button className={`btn ${activeTab === 'backups' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('backups')}>
+              💾 Бэкапы
+            </button>
           </div>
         </div>
       </div>
 
-      {showVnc && (
-        <div className="glass-card" style={{ padding: 0, overflow: 'hidden', background: '#000' }}>
-          <VncConsole name={vmName} username={vm.credentials?.username} password={vm.credentials?.password} isInline={true} onClose={() => setShowVnc(false)} />
+      {activeTab === 'vnc' && (
+        <div className="glass-card" style={{ padding: 0, overflow: 'hidden', background: '#000', borderRadius: 'var(--radius-lg)' }}>
+          <VncConsole name={vmName} username={vm.credentials?.username} password={vm.credentials?.password} isInline={true} />
         </div>
       )}
 
-      {showBackups && (
+      {activeTab === 'backups' && (
         <div className="glass-card">
           <BackupList vmName={vmName} vmStatus={vm.status} onRestoreStarted={fetchVmDetails} />
         </div>
       )}
 
+      {activeTab === 'overview' && (
       {/* TWO COLUMN LAYOUT */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '24px' }}>
         
@@ -485,6 +492,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
         </div>
       </div>
+      )}
     </div>
   );
 };

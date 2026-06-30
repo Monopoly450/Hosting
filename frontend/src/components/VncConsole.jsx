@@ -138,26 +138,46 @@ const VncConsole = ({ name, username, password, onClose, isInline = false }) => 
     }, 1000);
   };
 
+  const [copiedField, setCopiedField] = useState(null);
+
+  const handleCopy = (text, field) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
   if (isInline) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', flex: 1, minHeight: '400px' }}>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'flex-start', background: 'rgba(0,0,0,0.02)', padding: '10px', border: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0', flex: 1, minHeight: '400px' }}>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', justifyContent: 'flex-start', background: '#0f172a', padding: '12px 16px', borderBottom: '1px solid #1e293b', flexWrap: 'wrap' }}>
           {status === 'connected' ? (
             <>
-              <button className="btn btn-secondary btn-sm" onClick={handleSendCtrlAltDel} type="button" style={{ borderRadius: '0px' }}>
+              <button className="btn btn-primary btn-sm" onClick={handleSendCtrlAltDel} type="button" style={{ height: '28px' }}>
                 Ctrl+Alt+Del
               </button>
-              <div style={{ fontSize: '0.78rem', display: 'flex', gap: '8px', borderLeft: '1px solid var(--border-color)', paddingLeft: '10px', color: 'var(--text-primary)', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span>Логин: <strong style={{ color: 'var(--primary)' }}>{username}</strong></span>
-                <span>Пароль: <strong style={{ fontFamily: 'var(--font-mono)', color: 'var(--primary)' }}>{password}</strong></span>
+              <div style={{ display: 'flex', gap: '16px', color: '#f8fafc', alignItems: 'center', flexWrap: 'wrap', fontSize: '0.85rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ color: '#94a3b8' }}>Логин:</span>
+                  <strong style={{ color: '#38bdf8' }}>{username}</strong>
+                  <button onClick={() => handleCopy(username, 'user')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#94a3b8', display: 'flex' }} title="Копировать">
+                    {copiedField === 'user' ? <span style={{ color: '#10b981', fontSize: '0.75rem' }}>✓</span> : <span style={{ fontSize: '0.8rem' }}>📋</span>}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ color: '#94a3b8' }}>Пароль:</span>
+                  <strong style={{ fontFamily: 'var(--font-mono)', color: '#38bdf8' }}>{password}</strong>
+                  <button onClick={() => handleCopy(password, 'pass')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#94a3b8', display: 'flex' }} title="Копировать">
+                    {copiedField === 'pass' ? <span style={{ color: '#10b981', fontSize: '0.75rem' }}>✓</span> : <span style={{ fontSize: '0.8rem' }}>📋</span>}
+                  </button>
+                </div>
               </div>
             </>
           ) : (
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Ожидание подключения к экрану...</span>
+            <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Ожидание подключения к экрану...</span>
           )}
         </div>
 
-        <div className="console-canvas-container" style={{ flex: 1, minHeight: '450px', background: '#000000', display: 'flex', justifyContent: 'center', alignItems: 'center', border: '1px solid var(--border-color)' }}>
+        <div className="console-canvas-container" style={{ flex: 1, minHeight: '450px', background: '#000000', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
           <div 
             ref={canvasContainerRef} 
             id="vnc-canvas"
