@@ -829,9 +829,7 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 """
-        stdin, stdout, stderr = ssh.exec_command(f"cat << 'EOF' > /etc/systemd/system/vm-{name}.service
-{service_content}
-EOF")
+        stdin, stdout, stderr = ssh.exec_command(f"cat << 'EOF' > /etc/systemd/system/vm-{name}.service\\n{service_content}\\nEOF")
         stdout.channel.recv_exit_status()
         
         ssh.exec_command("systemctl daemon-reload")
