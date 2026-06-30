@@ -121,7 +121,7 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
           <div className="spinner"></div>
         </div>
       ) : backups.length === 0 ? (
-        <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: '15px', border: '1px dashed var(--border-color)', borderRadius: '0px' }}>
+        <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: '15px', border: '1px dashed var(--border-color)', borderRadius: 'var(--radius-md)' }}>
           Нет сохраненных резервных копий.
         </div>
       ) : (
@@ -134,7 +134,7 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 padding: '10px 14px',
-                borderRadius: '0px',
+                borderRadius: 'var(--radius-md)',
                 background: 'rgba(0, 0, 0, 0.2)',
                 border: '1px solid var(--border-color)',
                 fontSize: '0.8rem'

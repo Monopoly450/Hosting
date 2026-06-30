@@ -62,7 +62,7 @@ const VMEditModal = ({ vm, onClose, onSaveSuccess }) => {
             padding: '12px',
             background: 'rgba(245, 158, 11, 0.1)',
             border: '1px solid rgba(245, 158, 11, 0.25)',
-            borderRadius: '0px',
+            borderRadius: 'var(--radius-md)',
             fontSize: '0.8rem',
             color: 'var(--warning)',
             alignItems: 'flex-start'

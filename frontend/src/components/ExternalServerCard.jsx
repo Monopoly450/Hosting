@@ -67,7 +67,7 @@ const ExternalServerCard = ({ server, onClick, onDeleteSuccess }) => {
           fontFamily: 'var(--font-mono)',
           padding: '8px 12px',
           background: 'rgba(0, 0, 0, 0.15)',
-          borderRadius: '0px'
+          borderRadius: 'var(--radius-md)'
         }}>
           <div>Пользователь: <strong style={{ color: 'var(--primary)' }}>{server.username}</strong></div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', marginTop: '4px' }}>

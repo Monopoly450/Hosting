@@ -175,7 +175,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
             padding: '16px',
             background: 'rgba(255, 255, 255, 0.02)',
             border: '1px solid var(--border-color)',
-            borderRadius: '0px',
+            borderRadius: 'var(--radius-md)',
             fontSize: '0.85rem'
           }}>
             <div>ОС: <strong style={{ color: 'var(--text-primary)' }}>{data.os_name}</strong></div>
@@ -254,7 +254,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
             <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
               <button 
                 className={`btn btn-sm ${activeSubTab === 'processes' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ color: activeSubTab === 'processes' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
+                style={{ color: activeSubTab === 'processes' ? '#ffffff' : 'var(--text-primary)', borderRadius: 'var(--radius-md)' }}
                 onClick={() => setActiveSubTab('processes')}
               >
                 <Terminal size={12} />
@@ -262,7 +262,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
               </button>
               <button 
                 className={`btn btn-sm ${activeSubTab === 'services' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ color: activeSubTab === 'services' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
+                style={{ color: activeSubTab === 'services' ? '#ffffff' : 'var(--text-primary)', borderRadius: 'var(--radius-md)' }}
                 onClick={() => setActiveSubTab('services')}
               >
                 <ListFilter size={12} />
@@ -270,7 +270,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
               </button>
               <button 
                 className={`btn btn-sm ${activeSubTab === 'docker' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ color: activeSubTab === 'docker' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
+                style={{ color: activeSubTab === 'docker' ? '#ffffff' : 'var(--text-primary)', borderRadius: 'var(--radius-md)' }}
                 onClick={() => setActiveSubTab('docker')}
               >
                 <Layers size={12} />
@@ -278,7 +278,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
               </button>
               <button 
                 className={`btn btn-sm ${activeSubTab === 'console' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ color: activeSubTab === 'console' ? '#ffffff' : 'var(--text-primary)', borderRadius: '0px' }}
+                style={{ color: activeSubTab === 'console' ? '#ffffff' : 'var(--text-primary)', borderRadius: 'var(--radius-md)' }}
                 onClick={() => setActiveSubTab('console')}
               >
                 <Terminal size={12} />
@@ -354,7 +354,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
                     textAlign: 'center',
                     color: 'var(--text-muted)',
                     border: '1px dashed var(--border-color)',
-                    borderRadius: '0px'
+                    borderRadius: 'var(--radius-md)'
                   }}>
                     Служба Docker не установлена на этом сервере.
                   </div>
@@ -364,7 +364,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
                     textAlign: 'center',
                     color: 'var(--text-muted)',
                     border: '1px dashed var(--border-color)',
-                    borderRadius: '0px'
+                    borderRadius: 'var(--radius-md)'
                   }}>
                     Нет запущенных Docker-контейнеров на этом хосте.
                   </div>
@@ -412,7 +412,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
                   fontSize: '0.85rem',
                   overflowY: 'auto',
                   height: '300px',
-                  borderRadius: '0px',
+                  borderRadius: 'var(--radius-md)',
                   border: '1px solid rgba(255, 255, 255, 0.1)',
                   display: 'flex',
                   flexDirection: 'column',
