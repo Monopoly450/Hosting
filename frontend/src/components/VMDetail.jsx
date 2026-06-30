@@ -10,6 +10,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [sshLoading, setSshLoading] = useState(false);
   const [error, setError] = useState(null);
   const [sshError, setSshError] = useState(null);
+  const [startProgress, setStartProgress] = useState(0);
   
   const [cpuCores, setCpuCores] = useState(2);
   const [memoryGb, setMemoryGb] = useState(2);
@@ -160,6 +161,21 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   }, [vmName, vm?.status]);
 
   useEffect(() => {
+    let timer;
+    if (vm?.status === 'Starting') {
+      timer = setInterval(() => {
+        setStartProgress(prev => {
+          if (prev >= 99) return 99;
+          return prev + Math.floor(Math.random() * 8) + 2; // + 2..9% each second
+        });
+      }, 1000);
+    } else {
+      setStartProgress(0);
+    }
+    return () => clearInterval(timer);
+  }, [vm?.status]);
+
+  useEffect(() => {
     if (sshData && terminalHistory.length === 0) {
       setTerminalHistory([
         { type: 'info', text: `Welcome to ${sshData.name} SSH session.` },
@@ -288,9 +304,14 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
               <h2 style={{ margin: 0, fontSize: '1.6rem', color: 'var(--text-heading)' }}>{vm.name}</h2>
-              <span className={`badge badge-${vm.status === 'Running' ? 'success' : 'danger'}`} style={{ padding: '6px 12px', fontSize: '0.85rem' }}>
+              <span className={`badge badge-${vm.status === 'Running' ? 'success' : (vm.status === 'Starting' || vm.status === 'Importing' ? 'warning' : 'danger')}`} style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span className="status-dot"></span>
                 {vm.status === 'Running' ? 'Active' : vm.status}
+                {(vm.status === 'Starting' || vm.status === 'Importing') && (
+                  <span style={{ marginLeft: '4px', fontWeight: 'bold' }}>
+                    {vm.status === 'Importing' ? (vm.import_progress || '0%') : `${startProgress}%`}
+                  </span>
+                )}
               </span>
             </div>
             <div style={{ display: 'flex', gap: '24px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>

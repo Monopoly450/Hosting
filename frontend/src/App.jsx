@@ -155,7 +155,7 @@ const App = () => {
       setIsoUrl('');
       fetchVMs();
       
-      alert(`Виртуальная машина ${payload.name} создается!\n\nЛогин: ${resData.username || 'root'}\nПароль: ${resData.password}`);
+      setSelectedVMDetailName(payload.name);
     } catch (err) {
       alert(`Ошибка: ${err.message}`);
     } finally {
