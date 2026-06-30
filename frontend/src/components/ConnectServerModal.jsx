@@ -45,19 +45,19 @@ const ConnectServerModal = ({ onClose, onSuccess }) => {
   };
 
   return (
-    <div className="console-modal-backdrop">
-      <div className="console-container" style={{ maxWidth: '500px' }}>
-        <div className="console-header">
-          <div className="console-title">
+    <div className="modal-overlay">
+      <div className="modal-content" style={{ maxWidth: '500px' }}>
+        <div className="modal-header">
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: "600", fontSize: "1.1rem" }}>
             <Server className="logo-icon" size={20} />
             <span>Подключить внешний Linux-сервер</span>
           </div>
-          <button className="btn btn-danger btn-icon-only btn-sm" onClick={onClose} disabled={loading}>
+          <button className="btn-icon-only" style={{ background: "transparent", border: "none" }} onClick={onClose} disabled={loading}>
             <X size={16} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <form onSubmit={handleSubmit} className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '24px' }}>
           
           <div style={{
             display: 'flex',
@@ -77,12 +77,12 @@ const ConnectServerModal = ({ onClose, onSuccess }) => {
           </div>
 
           {/* Имя (Алиас) */}
-          <div className="form-group">
-            <label className="form-label" htmlFor="server-alias">Понятное имя сервера</label>
+          <div className="input-group">
+            <label className="input-label" htmlFor="server-alias">Понятное имя сервера</label>
             <input 
               id="server-alias"
               type="text" 
-              className="form-input" 
+              className="form-control" 
               placeholder="e.g. My Ubuntu VPS"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -93,12 +93,12 @@ const ConnectServerModal = ({ onClose, onSuccess }) => {
 
           {/* IP и Порт */}
           <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '15px' }}>
-            <div className="form-group">
-              <label className="form-label" htmlFor="server-ip">IP-адрес / Hostname</label>
+            <div className="input-group">
+              <label className="input-label" htmlFor="server-ip">IP-адрес / Hostname</label>
               <input 
                 id="server-ip"
                 type="text" 
-                className="form-input" 
+                className="form-control" 
                 placeholder="192.168.1.100"
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
@@ -106,12 +106,12 @@ const ConnectServerModal = ({ onClose, onSuccess }) => {
                 disabled={loading}
               />
             </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="server-port">Порт SSH</label>
+            <div className="input-group">
+              <label className="input-label" htmlFor="server-port">Порт SSH</label>
               <input 
                 id="server-port"
                 type="number" 
-                className="form-input" 
+                className="form-control" 
                 value={port}
                 onChange={(e) => setPort(parseInt(e.target.value))}
                 required
@@ -122,24 +122,24 @@ const ConnectServerModal = ({ onClose, onSuccess }) => {
 
           {/* Пользователь и Пароль */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-            <div className="form-group">
-              <label className="form-label" htmlFor="server-user">Пользователь</label>
+            <div className="input-group">
+              <label className="input-label" htmlFor="server-user">Пользователь</label>
               <input 
                 id="server-user"
                 type="text" 
-                className="form-input" 
+                className="form-control" 
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 disabled={loading}
               />
             </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="server-pass">Пароль SSH</label>
+            <div className="input-group">
+              <label className="input-label" htmlFor="server-pass">Пароль SSH</label>
               <input 
                 id="server-pass"
                 type="password" 
-                className="form-input" 
+                className="form-control" 
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
