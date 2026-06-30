@@ -14,3 +14,9 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Editors
+*.swp
+.*.swp
+.vscode/
+.idea/
