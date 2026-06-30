@@ -14,7 +14,7 @@ def generate_mac_address(name: str) -> str:
     return f"02:00:00:{h[0:2]}:{h[2:4]}:{h[4:6]}"
 
 import logging
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from app.core.k8s_client import K8sClient
