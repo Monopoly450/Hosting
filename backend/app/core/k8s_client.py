@@ -67,12 +67,17 @@ class K8sClient:
             
             vmi_map = {vmi["metadata"]["name"]: vmi for vmi in vmis.get("items", [])}
             
+            # Получаем сервисы для статических IP и NodePort
+            services = self.core_api.list_namespaced_service(namespace)
+            svc_map = {s.metadata.name: s for s in services.items if s.metadata.name.endswith("-svc")}
+            
             result = []
             for vm in vms.get("items", []):
                 name = vm["metadata"]["name"]
                 vmi = vmi_map.get(name)
+                svc_obj = svc_map.get(f"{name}-svc")
                 
-                result.append(self._parse_vm_object(vm, vmi))
+                result.append(self._parse_vm_object(vm, vmi, svc_obj))
                 
             return result
         except ApiException as e:
@@ -104,7 +109,30 @@ class K8sClient:
                 if e.status != 404:
                     raise e
                     
-            return self._parse_vm_object(vm, vmi)
+            svc_obj = None
+            try:
+                svc_obj = self.core_api.read_namespaced_service(f"{name}-svc", namespace)
+            except ApiException as e:
+                if e.status == 404:
+                    # Создаем сервис на лету (обратная совместимость для старых ВМ)
+                    try:
+                        new_svc = client.V1Service(
+                            metadata=client.V1ObjectMeta(name=f"{name}-svc"),
+                            spec=client.V1ServiceSpec(
+                                selector={"kubevirt.io/domain": name},
+                                ports=[
+                                    client.V1ServicePort(name="ssh", port=22, target_port=22),
+                                    client.V1ServicePort(name="rdp", port=3389, target_port=3389)
+                                ],
+                                type="NodePort"
+                            )
+                        )
+                        svc_obj = self.core_api.create_namespaced_service(namespace=namespace, body=new_svc)
+                        logger.info(f"Создан отсутствующий Service {name}-svc")
+                    except Exception:
+                        pass
+                    
+            return self._parse_vm_object(vm, vmi, svc_obj)
         except ApiException as e:
             logger.error(f"Ошибка получения VM {name}: {e}")
             raise e
@@ -112,6 +140,27 @@ class K8sClient:
     def create_vm_from_manifest(self, manifest: dict, namespace="default"):
         """Создать VM из готового словаря-манифеста"""
         try:
+            vm_name = manifest["metadata"]["name"]
+            svc = client.V1Service(
+                metadata=client.V1ObjectMeta(
+                    name=f"{vm_name}-svc",
+                    labels={"hosting.antigravity.io/owner": "client-01"} if vm_name.startswith("client-") else {}
+                ),
+                spec=client.V1ServiceSpec(
+                    selector={"kubevirt.io/domain": vm_name},
+                    ports=[
+                        client.V1ServicePort(name="ssh", port=22, target_port=22),
+                        client.V1ServicePort(name="rdp", port=3389, target_port=3389)
+                    ],
+                    type="NodePort"
+                )
+            )
+            try:
+                self.core_api.create_namespaced_service(namespace=namespace, body=svc)
+                logger.info(f"Создан Service {vm_name}-svc для статического IP и NodePort")
+            except Exception as e:
+                logger.warning(f"Не удалось создать Service {vm_name}-svc: {e}")
+
             return self.custom_api.create_namespaced_custom_object(
                 group="kubevirt.io",
                 version="v1",
@@ -189,6 +238,14 @@ class K8sClient:
                     except ApiException as e:
                         if e.status != 404:
                             logger.error(f"Не удалось удалить PVC {pvc_name}: {e}")
+
+            # 6. Удаляем Service
+            try:
+                self.core_api.delete_namespaced_service(f"{name}-svc", namespace)
+                logger.info(f"Удален Service {name}-svc")
+            except ApiException as e:
+                if e.status != 404:
+                    logger.error(f"Не удалось удалить Service {name}-svc: {e}")
 
             return {"status": "deleted", "name": name}
         except ApiException as e:
@@ -600,7 +657,7 @@ class K8sClient:
 
     # --- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ---
 
-    def _parse_vm_object(self, vm: dict, vmi: dict = None) -> dict:
+    def _parse_vm_object(self, vm: dict, vmi: dict = None, svc: client.V1Service = None) -> dict:
         """Преобразует сырой манифест KubeVirt в чистый JSON-объект для фронтенда"""
         name = vm["metadata"]["name"]
         namespace = vm["metadata"]["namespace"]
@@ -704,15 +761,18 @@ class K8sClient:
         except Exception:
             pass
 
-        # Вычисляем уникальный порт SSH на основе первого валидного IPv4
+        # Добавляем статический ClusterIP от Service (гарантирует постоянство)
+        if svc and svc.spec.cluster_ip:
+            if svc.spec.cluster_ip not in ips:
+                ips.insert(0, svc.spec.cluster_ip)
+
+        # Вычисляем уникальный порт SSH (используем NodePort, выделенный Kubernetes)
         ssh_port = None
-        for ip in ips:
-            if "." in ip and not ip.startswith("10.244.") and not ip.startswith("127."):
-                try:
-                    ssh_port = 22000 + int(ip.split(".")[-1])
+        if svc and svc.spec.ports:
+            for port in svc.spec.ports:
+                if port.name == "ssh":
+                    ssh_port = port.node_port
                     break
-                except ValueError:
-                    pass
 
         return {
             "name": name,
