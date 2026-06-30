@@ -57,6 +57,7 @@
 * {
   box-sizing: border-box;
   margin: 0;
+  background-color: var(--bg-body);
   padding: 0;
 }
 
@@ -90,13 +91,17 @@ body {
   display: flex;
   height: 100vh;
   overflow: hidden;
+  background-color: var(--bg-body);
+  padding: 16px;
+  gap: 16px;
 }
 
 /* Sidebar */
 .sidebar {
   width: 260px;
   background-color: var(--bg-surface);
-  border-right: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   padding: 24px 16px;
@@ -166,15 +171,18 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
+  background-color: transparent;
   overflow-y: auto;
   position: relative;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
 }
 
 .top-header {
   height: 70px;
-  background-color: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border-subtle);
+  background-color: transparent;
+  border-bottom: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -517,17 +525,39 @@ body {
 
 @media (max-width: 768px) {
   .app-layout {
-    flex-direction: column;
-  }
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--bg-body);
+  padding: 16px;
+  gap: 16px;
+}
   .sidebar {
-    display: none; /* We'll implement mobile sidebar later if needed */
-  }
+  width: 260px;
+  background-color: var(--bg-surface);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 16px;
+  flex-shrink: 0;
+  z-index: 10;
+  box-shadow: var(--shadow-sm);
+}
   .mobile-only {
     display: flex;
   }
   .main-area {
-    width: 100%;
-  }
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: transparent;
+  overflow-y: auto;
+  position: relative;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
   .content-container {
     padding: 16px;
   }
