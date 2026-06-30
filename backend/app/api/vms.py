@@ -95,6 +95,7 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
                             }
                         },
                         "devices": {
+                            "autoattachPodInterface": False,
                             "disks": [
                                 {
                                     "name": "datavolume",
@@ -274,6 +275,7 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                             }
                         },
                         "devices": {
+                            "autoattachPodInterface": False,
                             "disks": [
                                 {
                                     "name": "winhd",
