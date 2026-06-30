@@ -562,3 +562,9 @@ body {
     padding: 16px;
   }
 }
+
+
+/* Fix for browser translation plugins adding white backgrounds to text */
+font {
+  background-color: transparent !important;
+}
