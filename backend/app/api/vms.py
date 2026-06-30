@@ -55,7 +55,7 @@ def generate_random_password(length=12) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 # Базовые константы-шаблоны для генерации манифестов
-DEFAULT_WINDOWS_ISO = "https://software-static.download.prss.microsoft.com/sg/download/details.aspx?uuid=5e4c6052-b13c-4384-9ff5-c439162e08e7"
+DEFAULT_WINDOWS_ISO = "https://go.microsoft.com/fwlink/p/?LinkID=2195280"
 DEFAULT_UBUNTU_IMAGE = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 
 def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
