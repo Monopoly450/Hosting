@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { X, RefreshCw, Cpu, HardDrive, ShieldAlert, Terminal, Activity, Layers, ListFilter, Play, Square, RotateCw, Monitor, Settings, Trash2, Copy, Check, Eye, EyeOff, AlertTriangle, Key, Shield } from 'lucide-react';
+import { X, RefreshCw, Cpu, HardDrive, ShieldAlert, Terminal, Activity, Layers, ListFilter, Play, Square, RotateCw, Monitor, Settings, Trash2, Copy, Check, Eye, EyeOff, AlertTriangle, Key, Shield, Network } from 'lucide-react';
 import VncConsole from './VncConsole';
 import BackupList from './BackupList';
 
@@ -11,10 +11,6 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [error, setError] = useState(null);
   const [sshError, setSshError] = useState(null);
   
-  const [activeTab, setActiveTab] = useState('vnc');
-  const [bypassVncProgress, setBypassVncProgress] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState('processes');
-  
   const [cpuCores, setCpuCores] = useState(2);
   const [memoryGb, setMemoryGb] = useState(2);
   const [diskGb, setDiskGb] = useState(20);
@@ -25,11 +21,15 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [copiedField, setCopiedField] = useState(null);
 
+  // Terminal state
   const [command, setCommand] = useState('');
   const [executing, setExecuting] = useState(false);
   const [cwd, setCwd] = useState('~');
   const [terminalHistory, setTerminalHistory] = useState([]);
   const [applyingNat, setApplyingNat] = useState(false);
+  
+  const [showVnc, setShowVnc] = useState(false);
+  const [showBackups, setShowBackups] = useState(false);
 
   const terminalEndRef = useRef(null);
 
@@ -90,10 +90,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
     setSshLoading(true);
     try {
       const response = await fetch(`/api/vms/${vmName}/ssh-details`);
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.detail || 'SSH соединение недоступно.');
-      }
+      if (!response.ok) throw new Error('SSH недоступен');
       const data = await response.json();
       setSshData(data);
       setSshError(null);
@@ -144,26 +141,11 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
     try {
       const response = await fetch(`/api/vms/${vmName}/${action}`, { method: 'POST' });
       if (!response.ok) throw new Error(`Действие ${action} завершилось ошибкой.`);
-      if (action === 'start' || action === 'restart') setBypassVncProgress(false);
       await fetchVmDetails();
       if (onActionSuccess) onActionSuccess();
     } catch (err) {
       alert(`Ошибка: ${err.message}`);
     } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleDeleteVM = async () => {
-    if (!confirm(`Вы действительно хотите безвозвратно удалить виртуальную машину "${vmName}" и все ее диски?`)) return;
-    setActionLoading('delete');
-    try {
-      const response = await fetch(`/api/vms/${vmName}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error('Не удалось удалить ВМ.');
-      if (onActionSuccess) onActionSuccess();
-      onClose();
-    } catch (err) {
-      alert(`Ошибка: ${err.message}`);
       setActionLoading(null);
     }
   };
@@ -234,11 +216,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   };
 
   if (loading && !vm) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px' }}>
-        <div className="spinner" />
-      </div>
-    );
+    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px' }}><div className="spinner" /></div>;
   }
 
   if (error && !vm) {
@@ -251,275 +229,256 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
     );
   }
 
-  const isNetworkConfigured = vm && (vm.status === 'Stopped' || getBridgeIp() !== null);
-  const canClickTab = vm && (vm.status === 'Running' || isNetworkConfigured);
   const sshIp = getSshIp();
+  const bridgeIp = getBridgeIp();
   const currentDiskLimit = vm.disks && vm.disks[0] ? parseInt(vm.disks[0].size) || 20 : 20;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '32px', alignItems: 'start' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       
-      {/* Левая панель - Управление и статус */}
-      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        
-        {/* Базовая инфа */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 600 }}>{vm.name}</h3>
-            <span className={`badge badge-${vm.status === 'Running' ? 'success' : 'danger'}`}>
-              <span className="status-dot"></span>
-              {vm.status === 'Running' ? 'Active' : vm.status}
-            </span>
+      {/* HEADER SECTION */}
+      <div className="glass-card" style={{ padding: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '20px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
+              <h2 style={{ margin: 0, fontSize: '1.6rem', color: 'var(--text-heading)' }}>{vm.name}</h2>
+              <span className={`badge badge-${vm.status === 'Running' ? 'success' : 'danger'}`} style={{ padding: '6px 12px', fontSize: '0.85rem' }}>
+                <span className="status-dot"></span>
+                {vm.status === 'Running' ? 'Active' : vm.status}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: '24px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> {vm.os_type || 'Unknown OS'}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Network size={16}/> {vm.node || 'Node-1'}</span>
+            </div>
           </div>
-          
-          <div style={{ display: 'flex', gap: '8px' }}>
+
+          <div style={{ display: 'flex', gap: '12px' }}>
             {vm.status !== 'Running' ? (
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => handlePowerAction('start')} disabled={actionLoading !== null}>
-                {actionLoading === 'start' ? <span className="spinner"/> : <><Play size={14} /> Запуск</>}
+              <button className="btn btn-primary" onClick={() => handlePowerAction('start')} disabled={actionLoading !== null}>
+                {actionLoading === 'start' ? <span className="spinner"/> : <><Play size={14} /> Start</>}
               </button>
             ) : (
               <>
-                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => handlePowerAction('stop')} disabled={actionLoading !== null}>
-                  {actionLoading === 'stop' ? <span className="spinner"/> : <><Square size={14} /> Стоп</>}
+                <button className="btn btn-secondary" onClick={() => handlePowerAction('stop')} disabled={actionLoading !== null}>
+                  {actionLoading === 'stop' ? <span className="spinner"/> : <><Square size={14} /> Stop</>}
                 </button>
-                <button className="btn btn-secondary btn-icon" onClick={() => handlePowerAction('restart')} disabled={actionLoading !== null}>
-                  {actionLoading === 'restart' ? <span className="spinner"/> : <RotateCw size={14} />}
+                <button className="btn btn-secondary" onClick={() => handlePowerAction('restart')} disabled={actionLoading !== null}>
+                  {actionLoading === 'restart' ? <span className="spinner"/> : <><RotateCw size={14} /> Reboot</>}
+                </button>
+                <button className="btn btn-primary" onClick={() => setShowVnc(!showVnc)}>
+                  <Monitor size={14} /> {showVnc ? 'Hide VNC' : 'VNC Console'}
                 </button>
               </>
+            )}
+            <button className="btn btn-secondary" onClick={() => setShowBackups(!showBackups)}>💾 Backups</button>
+          </div>
+        </div>
+      </div>
+
+      {showVnc && (
+        <div className="glass-card" style={{ padding: 0, overflow: 'hidden', background: '#000' }}>
+          <VncConsole name={vmName} username={vm.credentials?.username} password={vm.credentials?.password} isInline={true} onClose={() => setShowVnc(false)} />
+        </div>
+      )}
+
+      {showBackups && (
+        <div className="glass-card">
+          <BackupList vmName={vmName} vmStatus={vm.status} onRestoreStarted={fetchVmDetails} />
+        </div>
+      )}
+
+      {/* TWO COLUMN LAYOUT */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '24px' }}>
+        
+        {/* LEFT COLUMN */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          
+          {/* Details & Connectivity */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h3 className="section-title" style={{ margin: 0 }}><Key size={18}/> Реквизиты подключения</h3>
+            
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+              <tbody>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Локальный IP (Bridge)</td>
+                  <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{bridgeIp || 'N/A'}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Pod IP (Internal)</td>
+                  <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{sshIp || 'N/A'}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>SSH Пользователь</td>
+                  <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{vm.credentials?.username || 'root'}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>SSH Пароль</td>
+                  <td style={{ padding: '12px 0', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{showPassword ? (vm.credentials?.password || 'N/A') : '••••••••'}</span>
+                    <button className="btn-icon-only" onClick={() => setShowPassword(!showPassword)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                      {showPassword ? <EyeOff size={14} color="var(--text-muted)" /> : <Eye size={14} color="var(--text-muted)" />}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            {/* Команды */}
+            <div style={{ marginTop: '8px' }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда локального SSH (внутри сети):</div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={sshIp ? `ssh ${vm.credentials?.username || 'root'}@${sshIp}` : 'Ожидание сети...'} />
+                <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${sshIp}`, 'localSsh')} disabled={!sshIp}>
+                  {copiedField === 'localSsh' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда внешнего SSH (требуется NAT):</div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={vm.ssh_port ? `ssh ${vm.credentials?.username || 'root'}@<IP_ХОСТА> -p ${vm.ssh_port}` : 'Ожидание порта...'} />
+                <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@<IP_ХОСТА> -p ${vm.ssh_port}`, 'extSsh')} disabled={!vm.ssh_port}>
+                  {copiedField === 'extSsh' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Usage Monitoring */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h3 className="section-title" style={{ margin: 0 }}><Activity size={18}/> Показатели системы (Гостевая ОС)</h3>
+            {!sshData ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                {vm.status === 'Running' ? <><span className="spinner" style={{ marginBottom: '12px' }}/> <br/> Ожидание агента SSH...</> : 'ВМ выключена'}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '8px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>CPU Usage ({sshData.cpu.cores} cores)</span>
+                    <span style={{ fontWeight: 600 }}>{sshData.cpu.usage_percent}%</span>
+                  </div>
+                  <div className="progress-track"><div className="progress-fill primary" style={{ width: `${sshData.cpu.usage_percent}%` }} /></div>
+                </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '8px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>RAM Usage ({sshData.memory.total})</span>
+                    <span style={{ fontWeight: 600 }}>{sshData.memory.usage_percent}%</span>
+                  </div>
+                  <div className="progress-track"><div className="progress-fill" style={{ width: `${sshData.memory.usage_percent}%`, background: 'var(--accent-secondary)' }} /></div>
+                </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '8px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Disk (/) Usage</span>
+                    <span style={{ fontWeight: 600 }}>{sshData.disk.usage_percent}%</span>
+                  </div>
+                  <div className="progress-track"><div className="progress-fill warning" style={{ width: `${sshData.disk.usage_percent}%` }} /></div>
+                </div>
+              </div>
             )}
           </div>
         </div>
 
-        {/* Выделенные спецификации */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', textAlign: 'center', background: 'var(--bg-body)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-          <div>
-            <div className="text-muted" style={{ fontSize: '0.75rem' }}>CPU</div>
-            <div style={{ fontWeight: 600 }}>{vm.cpu_cores}</div>
-          </div>
-          <div>
-            <div className="text-muted" style={{ fontSize: '0.75rem' }}>RAM</div>
-            <div style={{ fontWeight: 600 }}>{vm.memory}</div>
-          </div>
-          <div>
-            <div className="text-muted" style={{ fontSize: '0.75rem' }}>Disk</div>
-            <div style={{ fontWeight: 600 }}>{vm.disks?.[0]?.size || 'N/A'}</div>
-          </div>
-        </div>
-
-        {/* Реквизиты */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <h4 style={{ fontSize: '0.9rem', fontWeight: 600, margin: 0 }}>Подключение</h4>
+        {/* RIGHT COLUMN */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           
-          <div className="input-group" style={{ margin: 0 }}>
-            <label className="input-label">IP Address</label>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)' }} value={sshIp || 'Ожидание...'} />
-              <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(sshIp, 'ip')} disabled={!sshIp}>
-                {copiedField === 'ip' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+          {/* Resource Allocation */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h3 className="section-title" style={{ margin: 0 }}><Cpu size={18}/> Выделение ресурсов</h3>
+            <form onSubmit={handleResize} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                  <span className="text-muted">CPU Cores</span>
+                  <span style={{ fontWeight: 600 }}>{cpuCores} vCPUs</span>
+                </div>
+                <input type="range" min="1" max="16" value={cpuCores} onChange={(e) => setCpuCores(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingResize} />
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                  <span className="text-muted">Memory (RAM)</span>
+                  <span style={{ fontWeight: 600 }}>{memoryGb} GB</span>
+                </div>
+                <input type="range" min="1" max="64" value={memoryGb} onChange={(e) => setMemoryGb(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingResize} />
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                  <span className="text-muted">Storage Disk</span>
+                  <span style={{ fontWeight: 600 }}>{diskGb} GB</span>
+                </div>
+                <input type="range" min={currentDiskLimit} max="500" step="10" value={diskGb} onChange={(e) => setDiskGb(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingResize} />
+              </div>
+
+              <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }} disabled={savingResize}>
+                {savingResize ? <span className="spinner" /> : 'Применить изменения (после Reboot)'}
               </button>
-            </div>
+            </form>
           </div>
 
-          {vm.os_type !== 'windows' && (
-            <div style={{ padding: '12px', background: 'var(--bg-body)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', fontSize: '0.85rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span className="text-muted">Пользователь:</span>
-                <strong style={{ fontFamily: 'var(--font-mono)' }}>{vm.credentials?.username || 'root'}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="text-muted">Пароль:</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <strong style={{ fontFamily: 'var(--font-mono)' }}>{showPassword ? (vm.credentials?.password || 'N/A') : '••••••••'}</strong>
-                  <button className="btn-icon-only" onClick={() => setShowPassword(!showPassword)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-                    {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Опасная зона */}
-        <div style={{ marginTop: 'auto', paddingTop: '24px', borderTop: '1px solid var(--border-subtle)' }}>
-          <button className="btn btn-danger" style={{ width: '100%' }} onClick={handleDeleteVM} disabled={actionLoading !== null}>
-            {actionLoading === 'delete' ? <span className="spinner"/> : <><Trash2 size={14} /> Удалить виртуалку</>}
-          </button>
-        </div>
-      </div>
-
-      {/* Правая панель - Вкладки контента */}
-      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', minHeight: '600px', padding: '0' }}>
-        
-        {/* Навигация */}
-        <div style={{ display: 'flex', gap: '8px', padding: '16px 24px', borderBottom: '1px solid var(--border-subtle)' }}>
-          {vm.status === 'Running' && (
-            <>
-              <button className={`btn ${activeTab === 'vnc' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('vnc')}>
-                <Monitor size={14} /> Экран
-              </button>
-              {vm.os_type !== 'windows' && (
-                <>
-                  <button className={`btn ${activeTab === 'terminal' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => canClickTab && setActiveTab('terminal')} disabled={!canClickTab}>
-                    <Terminal size={14} /> SSH Терминал
-                  </button>
-                  <button className={`btn ${activeTab === 'monitoring' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => canClickTab && setActiveTab('monitoring')} disabled={!canClickTab}>
-                    <Activity size={14} /> Метрики
-                  </button>
-                </>
-              )}
-            </>
-          )}
-          <button className={`btn ${activeTab === 'backups' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => canClickTab && setActiveTab('backups')} disabled={!canClickTab}>
-            💾 Бэкапы
-          </button>
-          <button className={`btn ${activeTab === 'resize' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => canClickTab && setActiveTab('resize')} disabled={!canClickTab}>
-            <Settings size={14} /> Настройки
-          </button>
-        </div>
-
-        {/* Контент вкладок */}
-        <div style={{ padding: '24px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-          
-          {/* VNC */}
-          {activeTab === 'vnc' && (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-              {vm.status !== 'Running' ? (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
-                  <Monitor size={48} />
-                  <p style={{ marginTop: '16px' }}>ВМ выключена</p>
-                </div>
-              ) : (
-                <VncConsole name={vmName} username={vm.credentials?.username} password={vm.credentials?.password} isInline={true} onClose={() => {}} />
-              )}
-            </div>
-          )}
-
-          {/* SSH */}
-          {activeTab === 'terminal' && (
-            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, background: '#0f172a', borderRadius: 'var(--radius-md)', overflow: 'hidden', padding: '16px' }}>
-              {sshError && !sshData ? (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--status-danger)' }}>
-                  <ShieldAlert size={32} />
-                  <p style={{ marginTop: '16px' }}>{sshError}</p>
-                </div>
-              ) : (
-                <>
-                  <div style={{ flex: 1, color: '#f8fafc', fontFamily: 'var(--font-mono)', fontSize: '0.85rem', overflowY: 'auto', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    {terminalHistory.map((line, idx) => (
-                      <div key={idx} style={{ color: line.type === 'prompt' ? '#38bdf8' : line.type === 'stderr' ? '#f87171' : line.type === 'info' ? '#94a3b8' : 'inherit', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                        {line.text}
-                      </div>
-                    ))}
-                    <div ref={terminalEndRef} />
-                  </div>
-                  <form onSubmit={handleExecuteCommand} style={{ display: 'flex', gap: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.1)', padding: '0 12px', color: '#94a3b8', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>
-                      {sshData?.username || 'root'}@{sshData?.host || 'vm'}:{cwd}$
-                    </div>
-                    <input type="text" value={command} onChange={(e) => setCommand(e.target.value)} disabled={executing} autoFocus className="form-control" style={{ background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }} />
-                    <button type="submit" className="btn btn-primary" disabled={executing || !command.trim()}>Выполнить</button>
-                  </form>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Monitoring */}
-          {activeTab === 'monitoring' && (
-            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-              {!sshData ? (
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}><span className="spinner" /></div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                  <div className="grid-cols-3">
-                    <div className="stat-box">
-                      <span className="stat-box-title">CPU Usage</span>
-                      <span className="stat-box-value">{sshData.cpu.usage_percent}%</span>
-                      <div className="progress-track"><div className="progress-fill primary" style={{ width: `${sshData.cpu.usage_percent}%` }} /></div>
-                    </div>
-                    <div className="stat-box">
-                      <span className="stat-box-title">Memory</span>
-                      <span className="stat-box-value">{sshData.memory.usage_percent}%</span>
-                      <div className="progress-track"><div className="progress-fill success" style={{ width: `${sshData.memory.usage_percent}%` }} /></div>
-                    </div>
-                    <div className="stat-box">
-                      <span className="stat-box-title">Disk (/)</span>
-                      <span className="stat-box-value">{sshData.disk.usage_percent}%</span>
-                      <div className="progress-track"><div className="progress-fill warning" style={{ width: `${sshData.disk.usage_percent}%` }} /></div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h4 className="section-title">Топ процессов</h4>
-                    <div style={{ overflowX: 'auto', background: 'var(--bg-body)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
-                        <thead>
-                          <tr style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border-subtle)' }}>
-                            <th style={{ padding: '12px' }}>PID</th>
-                            <th style={{ padding: '12px' }}>User</th>
-                            <th style={{ padding: '12px' }}>CPU%</th>
-                            <th style={{ padding: '12px' }}>MEM%</th>
-                            <th style={{ padding: '12px' }}>Command</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sshData.processes?.slice(0, 8).map((p, i) => (
-                            <tr key={i} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                              <td style={{ padding: '12px', fontFamily: 'var(--font-mono)' }}>{p.pid}</td>
-                              <td style={{ padding: '12px' }}>{p.user}</td>
-                              <td style={{ padding: '12px', color: 'var(--accent-primary)', fontWeight: 600 }}>{p.cpu}%</td>
-                              <td style={{ padding: '12px' }}>{p.mem}%</td>
-                              <td style={{ padding: '12px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{p.command.substring(0, 50)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Backups */}
-          {activeTab === 'backups' && <BackupList vmName={vmName} vmStatus={vm.status} onRestoreStarted={fetchVmDetails} />}
-
-          {/* Resize */}
-          {activeTab === 'resize' && (
-            <div style={{ maxWidth: '600px' }}>
-              <form onSubmit={handleResize} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                <div style={{ padding: '16px', background: 'var(--status-warning-bg)', borderRadius: 'var(--radius-md)', color: 'var(--status-warning)', display: 'flex', gap: '12px' }}>
-                  <AlertTriangle size={20} style={{ flexShrink: 0 }} />
-                  <p style={{ fontSize: '0.9rem', margin: 0 }}>Изменение CPU/RAM применится после перезапуска ВМ. Диск можно только увеличивать.</p>
-                </div>
-
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <span className="input-label">CPU Cores</span>
-                    <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{cpuCores} Cores</span>
-                  </div>
-                  <input type="range" min="1" max="16" value={cpuCores} onChange={(e) => setCpuCores(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingResize} />
-                </div>
-
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <span className="input-label">Memory (RAM)</span>
-                    <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{memoryGb} GB</span>
-                  </div>
-                  <input type="range" min="1" max="64" value={memoryGb} onChange={(e) => setMemoryGb(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingResize} />
-                </div>
-
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <span className="input-label">Storage Disk</span>
-                    <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{diskGb} GB</span>
-                  </div>
-                  <input type="range" min={currentDiskLimit} max="500" step="10" value={diskGb} onChange={(e) => setDiskGb(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingResize} />
-                </div>
-
-                <button type="submit" className="btn btn-primary" disabled={savingResize}>
-                  {savingResize ? <span className="spinner" /> : 'Сохранить параметры ВМ'}
+          {/* Network & Access */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 className="section-title" style={{ margin: 0 }}><Network size={18}/> Сеть и доступ</h3>
+              {vm.status === 'Running' && isPrivateIp(sshIp) && (
+                <button className="btn btn-secondary btn-sm" onClick={handleApplyNat} disabled={applyingNat}>
+                  {applyingNat ? <span className="spinner"/> : 'Авто-проброс NAT'}
                 </button>
+              )}
+            </div>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <th style={{ padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 500 }}>Действие</th>
+                  <th style={{ padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 500 }}>Внешний порт</th>
+                  <th style={{ padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 500 }}>Внутренний порт</th>
+                  <th style={{ padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 500 }}>Протокол</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td style={{ padding: '12px 0', fontWeight: 500 }}>SSH ВМ</td>
+                  <td style={{ padding: '12px 0' }}>{vm.ssh_port || 'N/A'}</td>
+                  <td style={{ padding: '12px 0' }}>22</td>
+                  <td style={{ padding: '12px 0', color: 'var(--text-muted)' }}>TCP</td>
+                </tr>
+                {/* Здесь можно добавить другие порты, если они будут прокидываться в будущем */}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Terminal */}
+          {vm.status === 'Running' && vm.os_type !== 'windows' && (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '300px', background: '#0f172a', borderRadius: 'var(--radius-md)', overflow: 'hidden', padding: '16px', boxShadow: 'var(--shadow-md)' }}>
+              <div style={{ color: '#94a3b8', fontSize: '0.8rem', fontWeight: 600, borderBottom: '1px solid #1e293b', paddingBottom: '8px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                <span>user@{vmName} ~</span>
+                <Terminal size={14} />
+              </div>
+              
+              <div style={{ flex: 1, color: '#f8fafc', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', overflowY: 'auto', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {terminalHistory.map((line, idx) => (
+                  <div key={idx} style={{ color: line.type === 'prompt' ? '#38bdf8' : line.type === 'stderr' ? '#f87171' : line.type === 'info' ? '#94a3b8' : 'inherit', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                    {line.text}
+                  </div>
+                ))}
+                <div ref={terminalEndRef} />
+              </div>
+              
+              <form onSubmit={handleExecuteCommand} style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', color: '#38bdf8', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
+                  $
+                </div>
+                <input 
+                  type="text" 
+                  value={command} 
+                  onChange={(e) => setCommand(e.target.value)} 
+                  disabled={executing || !sshData} 
+                  placeholder={sshData ? "Enter command..." : "Waiting for SSH connection..."}
+                  style={{ flex: 1, background: 'transparent', border: 'none', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', outline: 'none' }} 
+                />
               </form>
             </div>
           )}

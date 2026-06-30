@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Square, RotateCw, Monitor, Cpu, HardDrive } from 'lucide-react';
+import { Play, Square, RotateCw, Monitor, Cpu, HardDrive, Network } from 'lucide-react';
 
 const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
   const [metrics, setMetrics] = useState(null);
@@ -17,7 +17,8 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
     return bridgeIp || null;
   };
 
-  const isReady = vm.status === 'Stopped' || (vm.status === 'Running' && getSshIp() !== null);
+  const sshIp = getSshIp();
+  const isReady = vm.status === 'Stopped' || (vm.status === 'Running' && sshIp !== null);
 
   const handleCardClick = (e) => {
     if (e.target.closest('button') || e.target.closest('.vm-card-actions')) return;
@@ -67,12 +68,12 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
   };
 
   const getStatusLabel = (status) => {
-    if (status === 'Running') return isReady ? 'Активна' : 'Сеть...';
-    if (status === 'Stopped') return 'Остановлена';
-    if (status === 'Provisioning') return 'Создание...';
-    if (status === 'Importing') return `Импорт ${vm.import_progress || ''}`;
-    if (status === 'Starting') return 'Запуск...';
-    if (status === 'Stopping') return 'Остановка...';
+    if (status === 'Running') return isReady ? 'Active' : 'Network...';
+    if (status === 'Stopped') return 'Stopped';
+    if (status === 'Provisioning') return 'Creating...';
+    if (status === 'Importing') return `Import ${vm.import_progress || ''}`;
+    if (status === 'Starting') return 'Starting...';
+    if (status === 'Stopping') return 'Stopping...';
     return status;
   };
 
@@ -111,19 +112,27 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
         </span>
       </div>
 
+      {/* Network / Details Info */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px', fontSize: '0.8rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Network size={12}/> IP Address</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-heading)' }}>{sshIp || 'N/A'}</span>
+        </div>
+      </div>
+
       {/* Resources Info */}
-      <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', background: 'var(--bg-body)', padding: '10px 12px', borderRadius: 'var(--radius-md)' }}>
-        <div style={{ flex: 1 }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', background: 'var(--bg-body)', padding: '10px 12px', borderRadius: 'var(--radius-md)' }}>
+        <div style={{ flex: 1, textAlign: 'center', borderRight: '1px solid var(--border-subtle)' }}>
           <div className="text-muted" style={{ fontSize: '0.7rem', marginBottom: '2px' }}>CPU</div>
-          <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{vm.cpu_cores} Cores</div>
+          <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{vm.cpu_cores} Cores</div>
         </div>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, textAlign: 'center', borderRight: '1px solid var(--border-subtle)' }}>
           <div className="text-muted" style={{ fontSize: '0.7rem', marginBottom: '2px' }}>RAM</div>
-          <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{vm.memory}</div>
+          <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{vm.memory}</div>
         </div>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, textAlign: 'center' }}>
           <div className="text-muted" style={{ fontSize: '0.7rem', marginBottom: '2px' }}>Disk</div>
-          <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{vm.disks[0]?.size || 'N/A'}</div>
+          <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{vm.disks[0]?.size || 'N/A'}</div>
         </div>
       </div>
 
@@ -168,7 +177,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
       {/* Actions */}
       <div className="vm-card-actions" style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span className="text-muted" style={{ fontSize: '0.75rem' }}>
-          {isReady ? 'Клик для деталей' : vm.status === 'Stopped' ? 'Остановлена' : 'Загрузка...'}
+          {isReady ? 'SSH / Console ➔' : vm.status === 'Stopped' ? 'Stopped' : 'Loading...'}
         </span>
         <div style={{ display: 'flex', gap: '8px' }}>
           {vm.status !== 'Running' ? (
@@ -178,7 +187,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
               onClick={(e) => { e.stopPropagation(); handleAction('start'); }}
               disabled={actionLoading !== null}
             >
-              {actionLoading === 'start' ? <span className="spinner"/> : <><Play size={14}/> Запуск</>}
+              {actionLoading === 'start' ? <span className="spinner"/> : <><Play size={14}/> Start</>}
             </button>
           ) : (
             <>
@@ -191,12 +200,12 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
                 {actionLoading === 'restart' ? <span className="spinner"/> : <RotateCw size={14}/>}
               </button>
               <button 
-                className="btn btn-danger"
+                className="btn btn-secondary"
                 style={{ padding: '6px 12px', borderRadius: 'var(--radius-pill)' }}
                 onClick={(e) => { e.stopPropagation(); handleAction('stop'); }}
                 disabled={actionLoading !== null}
               >
-                {actionLoading === 'stop' ? <span className="spinner"/> : <><Square size={14}/> Стоп</>}
+                {actionLoading === 'stop' ? <span className="spinner"/> : <><Square size={14}/> Stop</>}
               </button>
             </>
           )}
