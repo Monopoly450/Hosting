@@ -368,7 +368,8 @@ const InfraPanel = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {vms.filter(vm => vm.status === 'Running' && getSshIp(vm) && isPrivateIp(getSshIp(vm))).map(vm => {
                 const ip = getSshIp(vm);
-                const cmd1 = `iptables -t nat -A PREROUTING -p tcp --dport 2222 -j DNAT --to-destination ${ip}:22`;
+              const port = vm.ssh_port || 2222;
+              const cmd1 = `iptables -t nat -A PREROUTING -p tcp --dport ${port} -j DNAT --to-destination ${ip}:22`;
                 const cmd2 = `iptables -A FORWARD -p tcp -d ${ip} --dport 22 -j ACCEPT`;
                 return (
                   <div key={vm.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.02)', padding: '6px 10px', border: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '10px' }}>
@@ -430,7 +431,7 @@ const InfraPanel = () => {
                         }}
                         type="button"
                       >
-                        ⚡ Пробросить порт 2222
+                        ⚡ Пробросить порт {vm.ssh_port || 2222}
                       </button>
                     </div>
                   </div>

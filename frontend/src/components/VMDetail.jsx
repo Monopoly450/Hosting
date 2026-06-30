@@ -45,7 +45,8 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
     const ip = getSshIp();
     if (!ip) return;
     setApplyingNat(true);
-    const cmd1 = `iptables -t nat -A PREROUTING -p tcp --dport 2222 -j DNAT --to-destination ${ip}:22`;
+    const port = vm.ssh_port || 2222;
+    const cmd1 = `iptables -t nat -A PREROUTING -p tcp --dport ${port} -j DNAT --to-destination ${ip}:22`;
     const cmd2 = `iptables -A FORWARD -p tcp -d ${ip} --dport 22 -j ACCEPT`;
     try {
       let response = await fetch('/api/infra/execute-command', {
@@ -62,7 +63,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       });
       if (!response.ok) throw new Error('Ошибка при пробросе FORWARD');
       
-      alert('Проброс портов на хосте успешно настроен! Теперь вы можете подключаться с внешнего хоста на порт 2222.');
+      alert(`Проброс портов на хосте успешно настроен! Теперь вы можете подключаться с внешнего хоста на порт ${port}.`);
     } catch (err) {
       alert(`Ошибка настройки проброса портов: ${err.message}`);
     } finally {
@@ -487,14 +488,14 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                   {isPrivateIp(sshIp) ? (
                     <>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Внешняя команда SSH (порт 2222)</span>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Внешняя команда SSH (порт {vm.ssh_port || 2222})</span>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border-color)' }}>
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '240px' }}>
-                            ssh {vm.credentials?.username || 'root'}@{window.location.hostname} -p 2222
+                            ssh {vm.credentials?.username || 'root'}@{window.location.hostname} -p {vm.ssh_port || 2222}
                           </span>
                           <button 
                             className="btn-icon-only" 
-                            onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${window.location.hostname} -p 2222`, 'ssh-ext')}
+                            onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${window.location.hostname} -p ${vm.ssh_port || 2222}`, 'ssh-ext')}
                             style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
                           >
                             {copiedField === 'ssh-ext' ? <Check size={13} color="var(--success)" /> : <Copy size={13} />}
