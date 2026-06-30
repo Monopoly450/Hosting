@@ -66,8 +66,11 @@ def generate_random_password(length=12) -> str:
 # Базовые константы-шаблоны для генерации манифестов
 DEFAULT_WINDOWS_ISO = "https://go.microsoft.com/fwlink/p/?LinkID=2195280"
 DEFAULT_UBUNTU_IMAGE = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+DEFAULT_CENTOS_IMAGE = "https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2"
+DEFAULT_DEBIAN_IMAGE = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
+DEFAULT_PROXMOX_ISO = "http://download.proxmox.com/iso/proxmox-ve_8.2-1.iso"
 
-def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
+def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     # Если выбран кастомный образ, загружаем его из локального хранилища бэкенда
     image_url = DEFAULT_UBUNTU_IMAGE
     if req.os_type == "custom" and req.custom_image:
@@ -485,10 +488,12 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
             
         # Windows устанавливается из ISO в ручном режиме, но пароль все равно генерируем
         # Ubuntu и кастомные образы дисков (если поддерживают cloud-init) настраиваем через cloud-init
-        if req.os_type in ["ubuntu", "custom"]:
-            manifest = generate_ubuntu_manifest(req, generated_password)
-        elif req.os_type == "windows":
-            manifest = generate_windows_manifest(req)
+        if req.os_type in ["ubuntu", "centos", "debian", "bitrix", "custom"]:
+            manifest = generate_linux_manifest(req, generated_password)
+            username = "cloud-user" if req.os_type in ["centos", "bitrix"] else ("debian" if req.os_type == "debian" else "ubuntu")
+        elif req.os_type in ["windows", "proxmox"]:
+            manifest = generate_iso_manifest(req)
+            username = "Administrator" # Windows or Installer default
         else:
             raise HTTPException(status_code=400, detail="Неверный тип ОС.")
             

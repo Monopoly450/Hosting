@@ -409,12 +409,7 @@ const App = () => {
                         <div className="os-card-version">CentOS 9</div>
                       </div>
                       
-                      <div className={`os-card ${osType === 'vmware' ? 'selected' : ''}`} onClick={() => setOsType('vmware')}>
-                        <div className="os-card-icon" style={{ color: '#eab308' }}><Square size={24} /></div>
-                        <div className="os-card-title">VMWare ESXi</div>
-                        <div className="os-card-version">VMware ESXi 8 <ChevronDown size={14} /></div>
-                      </div>
-                      
+
                       <div className={`os-card ${osType === 'proxmox' ? 'selected' : ''}`} onClick={() => setOsType('proxmox')}>
                         <div className="os-card-icon" style={{ color: '#f97316' }}><Activity size={24} /></div>
                         <div className="os-card-title">Proxmox</div>
