@@ -73,9 +73,20 @@ DEFAULT_DEBIAN_IMAGE = "https://cloud.debian.org/images/cloud/bookworm/latest/de
 DEFAULT_PROXMOX_ISO = "http://download.proxmox.com/iso/proxmox-ve_8.2-1.iso"
 
 def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
-    # Если выбран кастомный образ, загружаем его из локального хранилища бэкенда
+    # Определение базового образа и логина
     image_url = DEFAULT_UBUNTU_IMAGE
-    if req.os_type == "custom" and req.custom_image:
+    default_user = "ubuntu"
+    
+    if req.os_type == "centos":
+        image_url = DEFAULT_CENTOS_IMAGE
+        default_user = "cloud-user"
+    elif req.os_type == "debian":
+        image_url = DEFAULT_DEBIAN_IMAGE
+        default_user = "debian"
+    elif req.os_type == "bitrix":
+        image_url = DEFAULT_CENTOS_IMAGE
+        default_user = "cloud-user"
+    elif req.os_type == "custom" and req.custom_image:
         host_ip = get_host_ip()
         image_url = f"http://{host_ip}:8000/static/images/{req.custom_image}"
         
@@ -216,12 +227,12 @@ disable_root: false
 chpasswd:
   list: |
     root:{password}
-    ubuntu:{password}
+    {default_user}:{password}
   expire: False
 users:
   - name: root
     lock_passwd: false
-  - name: ubuntu
+  - name: {default_user}
     sudo: ['ALL=(ALL) NOPASSWD:ALL']
     shell: /bin/bash
     lock_passwd: false
@@ -239,10 +250,10 @@ write_files:
     content: |
       [Service]
       ExecStart=
-      ExecStart=-/sbin/agetty --autologin ubuntu --noclear %I $TERM
+      ExecStart=-/sbin/agetty --autologin {default_user} --noclear %I $TERM
 runcmd:
   - echo "root:{password}" | chpasswd
-  - echo "ubuntu:{password}" | chpasswd
+  - echo "{default_user}:{password}" | chpasswd
   - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
   - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
   - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf || true
@@ -250,7 +261,7 @@ runcmd:
   - netplan apply || systemctl restart systemd-networkd || (ip link set enp1s0 up && dhclient enp1s0)
   - systemctl daemon-reload
   - systemctl restart getty@tty1.service
-  - while ! ping -c 1 -W 2 security.ubuntu.com >/dev/null 2>&1; do sleep 2; done
+  - while ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; do sleep 2; done
   - i=1; while [ $i -le 50 ]; do apt-get update && apt-get install -y qemu-guest-agent && break || sleep 5; i=$((i+1)); done
   - systemctl enable --now qemu-guest-agent
 """,

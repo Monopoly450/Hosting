@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Square, RotateCw, Monitor, Cpu, HardDrive, Network } from 'lucide-react';
+import { Play, Square, RotateCw, Monitor, Cpu, HardDrive, Network, Trash2 } from 'lucide-react';
 
 const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
   const [metrics, setMetrics] = useState(null);
@@ -52,6 +52,24 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
       if (!response.ok) {
         const err = await response.json();
         throw new Error(err.detail || `Ошибка ${action}`);
+      }
+      if (onActionSuccess) onActionSuccess();
+    } catch (err) {
+      alert(`Ошибка: ${err.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDelete = async (e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Удалить виртуалку ${vm.name}?`)) return;
+    setActionLoading('delete');
+    try {
+      const response = await fetch(`/api/vms/${vm.name}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || `Ошибка удаления`);
       }
       if (onActionSuccess) onActionSuccess();
     } catch (err) {
@@ -180,6 +198,15 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
           {isReady ? 'SSH / Console ➔' : vm.status === 'Stopped' ? 'Stopped' : 'Loading...'}
         </span>
         <div style={{ display: 'flex', gap: '8px' }}>
+          <button 
+            className="btn btn-secondary btn-icon"
+            onClick={handleDelete}
+            disabled={actionLoading !== null}
+            title="Удалить"
+            style={{ color: '#ef4444', borderColor: '#fee2e2' }}
+          >
+            {actionLoading === 'delete' ? <span className="spinner"/> : <Trash2 size={14}/>}
+          </button>
           {vm.status !== 'Running' ? (
             <button 
               className="btn btn-primary"
