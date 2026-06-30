@@ -7,8 +7,7 @@ import DockerPanel from './components/DockerPanel';
 import ImageManager from './components/ImageManager';
 import VMEditModal from './components/VMEditModal';
 import VMDetail from './components/VMDetail';
-import AegisDashboard from './components/AegisDashboard';
-import AwsConsole from './components/AwsConsole';
+
 import InfraPanel from './components/InfraPanel';
 
 // Компоненты для внешних серверов
@@ -247,27 +246,22 @@ const App = () => {
         alignItems: 'center',
         justifyContent: 'center',
         minHeight: '100vh',
-        backgroundColor: '#0a0d16',
-        backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(92, 100, 236, 0.08) 0%, transparent 50%)',
+        backgroundColor: 'var(--bg-body)',
         fontFamily: 'var(--font-sans)',
         padding: '20px'
       }}>
         <div className="card" style={{
           width: '420px',
           padding: '36px 30px',
-          background: '#111522',
-          border: '1px solid var(--border-color)',
-          borderRadius: '12px',
-          boxShadow: '0 24px 64px rgba(0, 0, 0, 0.4)',
           display: 'flex',
           flexDirection: 'column',
           gap: '24px'
         }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', textAlign: 'center' }}>
-            <div style={{ background: 'rgba(92, 100, 236, 0.1)', padding: '14px', borderRadius: '12px', color: '#5c64ec' }}>
+            <div style={{ background: 'var(--bg-accent)', padding: '14px', borderRadius: '12px', color: 'var(--primary-color)' }}>
               <Shield size={36} />
             </div>
-            <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '10px 0 2px 0', color: 'white' }}>Aegis Admin Panel</h2>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '10px 0 2px 0', color: 'var(--text-primary)' }}>ByteBurnes Admin</h2>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
               Для доступа к консоли администрирования гипервизора введите ключ авторизации API-Key
             </p>
@@ -281,7 +275,7 @@ const App = () => {
                 <input 
                   type="password"
                   className="form-input"
-                  style={{ width: '100%', paddingLeft: '38px', background: '#0a0d16', borderRadius: '8px' }}
+                  style={{ width: '100%', paddingLeft: '38px', borderRadius: '8px' }}
                   value={tokenInput}
                   onChange={(e) => setTokenInput(e.target.value)}
                   placeholder="Введите ключ доступа..."
@@ -290,7 +284,7 @@ const App = () => {
               </div>
               <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginTop: '4px', lineHeight: 1.3 }}>
                 Подсказка: стандартный демонстрационный ключ: <br/>
-                <code style={{ color: '#a3a8ff', fontFamily: 'var(--font-mono)' }}>aegis-admin-secret-key-2026</code>
+                <code style={{ color: 'var(--primary-color)', fontFamily: 'var(--font-mono)' }}>aegis-admin-secret-key-2026</code>
               </small>
             </div>
 
@@ -312,7 +306,7 @@ const App = () => {
         </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Layers size={20} color="#5c64ec" />
-          <span style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>Aegis Admin</span>
+          <span style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>ByteBurnes</span>
         </div>
         <div style={{ width: 24 }}></div>
       </div>
@@ -326,7 +320,7 @@ const App = () => {
         <div className="sidebar-logo">
           <Layers className="logo-icon" size={26} />
           <div className="logo-text-group">
-            <span className="logo-text">Aegis Admin</span>
+            <span className="logo-text">ByteBurnes</span>
             <span className="logo-badge">KubeVirt Edition</span>
           </div>
         </div>
@@ -419,22 +413,6 @@ const App = () => {
           >
             <LayoutDashboard size={16} />
             <span>Дашборд</span>
-          </button>
-          
-          <button 
-            className={`nav-item ${activeTab === 'aegis' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('aegis'); setSidebarOpen(false); }}
-          >
-            <Layers size={16} />
-            <span>Aegis-HCI</span>
-          </button>
-
-          <button 
-            className={`nav-item ${activeTab === 'aws' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('aws'); setSidebarOpen(false); }}
-          >
-            <Cloud size={16} />
-            <span>AWS Console</span>
           </button>
 
           <button 
@@ -757,16 +735,6 @@ const App = () => {
               </div>
             )}
           </div>
-        )}
-
-        {/* Вкладка: Aegis-HCI */}
-        {activeTab === 'aegis' && (
-          <AegisDashboard />
-        )}
-
-        {/* Вкладка: AWS Console */}
-        {activeTab === 'aws' && (
-          <AwsConsole mode="admin" />
         )}
 
         {/* Вкладка 4: Docker Админка */}
