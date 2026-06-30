@@ -203,7 +203,7 @@ const ImageManager = ({ onImagesChanged }) => {
             </div>
           ) : (
             images.map((img) => (
-              <div key={img.filename} className="interactive" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: 'var(--bg-body)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+              <div key={img.filename} className="interactive" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                   <div style={{ fontSize: '1.8rem' }}>{img.extension === 'iso' ? '💿' : '💾'}</div>
                   <div>

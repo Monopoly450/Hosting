@@ -304,7 +304,7 @@ const InfraPanel = () => {
               const cmd1 = `iptables -t nat -A PREROUTING -p tcp --dport ${port} -j DNAT --to-destination ${ip}:22`;
               const cmd2 = `iptables -A FORWARD -p tcp -d ${ip} --dport 22 -j ACCEPT`;
               return (
-                <div key={vm.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-body)', padding: '12px', borderRadius: 'var(--radius-sm)', marginTop: '8px' }}>
+                <div key={vm.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '12px', borderRadius: 'var(--radius-sm)', marginTop: '8px' }}>
                   <span style={{ fontSize: '0.85rem' }}>{vm.name} (IP: <code>{ip}</code>)</span>
                   <button className="btn btn-primary btn-sm" onClick={async () => {
                     if (window.confirm(`Выполнить проброс портов на хосте для ${vm.name}?`)) {

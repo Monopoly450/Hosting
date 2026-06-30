@@ -2,7 +2,7 @@
 
 :root {
   /* Colors */
-  --bg-body: #f4f6f8;
+  --bg-body: #f8fafc;
   --bg-surface: #ffffff;
   --bg-surface-hover: #f9fafb;
   --bg-surface-active: #f3f4f6;
@@ -479,7 +479,7 @@ body {
   flex-direction: column;
   gap: 8px;
   padding: 16px;
-  background: var(--bg-body);
+  background: var(--bg-surface);
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
 }

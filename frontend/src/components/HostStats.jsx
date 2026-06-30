@@ -136,7 +136,7 @@ const HostStats = ({ onMetricsLoaded }) => {
       )}
 
       {/* Meta Info */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', padding: '16px', background: 'var(--bg-body)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', padding: '16px', background: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
         <div>
           <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase' }}>Host Node</div>
           <div style={{ fontWeight: 500 }}>{metrics.node_name}</div>

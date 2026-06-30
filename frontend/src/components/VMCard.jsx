@@ -121,7 +121,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
       </div>
 
       {/* Resources Info */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', background: 'var(--bg-body)', padding: '10px 12px', borderRadius: 'var(--radius-md)' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', background: 'var(--bg-surface)', padding: '10px 12px', borderRadius: 'var(--radius-md)' }}>
         <div style={{ flex: 1, textAlign: 'center', borderRight: '1px solid var(--border-subtle)' }}>
           <div className="text-muted" style={{ fontSize: '0.7rem', marginBottom: '2px' }}>CPU</div>
           <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{vm.cpu_cores} Cores</div>
