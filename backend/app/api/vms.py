@@ -4,6 +4,13 @@ import socket
 import paramiko
 import secrets
 import string
+import hashlib
+
+def generate_mac_address(name: str) -> str:
+    h = hashlib.md5(name.encode('utf-8')).hexdigest()
+    # 02:00:00 prefix ensures it's a locally administered unicast MAC
+    return f"02:00:00:{h[0:2]}:{h[2:4]}:{h[4:6]}"
+
 import logging
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
@@ -113,7 +120,8 @@ def generate_ubuntu_manifest(req: VMCreationRequest, password: str) -> dict:
                             "interfaces": [
                                 {
                                     "name": "bridge-net",
-                                    "bridge": {}
+                                    "bridge": {},
+                                    "macAddress": generate_mac_address(req.name)
                                 }
                             ],
                             "inputs": [
@@ -301,7 +309,8 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                             "interfaces": [
                                 {
                                     "name": "bridge-net",
-                                    "bridge": {}
+                                    "bridge": {},
+                                    "macAddress": generate_mac_address(req.name)
                                 }
                             ],
                             "inputs": [
@@ -408,10 +417,48 @@ def list_vms(client: K8sClient = Depends(get_k8s_client)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def setup_auto_port_forward(vm_ip: str):
+    """
+    Автоматически настраивает проброс порта 22000+X на хост-машине для указанного IP виртуальной машины,
+    где X - последний октет IP-адреса.
+    """
+    import subprocess
+    import re
+    try:
+        # Извлекаем последний октет из IP (например, 15 из 172.20.0.15)
+        last_octet = int(vm_ip.split('.')[-1])
+        ssh_port = 22000 + last_octet
+        
+        nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
+        
+        # Проверяем, существует ли уже это правило
+        res = subprocess.run(nsenter_prefix + ["iptables -t nat -S PREROUTING"], capture_output=True, text=True, timeout=5)
+        if res.returncode == 0:
+            if f"--to-destination {vm_ip}:22" in res.stdout and f"--dport {ssh_port}" in res.stdout:
+                return # Правило уже существует
+
+        logger.info(f"Добавляем автоматическое правило проброса: порт {ssh_port} -> {vm_ip}:22")
+        add_dnat = f"iptables -t nat -A PREROUTING -p tcp --dport {ssh_port} -j DNAT --to-destination {vm_ip}:22"
+        add_forward = f"iptables -I FORWARD -p tcp -d {vm_ip} --dport 22 -j ACCEPT"
+        save_rules = "netfilter-persistent save"
+        
+        subprocess.run(nsenter_prefix + [add_dnat], capture_output=True, text=True, timeout=5)
+        subprocess.run(nsenter_prefix + [add_forward], capture_output=True, text=True, timeout=5)
+        subprocess.run(nsenter_prefix + [save_rules], capture_output=True, text=True, timeout=5)
+        logger.info(f"Правила iptables для порта {ssh_port} успешно добавлены!")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при автоматической настройке проброса порта для {vm_ip}: {e}")
+
 @router.get("/{name}", response_model=dict)
 def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client)):
     try:
-        return client.get_vm(name)
+        vm_data = client.get_vm(name)
+        # Если виртуальная машина активна и получила IP-адрес, автоматически пробрасываем порт
+        if vm_data.get("status") == "Running" and vm_data.get("ips"):
+            ip = vm_data["ips"][0]
+            setup_auto_port_forward(ip)
+        return vm_data
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Виртуальная машина {name} не найдена: {e}")
 
@@ -529,11 +576,7 @@ def restore_vm_backup(name: str, backup_name: str, client: K8sClient = Depends(g
 
 
 def resolve_vm_ip(ips: list) -> Optional[str]:
-    # Сначала ищем Service ClusterIP (он статический и постоянный, обычно 10.43.x.x в K3s)
-    for ip in ips:
-        if ip.startswith("10.43.") and ":" not in ip:
-            return ip
-    # Затем ищем мостовой IP
+    # Ищем мостовой IP (не внутренний k8s под и не внутренний KubeVirt NAT)
     for ip in ips:
         if (
             not ip.startswith("10.244.") and 
@@ -543,7 +586,7 @@ def resolve_vm_ip(ips: list) -> Optional[str]:
             ":" not in ip
         ):
             return ip
-    # Фолбэк на под-сеть K3s
+    # Фолбэк на под-сеть K3s (10.42.x.x / 10.244.x.x), к которой есть доступ с хоста
     for ip in ips:
         if (ip.startswith("10.42.") or ip.startswith("10.244.")) and ":" not in ip:
             return ip
