@@ -409,12 +409,6 @@ const App = () => {
                         <div className="os-card-version">CentOS 9</div>
                       </div>
                       
-
-                      <div className={`os-card ${osType === 'proxmox' ? 'selected' : ''}`} onClick={() => setOsType('proxmox')}>
-                        <div className="os-card-icon" style={{ color: '#f97316' }}><Activity size={24} /></div>
-                        <div className="os-card-title">Proxmox</div>
-                        <div className="os-card-version">Proxmox 8 <ChevronDown size={14} /></div>
-                      </div>
                       
                       <div className={`os-card ${osType === 'custom' ? 'selected' : ''}`} style={{ borderColor: osType === 'custom' ? '#6366f1' : 'transparent', backgroundColor: osType === 'custom' ? 'var(--bg-surface-hover)' : 'var(--bg-surface)' }} onClick={() => setOsType('custom')}>
                         <div className="os-card-icon" style={{ color: '#6366f1' }}><Info size={24} /></div>

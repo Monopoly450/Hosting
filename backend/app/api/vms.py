@@ -52,6 +52,8 @@ class VMCreationRequest(BaseModel):
     memory_gb: int = Field(2, ge=1, le=64, description="Объем оперативной памяти в ГБ")
     disk_gb: int = Field(20, ge=10, le=500, description="Размер системного диска в ГБ")
     iso_url: Optional[str] = Field(None, description="Ссылка на собственный ISO-образ (для Windows)")
+    packages: Optional[str] = Field(None, description="Пакеты для установки (через запятую)")
+    network_drives: Optional[str] = Field(None, description="Сетевые диски (NFS/PVC через запятую)")
 
 class VMResizeRequest(BaseModel):
     cpu_cores: int = Field(..., ge=1, le=16)
