@@ -16,9 +16,9 @@
   --text-secondary: #64748b;
   --text-muted: #94a3b8;
 
-  --accent-primary: #0066ff;
-  --accent-primary-hover: #0052cc;
-  --accent-primary-light: rgba(0, 102, 255, 0.08);
+  --accent-primary: #f97316;
+  --accent-primary-hover: #ea580c;
+  --accent-primary-light: rgba(249, 115, 22, 0.08);
   
   --status-success: #10b981;
   --status-success-bg: #ecfdf5;
@@ -39,7 +39,7 @@
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
   --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.05), 0 8px 10px -6px rgb(0 0 0 / 0.05);
-  --shadow-glow: 0 4px 14px 0 rgba(0, 102, 255, 0.25);
+  --shadow-glow: 0 4px 14px 0 rgba(249, 115, 22, 0.25);
 
   /* Radii */
   --radius-sm: 6px;
@@ -497,7 +497,7 @@ body {
   justify-content: center;
   min-height: 100vh;
   background-color: var(--bg-body);
-  background-image: radial-gradient(circle at top right, rgba(0, 102, 255, 0.05), transparent 40%);
+  background-image: radial-gradient(circle at top right, rgba(249, 115, 22, 0.05), transparent 40%);
 }
 
 .login-card {
