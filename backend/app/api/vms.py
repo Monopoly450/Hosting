@@ -171,7 +171,7 @@ write_files:
     content: |
       [Service]
       ExecStart=
-      ExecStart=-/sbin/agetty -o '-p -mx -- \\\\u' --autologin ubuntu --noclear tty1 $TERM
+      ExecStart=-/sbin/agetty --autologin ubuntu --noclear %I $TERM
 runcmd:
   - echo "root:{password}" | chpasswd
   - echo "ubuntu:{password}" | chpasswd
