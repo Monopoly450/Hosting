@@ -154,7 +154,7 @@ func loadAWSState() {
 	rows, err := dbPool.Query(ctx, "SELECT id, name, description, rules, bound_instances FROM aws_security_groups")
 	if err == nil {
 		defer rows.Close()
-		awsState.SecurityGroups = []*SecurityGroup{}
+		var loadedSgs []*SecurityGroup
 		for rows.Next() {
 			var sg SecurityGroup
 			var rulesBytes, boundBytes []byte
@@ -162,7 +162,16 @@ func loadAWSState() {
 			if err == nil {
 				_ = json.Unmarshal(rulesBytes, &sg.Rules)
 				_ = json.Unmarshal(boundBytes, &sg.BoundInstances)
-				awsState.SecurityGroups = append(awsState.SecurityGroups, &sg)
+				loadedSgs = append(loadedSgs, &sg)
+			}
+		}
+		if len(loadedSgs) > 0 {
+			awsState.SecurityGroups = loadedSgs
+		} else {
+			// Если таблица в БД пуста, записываем туда дефолтные значения
+			for _, sg := range awsState.SecurityGroups {
+				_, _ = dbPool.Exec(ctx, "INSERT INTO aws_security_groups (id, name, description, rules, bound_instances) VALUES ($1, $2, $3, $4, $5)",
+					sg.ID, sg.Name, sg.Description, toJSONB(sg.Rules), toJSONB(sg.BoundInstances))
 			}
 		}
 	}
@@ -171,14 +180,23 @@ func loadAWSState() {
 	bRows, err := dbPool.Query(ctx, "SELECT name, region, access_policy, objects FROM aws_s3_buckets")
 	if err == nil {
 		defer bRows.Close()
-		awsState.S3Buckets = []*S3Bucket{}
+		var loadedBuckets []*S3Bucket
 		for bRows.Next() {
 			var b S3Bucket
 			var objBytes []byte
 			err := bRows.Scan(&b.Name, &b.Region, &b.AccessPolicy, &objBytes)
 			if err == nil {
 				_ = json.Unmarshal(objBytes, &b.Objects)
-				awsState.S3Buckets = append(awsState.S3Buckets, &b)
+				loadedBuckets = append(loadedBuckets, &b)
+			}
+		}
+		if len(loadedBuckets) > 0 {
+			awsState.S3Buckets = loadedBuckets
+		} else {
+			// Если таблица в БД пуста, записываем туда дефолтные значения
+			for _, b := range awsState.S3Buckets {
+				_, _ = dbPool.Exec(ctx, "INSERT INTO aws_s3_buckets (name, region, access_policy, objects) VALUES ($1, $2, $3, $4)",
+					b.Name, b.Region, b.AccessPolicy, toJSONB(b.Objects))
 			}
 		}
 	}
@@ -187,12 +205,21 @@ func loadAWSState() {
 	uRows, err := dbPool.Query(ctx, "SELECT username, policy, joined_at FROM aws_iam_users")
 	if err == nil {
 		defer uRows.Close()
-		awsState.IAMUsers = []*IAMUser{}
+		var loadedUsers []*IAMUser
 		for uRows.Next() {
 			var u IAMUser
 			err := uRows.Scan(&u.Username, &u.Policy, &u.JoinedAt)
 			if err == nil {
-				awsState.IAMUsers = append(awsState.IAMUsers, &u)
+				loadedUsers = append(loadedUsers, &u)
+			}
+		}
+		if len(loadedUsers) > 0 {
+			awsState.IAMUsers = loadedUsers
+		} else {
+			// Если таблица в БД пуста, записываем туда дефолтные значения
+			for _, u := range awsState.IAMUsers {
+				_, _ = dbPool.Exec(ctx, "INSERT INTO aws_iam_users (username, policy, joined_at) VALUES ($1, $2, $3)",
+					u.Username, u.Policy, u.JoinedAt)
 			}
 		}
 	}
