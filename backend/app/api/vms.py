@@ -231,12 +231,6 @@ chpasswd:
   expire: False
 users:
   - default
-  - name: root
-    lock_passwd: false
-  - name: {default_user}
-    sudo: ['ALL=(ALL) NOPASSWD:ALL']
-    shell: /bin/bash
-    lock_passwd: false
 {packages_yaml}{mounts_yaml}
 write_files:
   - path: /etc/netplan/99-dhcp.yaml
