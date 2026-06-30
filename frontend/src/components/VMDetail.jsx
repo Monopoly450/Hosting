@@ -447,6 +447,24 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                 </button>
               </div>
             </div>
+
+            {vm.http_port && (
+              <div style={{ marginTop: '8px' }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Доступ к веб-серверу (HTTP/HTTPS):</div>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={`http://${window.location.hostname}:${vm.http_port}`} />
+                  <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`http://${window.location.hostname}:${vm.http_port}`, 'extHttp')}>
+                    {copiedField === 'extHttp' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={`https://${window.location.hostname}:${vm.https_port}`} />
+                  <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`https://${window.location.hostname}:${vm.https_port}`, 'extHttps')}>
+                    {copiedField === 'extHttps' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Usage Monitoring */}

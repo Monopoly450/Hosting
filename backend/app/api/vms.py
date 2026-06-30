@@ -500,24 +500,33 @@ def setup_auto_port_forward(vm_ip: str):
         # Извлекаем последний октет из IP (например, 15 из 172.20.0.15)
         last_octet = int(vm_ip.split('.')[-1])
         ssh_port = 22000 + last_octet
+        http_port = 28000 + last_octet
+        https_port = 44300 + last_octet
         
         nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
         
-        # Проверяем, существует ли уже это правило
-        res = subprocess.run(nsenter_prefix + ["iptables -t nat -S PREROUTING"], capture_output=True, text=True, timeout=5)
-        if res.returncode == 0:
-            if f"--to-destination {vm_ip}:22" in res.stdout and f"--dport {ssh_port}" in res.stdout:
-                return # Правило уже существует
+        # Функция для добавления правила проброса порта
+        def add_port_forward(external_port, internal_port):
+            res = subprocess.run(nsenter_prefix + ["iptables -t nat -S PREROUTING"], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                if f"--to-destination {vm_ip}:{internal_port}" in res.stdout and f"--dport {external_port}" in res.stdout:
+                    return # Правило уже существует
 
-        logger.info(f"Добавляем автоматическое правило проброса: порт {ssh_port} -> {vm_ip}:22")
-        add_dnat = f"iptables -t nat -A PREROUTING -p tcp --dport {ssh_port} -j DNAT --to-destination {vm_ip}:22"
-        add_forward = f"iptables -I FORWARD -p tcp -d {vm_ip} --dport 22 -j ACCEPT"
-        save_rules = "netfilter-persistent save"
+            logger.info(f"Добавляем автоматическое правило проброса: порт {external_port} -> {vm_ip}:{internal_port}")
+            add_dnat = f"iptables -t nat -A PREROUTING -p tcp --dport {external_port} -j DNAT --to-destination {vm_ip}:{internal_port}"
+            add_forward = f"iptables -I FORWARD -p tcp -d {vm_ip} --dport {internal_port} -j ACCEPT"
+            
+            subprocess.run(nsenter_prefix + [add_dnat], capture_output=True, text=True, timeout=5)
+            subprocess.run(nsenter_prefix + [add_forward], capture_output=True, text=True, timeout=5)
+
+        # Пробрасываем SSH, HTTP и HTTPS
+        add_port_forward(ssh_port, 22)
+        add_port_forward(http_port, 80)
+        add_port_forward(https_port, 443)
         
-        subprocess.run(nsenter_prefix + [add_dnat], capture_output=True, text=True, timeout=5)
-        subprocess.run(nsenter_prefix + [add_forward], capture_output=True, text=True, timeout=5)
+        save_rules = "netfilter-persistent save"
         subprocess.run(nsenter_prefix + [save_rules], capture_output=True, text=True, timeout=5)
-        logger.info(f"Правила iptables для порта {ssh_port} успешно добавлены!")
+        logger.info(f"Правила iptables для ВМ {vm_ip} успешно добавлены!")
         
     except Exception as e:
         logger.error(f"Ошибка при автоматической настройке проброса порта для {vm_ip}: {e}")
