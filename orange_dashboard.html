@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ByteBurners Dashboard | Premium Hosting</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "inverse-surface": "#2e3132",
+                    "tertiary": "#006398",
+                    "outline-variant": "#e0c0b1",
+                    "on-error-container": "#93000a",
+                    "error": "#ba1a1a",
+                    "on-primary-fixed": "#341100",
+                    "on-primary-container": "#582200",
+                    "on-tertiary-fixed": "#001d32",
+                    "glass-bg": "rgba(255, 255, 255, 0.8)",
+                    "surface-container-high": "#e7e8e9",
+                    "surface-dim": "#d9dadb",
+                    "secondary-container": "#d0e1fb",
+                    "on-secondary-fixed-variant": "#38485d",
+                    "on-background": "#191c1d",
+                    "secondary-fixed": "#d3e4fe",
+                    "success": "#10B981",
+                    "tertiary-fixed-dim": "#93ccff",
+                    "surface": "#f8f9fa",
+                    "primary-fixed-dim": "#ffb690",
+                    "border-subtle": "#E5E7EB",
+                    "primary-fixed": "#ffdbca",
+                    "on-tertiary": "#ffffff",
+                    "on-tertiary-fixed-variant": "#004b74",
+                    "on-surface-variant": "#584237",
+                    "primary-container": "#f97316",
+                    "surface-container-highest": "#e1e3e4",
+                    "tertiary-fixed": "#cde5ff",
+                    "text-primary": "#111827",
+                    "inverse-primary": "#ffb690",
+                    "on-surface": "#191c1d",
+                    "surface-bright": "#f8f9fa",
+                    "on-secondary-container": "#54647a",
+                    "surface-tint": "#9d4300",
+                    "on-tertiary-container": "#003554",
+                    "secondary-fixed-dim": "#b7c8e1",
+                    "surface-container-lowest": "#ffffff",
+                    "secondary": "#505f76",
+                    "warning": "#F59E0B",
+                    "surface-container": "#edeeef",
+                    "on-primary": "#ffffff",
+                    "inverse-on-surface": "#f0f1f2",
+                    "outline": "#8c7164",
+                    "surface-variant": "#e1e3e4",
+                    "background": "#f8f9fa",
+                    "on-error": "#ffffff",
+                    "on-primary-fixed-variant": "#783200",
+                    "on-secondary-fixed": "#0b1c30",
+                    "danger": "#EF4444",
+                    "text-secondary": "#6B7280",
+                    "error-container": "#ffdad6",
+                    "on-secondary": "#ffffff",
+                    "primary": "#9d4300",
+                    "tertiary-container": "#00a2f4",
+                    "surface-container-low": "#f3f4f5"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "sidebar-width": "260px",
+                    "element-gap": "1.5rem",
+                    "container-padding": "2rem",
+                    "gutter": "1rem"
+            },
+            "fontFamily": {
+                    "body-md": ["Inter"],
+                    "label-md": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "display-lg": ["Inter"],
+                    "display-lg-mobile": ["Inter"],
+                    "body-sm": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "headline-sm": ["Inter"]
+            },
+            "fontSize": {
+                    "body-md": ["15px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                    "label-md": ["13px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                    "headline-md": ["24px", {"lineHeight": "1.3", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "display-lg": ["48px", {"lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "display-lg-mobile": ["36px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "body-sm": ["14px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                    "body-lg": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                    "headline-sm": ["20px", {"lineHeight": "1.4", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { background-color: #f9fafb; }
+        .glass-panel { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: #f97316;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(249, 115, 22, 0.3);
+            border: 2px solid white;
+        }
+        .custom-shadow { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+    </style>
+</head>
+<body class="font-body-md text-on-background selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- Sidebar Navigation -->
+<aside class="w-[260px] h-screen fixed left-0 top-0 border-r border-border-subtle bg-surface-container-lowest flex flex-col py-8 z-50">
+<div class="px-6 mb-10">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-primary-container rounded-lg flex items-center justify-center text-white">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+</div>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold text-primary leading-tight">ByteBurners</h1>
+<p class="text-label-md font-label-md text-secondary">Premium Hosting</p>
+</div>
+</div>
+</div>
+<nav class="flex-1 px-4 space-y-1">
+<!-- Active Tab: Dashboard -->
+<a class="flex items-center gap-3 px-4 py-2 rounded-lg bg-primary-container/10 text-primary font-bold border-l-4 border-primary transition-all duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body-md text-body-md">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-secondary hover:bg-surface-container-low hover:text-primary transition-all duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="dns">dns</span>
+<span class="font-body-md text-body-md">Servers</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-secondary hover:bg-surface-container-low hover:text-primary transition-all duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="image">image</span>
+<span class="font-body-md text-body-md">Images</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-secondary hover:bg-surface-container-low hover:text-primary transition-all duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="dock">dock</span>
+<span class="font-body-md text-body-md">Docker</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-secondary hover:bg-surface-container-low hover:text-primary transition-all duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="account_tree">account_tree</span>
+<span class="font-body-md text-body-md">Infrastructure</span>
+</a>
+</nav>
+<div class="px-4 mt-auto space-y-1">
+<a class="flex items-center gap-3 px-4 py-2 text-secondary hover:bg-surface-container-low hover:text-primary transition-all duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-body-md text-body-md">Settings</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-secondary hover:bg-surface-container-low hover:text-primary transition-all duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span class="font-body-md text-body-md">Support</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="ml-[260px] min-h-screen">
+<!-- Top Navbar -->
+<header class="h-16 px-container-padding flex justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-40 border-b border-border-subtle">
+<div class="flex items-center flex-1 max-w-xl">
+<div class="relative w-full group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-secondary">search</span>
+<input class="w-full pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-lg focus:ring-2 focus:ring-primary-container text-body-sm transition-all outline-none" placeholder="Search servers, deployments..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-low transition-colors">
+<span class="material-symbols-outlined text-secondary" data-icon="notifications">notifications</span>
+</button>
+<div class="h-8 w-[1px] bg-border-subtle mx-2"></div>
+<div class="flex items-center gap-3 cursor-pointer group">
+<div class="text-right">
+<p class="font-label-md text-label-md text-text-primary group-hover:text-primary transition-colors">Alex Burner</p>
+<p class="text-[11px] text-secondary">Pro Plan</p>
+</div>
+<img class="w-10 h-10 rounded-full border-2 border-primary/20" data-alt="Close-up portrait of a tech professional in a clean minimalist studio, high-key soft lighting with orange backlights reflecting on a sleek modern headset. The aesthetic is ultra-professional, bright, and modern, using ByteBurners orange and light gray color scheme." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDbcJjt3jZWZhM53o5kRM9-5f8_T4_nHRwCjGMVYC5YXT2axn6_JeERvpYUAdHGQSCrBz_XM4aoFx3iAS6u-Ve2W42N4s570ePsTKhneM9YLx-5fEJuKbmhymMr4d23KX_24aVV1V4PDfP2edKLTtdi6AyPphlGewI5kglTsNcS5G5WYnIqQWeWzoLqNJgWv_oJ6Tpxkr2IXOCg2zyEfSWNBBHX2Wd32e0BuO0OJweLx8U--GK3vRY6i_Ygy8cioGzx12fLwvomk2s"/>
+</div>
+</div>
+</header>
+<!-- Dashboard Content -->
+<div class="p-container-padding max-w-[1440px] mx-auto">
+<div class="mb-8">
+<h2 class="font-headline-md text-headline-md font-bold text-text-primary">Dashboard</h2>
+<p class="text-body-md text-secondary">Manage your high-performance infrastructure.</p>
+</div>
+<!-- VM Creator Section -->
+<section class="mb-10">
+<div class="bg-white rounded-[16px] custom-shadow p-8">
+<div class="flex items-start justify-between mb-8">
+<div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-1">Create New Virtual Machine</h3>
+<p class="text-body-sm text-secondary">Configure and deploy a new high-speed instance in seconds.</p>
+</div>
+<div class="px-4 py-2 bg-primary-container/5 text-primary-container font-bold rounded-lg border border-primary-container/10 flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="bolt">bolt</span>
+                            Quick Launch
+                        </div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-10">
+<div class="space-y-6">
+<div>
+<label class="block font-label-md text-label-md text-text-primary mb-2">Server Name</label>
+<input class="w-full px-4 py-3 bg-white border border-border-subtle rounded-lg focus:ring-2 focus:ring-primary-container outline-none transition-all placeholder:text-secondary/40" placeholder="e.g. production-api-01" type="text"/>
+</div>
+<div>
+<label class="block font-label-md text-label-md text-text-primary mb-2">Operating System</label>
+<select class="w-full px-4 py-3 bg-white border border-border-subtle rounded-lg focus:ring-2 focus:ring-primary-container outline-none transition-all appearance-none cursor-pointer">
+<option>Ubuntu 22.04 LTS</option>
+<option>Debian 11 Bullseye</option>
+<option>Fedora 38</option>
+<option>CentOS Stream 9</option>
+<option>Windows Server 2022</option>
+</select>
+</div>
+</div>
+<div class="space-y-8">
+<div class="space-y-4">
+<div class="flex justify-between items-center">
+<label class="font-label-md text-label-md text-text-primary">CPU Cores</label>
+<span class="px-3 py-1 bg-surface-container-low rounded-md font-bold text-primary-container" id="cpu-val">4 Cores</span>
+</div>
+<input class="w-full h-2 bg-surface-container rounded-lg appearance-none cursor-pointer accent-primary-container" max="64" min="1" oninput="document.getElementById('cpu-val').innerText = this.value + ' Cores'" type="range" value="4"/>
+</div>
+<div class="space-y-4">
+<div class="flex justify-between items-center">
+<label class="font-label-md text-label-md text-text-primary">RAM Memory</label>
+<span class="px-3 py-1 bg-surface-container-low rounded-md font-bold text-primary-container" id="ram-val">16 GB</span>
+</div>
+<input class="w-full h-2 bg-surface-container rounded-lg appearance-none cursor-pointer accent-primary-container" max="256" min="2" oninput="document.getElementById('ram-val').innerText = this.value + ' GB'" step="2" type="range" value="16"/>
+</div>
+<div class="space-y-4">
+<div class="flex justify-between items-center">
+<label class="font-label-md text-label-md text-text-primary">SSD Storage</label>
+<span class="px-3 py-1 bg-surface-container-low rounded-md font-bold text-primary-container" id="ssd-val">120 GB</span>
+</div>
+<input class="w-full h-2 bg-surface-container rounded-lg appearance-none cursor-pointer accent-primary-container" max="2000" min="20" oninput="document.getElementById('ssd-val').innerText = this.value + ' GB'" step="20" type="range" value="120"/>
+</div>
+</div>
+</div>
+<div class="mt-10 flex items-center justify-between border-t border-border-subtle pt-8">
+<div>
+<p class="text-label-md font-label-md text-secondary">ESTIMATED COST</p>
+<p class="text-headline-md font-bold text-text-primary">$42.50 <span class="text-body-sm text-secondary font-normal">/ month</span></p>
+</div>
+<button class="bg-primary-container hover:bg-primary transition-all duration-300 text-white px-8 py-4 rounded-lg flex items-center gap-3 font-bold custom-shadow active:scale-[0.98]">
+<span class="material-symbols-outlined" data-icon="rocket_launch">rocket_launch</span>
+                            Deploy Server
+                        </button>
+</div>
+</div>
+</section>
+<!-- Active Servers Grid -->
+<section>
+<div class="flex items-center justify-between mb-6">
+<h3 class="font-headline-sm text-headline-sm text-text-primary">Active Servers</h3>
+<div class="flex gap-2">
+<button class="p-2 bg-white rounded-lg border border-border-subtle text-secondary hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="filter_list">filter_list</span>
+</button>
+<button class="p-2 bg-white rounded-lg border border-border-subtle text-secondary hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="grid_view">grid_view</span>
+</button>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+<!-- Server Card 1 -->
+<div class="bg-white rounded-[16px] custom-shadow p-6 group hover:translate-y-[-4px] transition-all duration-300">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-3">
+<div class="w-3 h-3 bg-success rounded-full animate-pulse"></div>
+<h4 class="font-bold text-text-primary">web-node-alpha</h4>
+</div>
+<div class="flex gap-1">
+<button class="p-1.5 hover:bg-surface-container-low rounded-md transition-colors text-secondary" title="Terminal">
+<span class="material-symbols-outlined text-[20px]" data-icon="terminal">terminal</span>
+</button>
+<button class="p-1.5 hover:bg-surface-container-low rounded-md transition-colors text-secondary" title="Restart">
+<span class="material-symbols-outlined text-[20px]" data-icon="restart_alt">restart_alt</span>
+</button>
+</div>
+</div>
+<p class="text-body-sm text-secondary font-mono mb-6">IP: 192.168.12.104</p>
+<div class="grid grid-cols-2 gap-4 mb-4">
+<div>
+<p class="text-[11px] text-secondary uppercase font-bold mb-1">CPU Usage</p>
+<div class="flex items-end gap-2">
+<p class="text-headline-sm font-bold text-text-primary">24%</p>
+<div class="flex items-end gap-[1px] h-6 flex-1 mb-1">
+<div class="bg-primary-container/20 w-full h-[40%] rounded-t-sm"></div>
+<div class="bg-primary-container/20 w-full h-[60%] rounded-t-sm"></div>
+<div class="bg-primary-container/40 w-full h-[30%] rounded-t-sm"></div>
+<div class="bg-primary-container w-full h-[80%] rounded-t-sm"></div>
+<div class="bg-primary-container/60 w-full h-[50%] rounded-t-sm"></div>
+</div>
+</div>
+</div>
+<div>
+<p class="text-[11px] text-secondary uppercase font-bold mb-1">Network</p>
+<div class="flex items-end gap-2">
+<p class="text-headline-sm font-bold text-text-primary">12mb/s</p>
+<div class="flex items-end gap-[1px] h-6 flex-1 mb-1">
+<div class="bg-tertiary-container/20 w-full h-[20%] rounded-t-sm"></div>
+<div class="bg-tertiary-container/40 w-full h-[40%] rounded-t-sm"></div>
+<div class="bg-tertiary-container w-full h-[70%] rounded-t-sm"></div>
+<div class="bg-tertiary-container/60 w-full h-[40%] rounded-t-sm"></div>
+<div class="bg-tertiary-container/30 w-full h-[20%] rounded-t-sm"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Server Card 2 -->
+<div class="bg-white rounded-[16px] custom-shadow p-6 group hover:translate-y-[-4px] transition-all duration-300">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-3">
+<div class="w-3 h-3 bg-success rounded-full"></div>
+<h4 class="font-bold text-text-primary">db-master-01</h4>
+</div>
+<div class="flex gap-1">
+<button class="p-1.5 hover:bg-surface-container-low rounded-md transition-colors text-secondary">
+<span class="material-symbols-outlined text-[20px]" data-icon="terminal">terminal</span>
+</button>
+<button class="p-1.5 hover:bg-surface-container-low rounded-md transition-colors text-secondary">
+<span class="material-symbols-outlined text-[20px]" data-icon="restart_alt">restart_alt</span>
+</button>
+</div>
+</div>
+<p class="text-body-sm text-secondary font-mono mb-6">IP: 192.168.12.105</p>
+<div class="grid grid-cols-2 gap-4 mb-4">
+<div>
+<p class="text-[11px] text-secondary uppercase font-bold mb-1">CPU Usage</p>
+<div class="flex items-end gap-2">
+<p class="text-headline-sm font-bold text-text-primary">8%</p>
+<div class="flex items-end gap-[1px] h-6 flex-1 mb-1">
+<div class="bg-primary-container/10 w-full h-[10%] rounded-t-sm"></div>
+<div class="bg-primary-container/10 w-full h-[15%] rounded-t-sm"></div>
+<div class="bg-primary-container/10 w-full h-[12%] rounded-t-sm"></div>
+<div class="bg-primary-container/20 w-full h-[25%] rounded-t-sm"></div>
+<div class="bg-primary-container/10 w-full h-[10%] rounded-t-sm"></div>
+</div>
+</div>
+</div>
+<div>
+<p class="text-[11px] text-secondary uppercase font-bold mb-1">Network</p>
+<div class="flex items-end gap-2">
+<p class="text-headline-sm font-bold text-text-primary">0.4mb/s</p>
+<div class="flex items-end gap-[1px] h-6 flex-1 mb-1">
+<div class="bg-tertiary-container/10 w-full h-[5%] rounded-t-sm"></div>
+<div class="bg-tertiary-container/10 w-full h-[5%] rounded-t-sm"></div>
+<div class="bg-tertiary-container/10 w-full h-[5%] rounded-t-sm"></div>
+<div class="bg-tertiary-container/10 w-full h-[5%] rounded-t-sm"></div>
+<div class="bg-tertiary-container/10 w-full h-[5%] rounded-t-sm"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Server Card 3 -->
+<div class="bg-white rounded-[16px] custom-shadow p-6 group hover:translate-y-[-4px] transition-all duration-300">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-3">
+<div class="w-3 h-3 bg-success rounded-full animate-pulse"></div>
+<h4 class="font-bold text-text-primary">cdn-edge-global</h4>
+</div>
+<div class="flex gap-1">
+<button class="p-1.5 hover:bg-surface-container-low rounded-md transition-colors text-secondary">
+<span class="material-symbols-outlined text-[20px]" data-icon="terminal">terminal</span>
+</button>
+<button class="p-1.5 hover:bg-surface-container-low rounded-md transition-colors text-secondary">
+<span class="material-symbols-outlined text-[20px]" data-icon="restart_alt">restart_alt</span>
+</button>
+</div>
+</div>
+<p class="text-body-sm text-secondary font-mono mb-6">IP: 192.168.12.112</p>
+<div class="grid grid-cols-2 gap-4 mb-4">
+<div>
+<p class="text-[11px] text-secondary uppercase font-bold mb-1">CPU Usage</p>
+<div class="flex items-end gap-2">
+<p class="text-headline-sm font-bold text-text-primary">45%</p>
+<div class="flex items-end gap-[1px] h-6 flex-1 mb-1">
+<div class="bg-primary-container/40 w-full h-[40%] rounded-t-sm"></div>
+<div class="bg-primary-container/50 w-full h-[60%] rounded-t-sm"></div>
+<div class="bg-primary-container w-full h-[90%] rounded-t-sm"></div>
+<div class="bg-primary-container/70 w-full h-[50%] rounded-t-sm"></div>
+<div class="bg-primary-container/80 w-full h-[70%] rounded-t-sm"></div>
+</div>
+</div>
+</div>
+<div>
+<p class="text-[11px] text-secondary uppercase font-bold mb-1">Network</p>
+<div class="flex items-end gap-2">
+<p class="text-headline-sm font-bold text-text-primary">412mb/s</p>
+<div class="flex items-end gap-[1px] h-6 flex-1 mb-1">
+<div class="bg-tertiary-container/60 w-full h-[60%] rounded-t-sm"></div>
+<div class="bg-tertiary-container w-full h-[100%] rounded-t-sm"></div>
+<div class="bg-tertiary-container/80 w-full h-[80%] rounded-t-sm"></div>
+<div class="bg-tertiary-container w-full h-[95%] rounded-t-sm"></div>
+<div class="bg-tertiary-container/70 w-full h-[65%] rounded-t-sm"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Secondary Stats Strip -->
+<div class="fixed bottom-0 right-0 w-[calc(100%-260px)] px-container-padding py-4 bg-white/60 glass-panel border-t border-border-subtle flex justify-between items-center text-body-sm z-30">
+<div class="flex gap-8">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-success"></span>
+<span class="text-secondary">Network API: 12ms</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-success"></span>
+<span class="text-secondary">Load Balancer: 1.2%</span>
+</div>
+</div>
+<div class="flex items-center gap-4 text-secondary">
+<span>Version 4.2.1-stable</span>
+<div class="flex items-center gap-1 font-bold text-primary cursor-pointer hover:underline">
+<span class="material-symbols-outlined text-[18px]" data-icon="auto_awesome">auto_awesome</span>
+                    AI Optimizer Active
+                </div>
+</div>
+</div>
+</main>
+<script>
+        // Simple micro-interaction for the sliders
+        document.querySelectorAll('input[type="range"]').forEach(slider => {
+            slider.addEventListener('input', (e) => {
+                const value = e.target.value;
+                // Cost calculation simulation
+                const cpu = parseInt(document.querySelector('input[min="1"]').value);
+                const ram = parseInt(document.querySelector('input[min="2"]').value);
+                const ssd = parseInt(document.querySelector('input[min="20"]').value);
+                
+                const cost = (cpu * 5) + (ram * 1.5) + (ssd * 0.05);
+                document.querySelector('.text-headline-md.font-bold').innerHTML = `$${cost.toFixed(2)} <span class="text-body-sm text-secondary font-normal">/ month</span>`;
+            });
+        });
+    </script>
+</body></html>

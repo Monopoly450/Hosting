@@ -180,15 +180,15 @@ body {
 
 .top-header {
   height: 70px;
-  background-color: transparent;
-  border-bottom: none;
+  background-color: var(--bg-body);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 32px;
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 50;
 }
 
 .header-title {

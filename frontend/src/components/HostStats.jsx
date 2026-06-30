@@ -135,23 +135,40 @@ const HostStats = ({ onMetricsLoaded }) => {
         </div>
       )}
 
+
       {/* Meta Info */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', padding: '16px', background: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px', padding: '20px', background: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
         <div>
-          <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase' }}>Host Node</div>
-          <div style={{ fontWeight: 500 }}>{metrics.node_name}</div>
+          <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px' }}>Host Node</div>
+          <div style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.node_name}</div>
         </div>
         <div>
-          <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase' }}>OS Info</div>
-          <div style={{ fontWeight: 500 }}>{metrics.os_info}</div>
+          <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px' }}>Architecture</div>
+          <div style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.architecture}</div>
         </div>
         <div>
-          <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase' }}>Kernel</div>
-          <div style={{ fontWeight: 500 }}>{metrics.kernel_version}</div>
+          <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px' }}>Operating System</div>
+          <div style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.operating_system}</div>
         </div>
         <div>
-          <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase' }}>Kubelet</div>
-          <div style={{ fontWeight: 500 }}>{metrics.kubelet_version}</div>
+          <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px' }}>OS Image</div>
+          <div style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.os_info}</div>
+        </div>
+        <div>
+          <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px' }}>Kernel Version</div>
+          <div style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.kernel_version}</div>
+        </div>
+        <div>
+          <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px' }}>Container Runtime</div>
+          <div style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.container_runtime}</div>
+        </div>
+        <div>
+          <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px' }}>Kubelet Version</div>
+          <div style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.kubelet_version}</div>
+        </div>
+        <div>
+          <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px' }}>System UUID</div>
+          <div style={{ fontWeight: 600, color: 'var(--text-heading)', fontSize: '0.8rem' }}>{metrics.system_uuid}</div>
         </div>
       </div>
     </div>

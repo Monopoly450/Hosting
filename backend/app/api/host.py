@@ -86,7 +86,11 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
             },
             "os_info": node.status.node_info.os_image,
             "kernel_version": node.status.node_info.kernel_version,
-            "kubelet_version": node.status.node_info.kubelet_version
+            "kubelet_version": node.status.node_info.kubelet_version,
+            "container_runtime": node.status.node_info.container_runtime_version,
+            "architecture": node.status.node_info.architecture,
+            "operating_system": node.status.node_info.operating_system,
+            "system_uuid": node.status.node_info.system_uuid
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

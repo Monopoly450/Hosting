@@ -27,6 +27,7 @@ const App = () => {
   // Modals & Subpages
   const [openConsoleName, setOpenConsoleName] = useState(null);
   const [editingVM, setEditingVM] = useState(null);
+  const [showCreateVM, setShowCreateVM] = useState(false);
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [selectedServerId, setSelectedServerId] = useState(null);
   const [selectedVMDetailName, setSelectedVMDetailName] = useState(null);
@@ -337,7 +338,23 @@ const App = () => {
             /* Dashboard View */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
               <HostStats />
+            </div>
+          ) : activeTab === 'vms' ? (
+            /* Combined Servers List */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="text-muted">Всего серверов и инстансов: <strong>{vms.length + externalServers.length}</strong></span>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button className="btn btn-secondary" onClick={() => setShowConnectModal(true)}>
+                    <Link2 size={16}/> Внешний сервер
+                  </button>
+                  <button className="btn btn-primary" onClick={() => setShowCreateVM(!showCreateVM)}>
+                    <Plus size={16}/> Локальная ВМ
+                  </button>
+                </div>
+              </div>
 
+              {showCreateVM && (
               <div className="glass-card interactive">
                 <h3 className="section-title"><Plus size={18} /> Создать новую ВМ</h3>
                 <form onSubmit={handleCreateVM} style={{ display: 'flex', flexDirection: 'column', gap: '24px', marginTop: '20px' }}>
@@ -411,21 +428,8 @@ const App = () => {
                   </div>
                 </form>
               </div>
-            </div>
-          ) : activeTab === 'vms' ? (
-            /* Combined Servers List */
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="text-muted">Всего серверов и инстансов: <strong>{vms.length + externalServers.length}</strong></span>
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <button className="btn btn-secondary" onClick={() => setShowConnectModal(true)}>
-                    <Link2 size={16}/> Внешний сервер
-                  </button>
-                  <button className="btn btn-primary" onClick={() => setActiveTab('dashboard')}>
-                    <Plus size={16}/> Локальная ВМ
-                  </button>
-                </div>
-              </div>
+)}
+
 
               {(loading && vms.length === 0) || (serversLoading && externalServers.length === 0) ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}><div className="spinner"></div></div>
