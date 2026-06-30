@@ -421,12 +421,6 @@ const App = () => {
                         <div className="os-card-title">Свой образ</div>
                         <div className="os-card-version" style={{ opacity: 0 }}>...</div>
                       </div>
-                      
-                      <div className={`os-card ${osType === 'other' ? 'selected' : ''}`} onClick={() => setOsType('other')}>
-                        <div className="os-card-icon" style={{ color: '#94a3b8' }}><Info size={24} /></div>
-                        <div className="os-card-title">Хочу другое ПО</div>
-                        <div className="os-card-version">Оставить заявку</div>
-                      </div>
                     </div>
                   </div>
 
