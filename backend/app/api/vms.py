@@ -410,72 +410,36 @@ def list_vms(client: K8sClient = Depends(get_k8s_client)):
 
 def setup_auto_port_forward(vm_ip: str):
     """
-    Автоматически настраивает проброс порта 2222 на хост-машине для указанного IP виртуальной машины.
-    Удаляет старые правила проброса порта 2222, если они были настроены на другие IP-адреса.
+    Автоматически настраивает проброс порта 22000+X на хост-машине для указанного IP виртуальной машины,
+    где X - последний октет IP-адреса.
     """
     import subprocess
     import re
     try:
+        # Извлекаем последний октет из IP (например, 15 из 172.20.0.15)
+        last_octet = int(vm_ip.split('.')[-1])
+        ssh_port = 22000 + last_octet
+        
         nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
         
-        # 1. Получаем список всех текущих правил nat PREROUTING
+        # Проверяем, существует ли уже это правило
         res = subprocess.run(nsenter_prefix + ["iptables -t nat -S PREROUTING"], capture_output=True, text=True, timeout=5)
-        if res.returncode != 0:
-            logger.error(f"Не удалось получить правила iptables: {res.stderr}")
-            return
-            
-        rules = res.stdout.splitlines()
-        current_forward_ip = None
-        
-        # Ищем правило, пересылающее порт 2222
-        for rule in rules:
-            if "--dport 2222" in rule and "DNAT" in rule:
-                match = re.search(r"--to-destination\s+([\d\.]+):22", rule)
-                if match:
-                    current_forward_ip = match.group(1)
-                    break
-                    
-        # Если правило уже указывает на нужный IP, ничего делать не нужно
-        if current_forward_ip == vm_ip:
-            return
-            
-        # 2. Удаляем старые правила проброса порта 2222
-        logger.info("Сброс старых правил iptables для порта 2222...")
-        # Сначала пробуем точечно удалить найденное правило
-        if current_forward_ip:
-            del_cmd = f"iptables -t nat -D PREROUTING -p tcp --dport 2222 -j DNAT --to-destination {current_forward_ip}:22"
-            subprocess.run(nsenter_prefix + [del_cmd], capture_output=True, text=True, timeout=5)
-            
-        # На всякий случай запускаем очистку в цикле, чтобы удалить дубликаты
-        while True:
-            # Пытаемся удалить гипотетическое правило без привязки к конкретному IP
-            # (iptables не всегда разрешает удаление без полного совпадения параметров, поэтому перебираем)
-            check_res = subprocess.run(nsenter_prefix + ["iptables -t nat -S PREROUTING | grep '2222'"], capture_output=True, text=True, timeout=5)
-            if "2222" not in check_res.stdout:
-                break
-            
-            # Извлекаем IP из найденной строки
-            match = re.search(r"--to-destination\s+([\d\.]+):22", check_res.stdout)
-            if match:
-                old_ip = match.group(1)
-                del_cmd = f"iptables -t nat -D PREROUTING -p tcp --dport 2222 -j DNAT --to-destination {old_ip}:22"
-                subprocess.run(nsenter_prefix + [del_cmd], capture_output=True, text=True, timeout=5)
-            else:
-                break
+        if res.returncode == 0:
+            if f"--to-destination {vm_ip}:22" in res.stdout and f"--dport {ssh_port}" in res.stdout:
+                return # Правило уже существует
 
-        # 3. Добавляем новое правило проброса
-        logger.info(f"Добавляем автоматическое правило проброса: порт 2222 -> {vm_ip}:22")
-        add_dnat = f"iptables -t nat -A PREROUTING -p tcp --dport 2222 -j DNAT --to-destination {vm_ip}:22"
+        logger.info(f"Добавляем автоматическое правило проброса: порт {ssh_port} -> {vm_ip}:22")
+        add_dnat = f"iptables -t nat -A PREROUTING -p tcp --dport {ssh_port} -j DNAT --to-destination {vm_ip}:22"
         add_forward = f"iptables -I FORWARD -p tcp -d {vm_ip} --dport 22 -j ACCEPT"
         save_rules = "netfilter-persistent save"
         
         subprocess.run(nsenter_prefix + [add_dnat], capture_output=True, text=True, timeout=5)
         subprocess.run(nsenter_prefix + [add_forward], capture_output=True, text=True, timeout=5)
         subprocess.run(nsenter_prefix + [save_rules], capture_output=True, text=True, timeout=5)
-        logger.info("Правила iptables для порта 2222 успешно обновлены!")
+        logger.info(f"Правила iptables для порта {ssh_port} успешно добавлены!")
         
     except Exception as e:
-        logger.error(f"Ошибка при автоматической настройке проброса порта 2222: {e}")
+        logger.error(f"Ошибка при автоматической настройке проброса порта для {vm_ip}: {e}")
 
 @router.get("/{name}", response_model=dict)
 def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client)):

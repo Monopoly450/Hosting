@@ -704,6 +704,16 @@ class K8sClient:
         except Exception:
             pass
 
+        # Вычисляем уникальный порт SSH на основе первого валидного IPv4
+        ssh_port = None
+        for ip in ips:
+            if "." in ip and not ip.startswith("10.244.") and not ip.startswith("127."):
+                try:
+                    ssh_port = 22000 + int(ip.split(".")[-1])
+                    break
+                except ValueError:
+                    pass
+
         return {
             "name": name,
             "namespace": namespace,
@@ -715,6 +725,7 @@ class K8sClient:
             "memory": mem_req,
             "disks": disks,
             "ips": ips,
+            "ssh_port": ssh_port,
             "node": node_name,
             "created_at": creation_timestamp,
             "credentials": credentials
