@@ -140,7 +140,7 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
                 packages_yaml += "\n  - wget"
             else:
                 packages_yaml = "\npackages:\n  - wget"
-        runcmd_yaml = "\nruncmd:\n  - [ wget, \"http://repos.1c-bitrix.ru/yum/bitrix-env.sh\" ]\n  - [ chmod, \"+x\", \"bitrix-env.sh\" ]\n  - [ ./bitrix-env.sh, \"-s\", \"-p\", \"-H\", req.name ]\n"
+        runcmd_yaml = "\n  - wget http://repos.1c-bitrix.ru/yum/bitrix-env.sh\n  - chmod +x bitrix-env.sh\n  - ./bitrix-env.sh -s -p -H " + req.name + "\n"
 
     manifest = {
         "apiVersion": "kubevirt.io/v1",
@@ -222,7 +222,7 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
                             "name": "cloudinit",
                             "cloudInitNoCloud": {
                                 "userData": f"""#cloud-config
-ssh_pwauth: True{packages_yaml}{mounts_yaml}{runcmd_yaml}
+ssh_pwauth: True
 disable_root: false
 chpasswd:
   list: |
@@ -230,12 +230,14 @@ chpasswd:
     {default_user}:{password}
   expire: False
 users:
+  - default
   - name: root
     lock_passwd: false
   - name: {default_user}
     sudo: ['ALL=(ALL) NOPASSWD:ALL']
     shell: /bin/bash
     lock_passwd: false
+{packages_yaml}{mounts_yaml}
 write_files:
   - path: /etc/netplan/99-dhcp.yaml
     content: |
@@ -254,16 +256,16 @@ write_files:
 runcmd:
   - echo "root:{password}" | chpasswd
   - echo "{default_user}:{password}" | chpasswd
-  - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+  - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
+  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true
   - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf || true
-  - systemctl restart ssh || systemctl restart sshd
-  - netplan apply || systemctl restart systemd-networkd || (ip link set enp1s0 up && dhclient enp1s0)
-  - systemctl daemon-reload
-  - systemctl restart getty@tty1.service
+  - systemctl restart ssh || systemctl restart sshd || true
+  - (netplan apply || systemctl restart systemd-networkd || nmcli con reload) || true
+  - systemctl daemon-reload || true
+  - systemctl restart getty@tty1.service || true
   - while ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; do sleep 2; done
-  - i=1; while [ $i -le 50 ]; do apt-get update && apt-get install -y qemu-guest-agent && break || sleep 5; i=$((i+1)); done
-  - systemctl enable --now qemu-guest-agent
+  - i=1; while [ $i -le 50 ]; do (apt-get update && apt-get install -y qemu-guest-agent) && break || (dnf install -y qemu-guest-agent) && break || (yum install -y qemu-guest-agent) && break || sleep 5; i=$((i+1)); done || true
+  - systemctl enable --now qemu-guest-agent || true{runcmd_yaml}
 """,
                                 "metaData": f"""instance-id: {req.name}
 local-hostname: {req.name}
