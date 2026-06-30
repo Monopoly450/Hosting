@@ -295,7 +295,6 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       )}
 
       {activeTab === 'overview' && (
-      {/* TWO COLUMN LAYOUT */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '24px' }}>
         
         {/* LEFT COLUMN */}
