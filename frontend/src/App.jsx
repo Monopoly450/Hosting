@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, Cloud, ChevronDown, LogOut, Key, Menu } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -7,10 +7,7 @@ import DockerPanel from './components/DockerPanel';
 import ImageManager from './components/ImageManager';
 import VMEditModal from './components/VMEditModal';
 import VMDetail from './components/VMDetail';
-
 import InfraPanel from './components/InfraPanel';
-
-// Компоненты для внешних серверов
 import ExternalServerCard from './components/ExternalServerCard';
 import ExternalServerDetail from './components/ExternalServerDetail';
 import ConnectServerModal from './components/ConnectServerModal';
@@ -18,14 +15,8 @@ import ConnectServerModal from './components/ConnectServerModal';
 const App = () => {
   const [authenticated, setAuthenticated] = useState(!!localStorage.getItem('aegis_admin_token'));
   const [tokenInput, setTokenInput] = useState('');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   
-  const [projectsList, setProjectsList] = useState(['Общий проект', 'Администрирование']);
-  const [selectedProject, setSelectedProject] = useState('Общий проект');
-  const [showProjectDropdown, setShowProjectDropdown] = useState(false);
-  const [newProjectName, setNewProjectName] = useState('');
-
-  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'images' | 'docker' | 'external'
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'vms' | 'images' | 'docker' | 'infra' | 'external'
   const [vms, setVms] = useState([]);
   const [customImages, setCustomImages] = useState([]);
   const [externalServers, setExternalServers] = useState([]);
@@ -33,14 +24,14 @@ const App = () => {
   const [serversLoading, setServersLoading] = useState(true);
   const [formLoading, setFormLoading] = useState(false);
   
-  // Модальные окна
+  // Modals & Subpages
   const [openConsoleName, setOpenConsoleName] = useState(null);
   const [editingVM, setEditingVM] = useState(null);
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [selectedServerId, setSelectedServerId] = useState(null);
   const [selectedVMDetailName, setSelectedVMDetailName] = useState(null);
 
-  // Состояние формы создания VM
+  // VM Creation Form
   const [name, setName] = useState('');
   const [osType, setOsType] = useState('ubuntu'); // 'ubuntu' | 'windows' | 'custom'
   const [selectedCustomImage, setSelectedCustomImage] = useState('');
@@ -49,7 +40,7 @@ const App = () => {
   const [diskGb, setDiskGb] = useState(20);
   const [isoUrl, setIsoUrl] = useState('');
 
-  // Подгрузка дефолтных значений в зависимости от ОС
+  // Default values based on OS
   useEffect(() => {
     if (osType === 'ubuntu') {
       setCpuCores(2);
@@ -89,7 +80,7 @@ const App = () => {
         setSelectedCustomImage(data[0].filename);
       }
     } catch (err) {
-      console.error('Error fetching custom images:', err);
+      console.error('Error fetching images:', err);
     }
   };
 
@@ -111,29 +102,14 @@ const App = () => {
     fetchCustomImages();
     fetchExternalServers();
     
-    // Опрашиваем списки периодически
     const vmsInterval = setInterval(fetchVMs, 5000);
-    const serversInterval = setInterval(fetchExternalServers, 10000); // статус серверов реже
+    const serversInterval = setInterval(fetchExternalServers, 10000);
     
     return () => {
       clearInterval(vmsInterval);
       clearInterval(serversInterval);
     };
   }, []);
-
-  // Обновляем списки при переключении вкладок
-  useEffect(() => {
-    if (activeTab === 'dashboard') {
-      fetchVMs();
-      fetchCustomImages();
-    } else if (activeTab === 'vms') {
-      fetchVMs();
-    } else if (activeTab === 'images') {
-      fetchCustomImages();
-    } else if (activeTab === 'external') {
-      fetchExternalServers();
-    }
-  }, [activeTab]);
 
   const handleCreateVM = async (e) => {
     e.preventDefault();
@@ -167,27 +143,18 @@ const App = () => {
         let errMsg = 'Не удалось создать ВМ.';
         if (typeof err.detail === 'string') {
           errMsg = err.detail;
-        } else if (Array.isArray(err.detail)) {
-          // Форматируем валидационные ошибки FastAPI
-          errMsg = err.detail.map(d => {
-            if (d.loc.includes('name')) {
-              return 'Имя виртуальной машины должно состоять только из строчных латинских букв, цифр и знака дефиса (без пробелов и спецсимволов).';
-            }
-            return `${d.loc.join('.')}: ${d.msg}`;
-          }).join('\n');
         }
         throw new Error(errMsg);
       }
 
       const resData = await response.json();
-      
       setName('');
       setIsoUrl('');
       fetchVMs();
       
-      alert(`Виртуальная машина ${payload.name} отправлена на развертывание!\n\nЛогин пользователя: ${resData.username || 'root'}\nСгенерированный пароль: ${resData.password}\n\nПароль также будет доступен в карточке виртуалки.`);
+      alert(`Виртуальная машина ${payload.name} создается!\n\nЛогин: ${resData.username || 'root'}\nПароль: ${resData.password}`);
     } catch (err) {
-      alert(`Ошибка при создании VM: ${err.message}`);
+      alert(`Ошибка: ${err.message}`);
     } finally {
       setFormLoading(false);
     }
@@ -206,7 +173,7 @@ const App = () => {
       });
       
       if (response.status === 401) {
-        alert('Неверный ключ доступа (Admin Token). Пожалуйста, введите корректный ключ.');
+        alert('Неверный ключ доступа.');
       } else if (!response.ok) {
         throw new Error('Ошибка связи с сервером');
       } else {
@@ -214,7 +181,7 @@ const App = () => {
         setAuthenticated(true);
       }
     } catch (err) {
-      alert(`Не удалось проверить токен: ${err.message}`);
+      alert(`Ошибка: ${err.message}`);
     } finally {
       setFormLoading(false);
     }
@@ -225,71 +192,48 @@ const App = () => {
     setAuthenticated(false);
   };
 
-  const handleCreateProject = (e) => {
-    e.preventDefault();
-    if (!newProjectName.trim()) return;
-    if (projectsList.includes(newProjectName.trim())) {
-      alert("Проект с таким названием уже существует.");
-      return;
+  const getTabTitle = () => {
+    if (selectedVMDetailName) return `Детали ВМ: ${selectedVMDetailName}`;
+    switch (activeTab) {
+      case 'dashboard': return 'Обзор инфраструктуры';
+      case 'vms': return 'Виртуальные машины';
+      case 'images': return 'Образы дисков';
+      case 'docker': return 'Docker Управление';
+      case 'infra': return 'Настройки сети и NAT';
+      case 'external': return 'Внешние серверы';
+      default: return 'ByteBurnes';
     }
-    setProjectsList(prev => [...prev, newProjectName.trim()]);
-    setSelectedProject(newProjectName.trim());
-    setNewProjectName('');
-    setShowProjectDropdown(false);
-    alert(`Проект "${newProjectName.trim()}" успешно создан!`);
   };
 
   if (!authenticated) {
     return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        backgroundColor: 'var(--bg-body)',
-        fontFamily: 'var(--font-sans)',
-        padding: '20px'
-      }}>
-        <div className="card" style={{
-          width: '420px',
-          padding: '36px 30px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '24px'
-        }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', textAlign: 'center' }}>
-            <div style={{ background: 'var(--bg-accent)', padding: '14px', borderRadius: '12px', color: 'var(--primary-color)' }}>
-              <Shield size={36} />
+      <div className="login-wrapper">
+        <div className="login-card">
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', marginBottom: '32px' }}>
+            <div style={{ background: 'var(--accent-primary-light)', padding: '16px', borderRadius: '16px', color: 'var(--accent-primary)' }}>
+              <Monitor size={42} />
             </div>
-            <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '10px 0 2px 0', color: 'var(--text-primary)' }}>ByteBurnes Admin</h2>
-            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-              Для доступа к консоли администрирования гипервизора введите ключ авторизации API-Key
+            <h2 style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-heading)', margin: 0 }}>ByteBurnes</h2>
+            <p style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
+              Платформа управления облачной инфраструктурой
             </p>
           </div>
 
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Admin Token</label>
-              <div style={{ position: 'relative' }}>
-                <Key size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input 
-                  type="password"
-                  className="form-input"
-                  style={{ width: '100%', paddingLeft: '38px', borderRadius: '8px' }}
-                  value={tokenInput}
-                  onChange={(e) => setTokenInput(e.target.value)}
-                  placeholder="Введите ключ доступа..."
-                  required
-                />
-              </div>
-              <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginTop: '4px', lineHeight: 1.3 }}>
-                Подсказка: стандартный демонстрационный ключ: <br/>
-                <code style={{ color: 'var(--primary-color)', fontFamily: 'var(--font-mono)' }}>aegis-admin-secret-key-2026</code>
-              </small>
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="input-group">
+              <label className="input-label">Ключ администратора (API Key)</label>
+              <input 
+                type="password"
+                className="form-control"
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                placeholder="Введите ключ доступа..."
+                required
+              />
             </div>
 
-            <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: '0.9rem', borderRadius: '8px', marginTop: '8px' }}>
-              Авторизоваться
+            <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: '1rem', marginTop: '8px' }}>
+              {formLoading ? <span className="spinner" /> : 'Авторизоваться'}
             </button>
           </form>
         </div>
@@ -299,458 +243,255 @@ const App = () => {
 
   return (
     <div className="app-layout">
-      {/* Mobile Header */}
-      <div className="mobile-header">
-        <button className="menu-toggle-btn" onClick={() => setSidebarOpen(true)}>
-          <Menu size={24} />
-        </button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Layers size={20} color="#5c64ec" />
-          <span style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>ByteBurnes</span>
-        </div>
-        <div style={{ width: 24 }}></div>
-      </div>
-
-      {/* Sidebar Overlay */}
-      <div className={`sidebar-overlay ${sidebarOpen ? 'visible' : ''}`} onClick={() => setSidebarOpen(false)}></div>
-
       {/* Left Sidebar */}
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
-        {/* Logo section */}
+      <aside className="sidebar">
         <div className="sidebar-logo">
-          <Layers className="logo-icon" size={26} />
-          <div className="logo-text-group">
-            <span className="logo-text">ByteBurnes</span>
-            <span className="logo-badge">KubeVirt Edition</span>
-          </div>
+          <Layers className="logo-icon" size={28} strokeWidth={2.5} />
+          <span className="logo-text">ByteBurnes</span>
         </div>
 
-        {/* Projects dropdown */}
-        <div className="projects-dropdown">
-          <span className="projects-label">Проекты</span>
-          
-          <div style={{ position: 'relative' }}>
-            <button className="project-selector-btn" onClick={() => setShowProjectDropdown(!showProjectDropdown)}>
-              <div className="project-info">
-                <span className="project-bullet"></span>
-                <span>{selectedProject}</span>
-              </div>
-              <ChevronDown size={14} />
-            </button>
-            
-            {showProjectDropdown && (
-              <div style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                right: 0,
-                background: '#161b2a',
-                border: '1px solid var(--border-color)',
-                borderRadius: '8px',
-                marginTop: '4px',
-                zIndex: 10,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-                padding: '8px'
-              }}>
-                {projectsList.map(proj => (
-                  <button 
-                    key={proj}
-                    onClick={() => {
-                      setSelectedProject(proj);
-                      setShowProjectDropdown(false);
-                    }}
-                    style={{
-                      width: '100%',
-                      textAlign: 'left',
-                      background: proj === selectedProject ? 'rgba(92,100,236,0.1)' : 'transparent',
-                      border: 'none',
-                      color: proj === selectedProject ? '#a3a8ff' : 'var(--text-secondary)',
-                      padding: '6px 10px',
-                      fontSize: '0.82rem',
-                      cursor: 'pointer',
-                      borderRadius: '4px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      transition: 'all 0.15s'
-                    }}
-                  >
-                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: proj === selectedProject ? '#5c64ec' : '#64748b' }}></span>
-                    {proj}
-                  </button>
-                ))}
-                <div style={{ borderTop: '1px solid var(--border-color)', marginTop: '8px', paddingTop: '8px' }}>
-                  <form onSubmit={handleCreateProject} style={{ display: 'flex', gap: '6px' }}>
-                    <input 
-                      type="text" 
-                      placeholder="Новый проект" 
-                      value={newProjectName} 
-                      onChange={(e) => setNewProjectName(e.target.value)} 
-                      style={{
-                        flex: 1,
-                        background: 'rgba(0,0,0,0.3)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '4px',
-                        color: 'white',
-                        fontSize: '0.75rem',
-                        padding: '4px 6px',
-                        outline: 'none'
-                      }}
-                    />
-                    <button type="submit" className="btn btn-primary btn-sm" style={{ padding: '2px 8px', borderRadius: '4px' }}>+</button>
-                  </form>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Sidebar Nav Links */}
         <div className="sidebar-nav">
           <button 
-            className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
+            className={`nav-item ${activeTab === 'dashboard' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => { setActiveTab('dashboard'); setSelectedVMDetailName(null); }}
           >
-            <LayoutDashboard size={16} />
-            <span>Дашборд</span>
+            <LayoutDashboard size={18} />
+            Дашборд
           </button>
 
           <button 
-            className={`nav-item ${activeTab === 'vms' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('vms'); setSidebarOpen(false); }}
+            className={`nav-item ${(activeTab === 'vms' || selectedVMDetailName) ? 'active' : ''}`}
+            onClick={() => { setActiveTab('vms'); setSelectedVMDetailName(null); }}
           >
-            <Activity size={16} />
-            <span>Виртуальные машины</span>
+            <Activity size={18} />
+            Виртуальные машины
           </button>
 
           <button 
-            className={`nav-item ${activeTab === 'images' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('images'); setSidebarOpen(false); }}
+            className={`nav-item ${activeTab === 'images' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => { setActiveTab('images'); setSelectedVMDetailName(null); }}
           >
-            <FolderOpen size={16} />
-            <span>Образы дисков</span>
+            <FolderOpen size={18} />
+            Образы ОС
           </button>
 
           <button 
-            className={`nav-item ${activeTab === 'external' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('external'); setSidebarOpen(false); }}
+            className={`nav-item ${activeTab === 'external' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => { setActiveTab('external'); setSelectedVMDetailName(null); }}
           >
-            <Link2 size={16} />
-            <span>Внешние серверы</span>
+            <Link2 size={18} />
+            Внешние серверы
           </button>
 
           <button 
-            className={`nav-item ${activeTab === 'docker' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('docker'); setSidebarOpen(false); }}
+            className={`nav-item ${activeTab === 'docker' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => { setActiveTab('docker'); setSelectedVMDetailName(null); }}
           >
-            <Shield size={16} />
-            <span>Docker Админка</span>
+            <Shield size={18} />
+            Docker Управление
           </button>
 
           <button 
-            className={`nav-item ${activeTab === 'infra' ? 'active' : ''}`}
-            onClick={() => { setActiveTab('infra'); setSidebarOpen(false); }}
+            className={`nav-item ${activeTab === 'infra' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => { setActiveTab('infra'); setSelectedVMDetailName(null); }}
           >
-            <Terminal size={16} />
-            <span>Инфраструктура</span>
+            <Terminal size={18} />
+            Инфраструктура
           </button>
         </div>
 
-        {/* Sidebar Footer with cluster status and logout */}
-        <div className="sidebar-footer">
-          <div className="cluster-status" style={{ marginBottom: '12px' }}>
-            <span className="status-indicator active"></span>
-            <span>K3s Cluster: <strong style={{ color: 'var(--success)' }}>Active</strong></span>
+        <div style={{ marginTop: 'auto', paddingTop: '24px', borderTop: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', padding: '0 8px' }}>
+            <span className="status-dot" style={{ backgroundColor: 'var(--status-success)', width: '8px', height: '8px' }}></span>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>System Online</span>
           </div>
           <button 
-            className="btn btn-secondary btn-sm" 
-            style={{ width: '100%', justifyContent: 'center', gap: '8px', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.15)', background: 'rgba(239, 68, 68, 0.04)' }}
+            className="nav-item" 
+            style={{ width: '100%', color: 'var(--status-danger)' }}
             onClick={handleLogout}
           >
-            <LogOut size={14} />
-            Выйти из панели
+            <LogOut size={18} />
+            Выйти
           </button>
         </div>
       </aside>
 
-      {/* Main Content View */}
-      <main className="main-content-layout">
-        
-        {/* Вкладка 1: Дашборд */}
-        {activeTab === 'dashboard' && (
-          <div className="dashboard-grid">
-            <HostStats />
+      {/* Main Area */}
+      <div className="main-area">
+        <header className="top-header">
+          <div className="header-title">{getTabTitle()}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            {/* Header widgets could go here */}
+          </div>
+        </header>
 
-            {/* Форма создания ВМ */}
-            <div className="card">
-              <div className="card-title">
-                <Plus className="logo-icon" size={20} />
-                <span>Создать виртуальную машину</span>
-              </div>
-              
-              <form onSubmit={handleCreateVM} className="create-form">
-                
-                {/* Селектор ОС */}
-                <div className="form-group">
-                  <span className="form-label">Тип операционной системы</span>
-                  <div className="template-grid">
-                    <div 
-                      className={`template-option ${osType === 'ubuntu' ? 'selected' : ''}`}
-                      onClick={() => !formLoading && setOsType('ubuntu')}
-                      style={{ padding: '12px 6px' }}
-                    >
-                      <span className="template-icon" style={{ fontSize: '1.5rem' }}>🐧</span>
-                      <span className="template-name" style={{ fontSize: '0.8rem' }}>Ubuntu Cloud</span>
+        <main className="content-container">
+          
+          {selectedVMDetailName ? (
+            /* VM Detail Page View */
+            <div className="page-view">
+              <button 
+                className="btn btn-secondary" 
+                style={{ marginBottom: '24px' }}
+                onClick={() => setSelectedVMDetailName(null)}
+              >
+                ← Вернуться к списку
+              </button>
+              <VMDetail 
+                vmName={selectedVMDetailName}
+                onClose={() => setSelectedVMDetailName(null)}
+                onActionSuccess={fetchVMs}
+              />
+            </div>
+          ) : activeTab === 'dashboard' ? (
+            /* Dashboard View */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+              <HostStats />
+
+              <div className="glass-card interactive">
+                <h3 className="section-title"><Plus size={18} /> Создать новую ВМ</h3>
+                <form onSubmit={handleCreateVM} style={{ display: 'flex', flexDirection: 'column', gap: '24px', marginTop: '20px' }}>
+                  
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '1 1 300px' }} className="input-group">
+                      <label className="input-label">Имя виртуалки (a-z, 0-9, -)</label>
+                      <input 
+                        type="text" 
+                        className="form-control" 
+                        placeholder="Например: web-server-01"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        required
+                      />
                     </div>
-                    <div 
-                      className={`template-option ${osType === 'windows' ? 'selected' : ''}`}
-                      onClick={() => !formLoading && setOsType('windows')}
-                      style={{ padding: '12px 6px' }}
-                    >
-                      <span className="template-icon" style={{ fontSize: '1.5rem' }}>🪟</span>
-                      <span className="template-name" style={{ fontSize: '0.8rem' }}>Windows ISO</span>
-                    </div>
-                    <div 
-                      className={`template-option ${osType === 'custom' ? 'selected' : ''}`}
-                      onClick={() => !formLoading && setOsType('custom')}
-                      style={{ padding: '12px 6px' }}
-                    >
-                      <span className="template-icon" style={{ fontSize: '1.5rem' }}>💿</span>
-                      <span className="template-name" style={{ fontSize: '0.8rem' }}>Свой образ</span>
+                    <div style={{ flex: '1 1 300px' }} className="input-group">
+                      <label className="input-label">Операционная система</label>
+                      <select className="form-control" value={osType} onChange={(e) => setOsType(e.target.value)}>
+                        <option value="ubuntu">Ubuntu Cloud</option>
+                        <option value="windows">Windows ISO</option>
+                        <option value="custom">Пользовательский образ</option>
+                      </select>
                     </div>
                   </div>
-                </div>
 
-                {/* Название */}
-                <div className="form-group">
-                  <label className="form-label" htmlFor="vm-name">Имя виртуалки</label>
-                  <input 
-                    id="vm-name"
-                    type="text" 
-                    className="form-input" 
-                    placeholder="e.g. database-node-01"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required
-                    disabled={formLoading}
-                  />
-                  <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
-                    Только латинские строчные буквы, цифры и дефис (например: `my-server-1`).
-                  </small>
-                </div>
-
-                {/* Список кастомных образов */}
-                {osType === 'custom' && (
-                  <div className="form-group">
-                    <label className="form-label" htmlFor="custom-image-select">Выберите загруженный образ</label>
-                    {customImages.length === 0 ? (
-                      <div style={{ fontSize: '0.8rem', color: 'var(--danger)', padding: '6px 0' }}>
-                        Нет загруженных образов! Пожалуйста, сначала загрузите файл на вкладке "Образы дисков".
-                      </div>
-                    ) : (
+                  {osType === 'custom' && (
+                    <div className="input-group">
+                      <label className="input-label">Выберите загруженный образ</label>
                       <select 
-                        id="custom-image-select"
-                        className="form-input form-select"
+                        className="form-control"
                         value={selectedCustomImage}
                         onChange={(e) => setSelectedCustomImage(e.target.value)}
-                        disabled={formLoading}
                       >
-                        {customImages.map((img) => (
-                          <option key={img.filename} value={img.filename}>
-                            {img.filename} ({img.size_gb > 1 ? `${img.size_gb} GB` : `${img.size_mb} MB`})
-                          </option>
+                        {customImages.length === 0 && <option disabled value="">Нет образов. Загрузите в соседней вкладке.</option>}
+                        {customImages.map(img => (
+                          <option key={img.filename} value={img.filename}>{img.filename} ({img.size_gb > 1 ? `${img.size_gb} GB` : `${img.size_mb} MB`})</option>
                         ))}
                       </select>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  )}
 
-                {/* CPU Слайдер */}
-                <div className="slider-container">
-                  <div className="slider-header">
-                    <span>Выделено CPU</span>
-                    <span className="slider-value">{cpuCores} Cores</span>
+                  <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '1 1 200px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <span className="input-label">CPU Cores</span>
+                        <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{cpuCores}</span>
+                      </div>
+                      <input type="range" min="1" max="16" value={cpuCores} onChange={(e) => setCpuCores(parseInt(e.target.value))} style={{ width: '100%' }} />
+                    </div>
+                    <div style={{ flex: '1 1 200px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <span className="input-label">Memory</span>
+                        <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{memoryGb} GB</span>
+                      </div>
+                      <input type="range" min="1" max="64" value={memoryGb} onChange={(e) => setMemoryGb(parseInt(e.target.value))} style={{ width: '100%' }} />
+                    </div>
+                    <div style={{ flex: '1 1 200px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <span className="input-label">Storage</span>
+                        <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{diskGb} GB</span>
+                      </div>
+                      <input type="range" min="10" max="500" step="10" value={diskGb} onChange={(e) => setDiskGb(parseInt(e.target.value))} style={{ width: '100%' }} />
+                    </div>
                   </div>
-                  <input 
-                    type="range" 
-                    min="1" 
-                    max="8" 
-                    className="range-input"
-                    value={cpuCores}
-                    onChange={(e) => setCpuCores(parseInt(e.target.value))}
-                    disabled={formLoading}
-                  />
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+                    <button type="submit" className="btn btn-primary" disabled={formLoading || (osType === 'custom' && customImages.length === 0)}>
+                      {formLoading ? <span className="spinner" /> : <><Plus size={16} /> Создать ресурс</>}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          ) : activeTab === 'vms' ? (
+            /* VMs List */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="text-muted">Развёрнуто серверов: <strong>{vms.length}</strong></span>
+                <button className="btn btn-primary" onClick={() => setActiveTab('dashboard')}><Plus size={16}/> Развернуть новую</button>
+              </div>
+
+              {loading && vms.length === 0 ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}><div className="spinner"></div></div>
+              ) : vms.length === 0 ? (
+                <div className="glass-card" style={{ textAlign: 'center', padding: '64px 20px' }}>
+                  <Monitor size={48} color="var(--text-muted)" style={{ marginBottom: '16px' }} />
+                  <h3 className="section-title" style={{ justifyContent: 'center' }}>Нет виртуальных машин</h3>
+                  <p className="text-muted">Здесь будут отображаться ваши виртуальные машины.</p>
                 </div>
-
-                {/* RAM Слайдер */}
-                <div className="slider-container">
-                  <div className="slider-header">
-                    <span>Выделено RAM</span>
-                    <span className="slider-value">{memoryGb} GB</span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="1" 
-                    max="32" 
-                    className="range-input"
-                    value={memoryGb}
-                    onChange={(e) => setMemoryGb(parseInt(e.target.value))}
-                    disabled={formLoading}
-                  />
-                </div>
-
-                {/* Disk Слайдер */}
-                <div className="slider-container">
-                  <div className="slider-header">
-                    <span>Объем жесткого диска</span>
-                    <span className="slider-value">{diskGb} GB</span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="10" 
-                    max="200" 
-                    step="10"
-                    className="range-input"
-                    value={diskGb}
-                    onChange={(e) => setDiskGb(parseInt(e.target.value))}
-                    disabled={formLoading}
-                  />
-                </div>
-
-                {/* Windows ISO URL */}
-                {osType === 'windows' && (
-                  <div className="form-group">
-                    <label className="form-label" htmlFor="win-iso-url">Собственная ссылка на ISO (необязательно)</label>
-                    <input 
-                      id="win-iso-url"
-                      type="url" 
-                      className="form-input"
-                      value={isoUrl}
-                      onChange={(e) => setIsoUrl(e.target.value)}
-                      placeholder="Оставьте пустым для Windows Server 2022"
-                      disabled={formLoading}
+              ) : (
+                <div className="grid-cols-3">
+                  {vms.map(vm => (
+                    <VMCard 
+                      key={vm.name} 
+                      vm={vm} 
+                      onActionSuccess={fetchVMs}
+                      onOpenConsole={(name) => setOpenConsoleName(name)}
+                      onOpenEdit={(vmObj) => setEditingVM(vmObj)}
+                      onOpenDetail={(name) => setSelectedVMDetailName(name)}
                     />
-                  </div>
-                )}
-
-                <button 
-                  type="submit" 
-                  className="btn btn-primary"
-                  style={{ width: '100%', marginTop: '10px' }}
-                  disabled={formLoading || (osType === 'custom' && customImages.length === 0)}
-                >
-                  {formLoading ? <span className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} /> : <Plus size={16} />}
-                  Создать виртуальную машину
-                </button>
-              </form>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        )}
-
-        {/* Вкладка: Виртуальные машины */}
-        {activeTab === 'vms' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div className="vms-section-header">
-              <h2 style={{ fontSize: '1.4rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Activity className="logo-icon" size={22} />
-                Ваши виртуальные машины
-              </h2>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                Всего развернуто: {vms.length}
-              </span>
+          ) : activeTab === 'images' ? (
+            <ImageManager onImagesChanged={setCustomImages} />
+          ) : activeTab === 'docker' ? (
+            <DockerPanel />
+          ) : activeTab === 'infra' ? (
+            <InfraPanel />
+          ) : activeTab === 'external' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="text-muted">Подключено серверов: <strong>{externalServers.length}</strong></span>
+                <button className="btn btn-primary" onClick={() => setShowConnectModal(true)}><Plus size={16}/> Добавить внешний сервер</button>
+              </div>
+              {serversLoading && externalServers.length === 0 ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}><div className="spinner"></div></div>
+              ) : externalServers.length === 0 ? (
+                <div className="glass-card" style={{ textAlign: 'center', padding: '64px 20px' }}>
+                  <Server size={48} color="var(--text-muted)" style={{ marginBottom: '16px' }} />
+                  <h3 className="section-title" style={{ justifyContent: 'center' }}>Нет внешних серверов</h3>
+                  <p className="text-muted">Вы можете подключить любой Linux сервер по SSH для мониторинга.</p>
+                </div>
+              ) : (
+                <div className="grid-cols-3">
+                  {externalServers.map(server => (
+                    <ExternalServerCard 
+                      key={server.id} 
+                      server={server} 
+                      onClick={() => server.status === 'Online' && setSelectedServerId(server.id)}
+                      onDeleteSuccess={fetchExternalServers}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
+          ) : null}
 
-            {loading && vms.length === 0 ? (
-              <div className="card" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px' }}>
-                <div className="spinner"></div>
-              </div>
-            ) : vms.length === 0 ? (
-              <div className="empty-state">
-                <span className="empty-state-icon">🖥️</span>
-                <h3>Виртуальных машин нет</h3>
-                <p style={{ maxWidth: '350px', textAlign: 'center', fontSize: '0.9rem' }}>
-                  Создайте виртуалку с индивидуальными ресурсами во вкладке "Дашборд" или загрузите собственные образы во вкладке "Образы дисков".
-                </p>
-              </div>
-            ) : (
-              <div className="vms-grid">
-                {vms.map((vm) => (
-                  <VMCard 
-                    key={vm.name} 
-                    vm={vm} 
-                    onActionSuccess={fetchVMs}
-                    onOpenConsole={(name) => setOpenConsoleName(name)}
-                    onOpenEdit={(vmObj) => setEditingVM(vmObj)}
-                    onOpenDetail={(name) => setSelectedVMDetailName(name)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        </main>
+      </div>
 
-        {/* Вкладка 2: Кастомные образы */}
-        {activeTab === 'images' && (
-          <ImageManager onImagesChanged={setCustomImages} />
-        )}
-
-        {/* Вкладка 3: Внешние серверы */}
-        {activeTab === 'external' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div className="vms-section-header">
-              <h2 style={{ fontSize: '1.4rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Server className="logo-icon" size={22} />
-                Внешние подключенные серверы
-              </h2>
-              <button className="btn btn-primary btn-sm" onClick={() => setShowConnectModal(true)}>
-                <Plus size={14} /> Подключить сервер
-              </button>
-            </div>
-
-            {serversLoading && externalServers.length === 0 ? (
-              <div className="card" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
-                <div className="spinner"></div>
-              </div>
-            ) : externalServers.length === 0 ? (
-              <div className="empty-state">
-                <span className="empty-state-icon">🌐</span>
-                <h3>Нет подключенных внешних серверов</h3>
-                <p style={{ maxWidth: '350px', textAlign: 'center', fontSize: '0.9rem' }}>
-                  Вы можете подключить любой внешний Linux-сервер по его IP-адресу, логину и паролю SSH для отслеживания его метрик и процессов.
-                </p>
-                <button className="btn btn-primary" style={{ marginTop: '10px' }} onClick={() => setShowConnectModal(true)}>
-                  Подключить первый сервер
-                </button>
-              </div>
-            ) : (
-              <div className="vms-grid">
-                {externalServers.map((server) => (
-                  <ExternalServerCard 
-                    key={server.id} 
-                    server={server} 
-                    onClick={() => server.status === 'Online' && setSelectedServerId(server.id)}
-                    onDeleteSuccess={fetchExternalServers}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Вкладка 4: Docker Админка */}
-        {activeTab === 'docker' && (
-          <DockerPanel />
-        )}
-
-        {/* Вкладка: Инфраструктура */}
-        {activeTab === 'infra' && (
-          <InfraPanel />
-        )}
-
-
-      </main>
-
-      {/* Модальное окно VNC-консоли */}
+      {/* Modals */}
       {openConsoleName && (
         <VncConsole 
           name={openConsoleName} 
@@ -760,7 +501,6 @@ const App = () => {
         />
       )}
 
-      {/* Модальное окно настройки ресурсов */}
       {editingVM && (
         <VMEditModal 
           vm={editingVM} 
@@ -769,7 +509,6 @@ const App = () => {
         />
       )}
 
-      {/* Модальное окно подключения внешнего сервера */}
       {showConnectModal && (
         <ConnectServerModal 
           onClose={() => setShowConnectModal(false)}
@@ -777,7 +516,6 @@ const App = () => {
         />
       )}
 
-      {/* Модальное окно детального мониторинга внешнего сервера */}
       {selectedServerId && (
         <ExternalServerDetail 
           serverId={selectedServerId}
@@ -785,14 +523,6 @@ const App = () => {
         />
       )}
 
-      {/* Модальное окно детального мониторинга виртуальной машины */}
-      {selectedVMDetailName && (
-        <VMDetail 
-          vmName={selectedVMDetailName}
-          onClose={() => setSelectedVMDetailName(null)}
-          onActionSuccess={fetchVMs}
-        />
-      )}
     </div>
   );
 };

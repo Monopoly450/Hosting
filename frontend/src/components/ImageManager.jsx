@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { HardDrive, Upload, Trash2, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { HardDrive, Upload, Trash2, RefreshCw } from 'lucide-react';
 
 const ImageManager = ({ onImagesChanged }) => {
   const [images, setImages] = useState([]);
@@ -42,7 +42,6 @@ const ImageManager = ({ onImagesChanged }) => {
   const uploadFile = (file) => {
     if (!file) return;
     
-    // Проверка разрешений
     const ext = file.name.split('.').pop().toLowerCase();
     if (!['qcow2', 'img', 'iso', 'raw'].includes(ext)) {
       alert('Недопустимый формат файла. Разрешены только: .qcow2, .img, .iso, .raw');
@@ -58,7 +57,6 @@ const ImageManager = ({ onImagesChanged }) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/images/upload', true);
 
-    // Слушатель прогресса загрузки
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         const percentComplete = Math.round((event.loaded / event.total) * 100);
@@ -114,126 +112,116 @@ const ImageManager = ({ onImagesChanged }) => {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '30px' }} className="image-manager-container">
-      {/* Сетка колонок на десктопе */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
+      
+      {/* Upload Zone */}
+      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column' }}>
+        <h3 className="section-title">
+          <Upload size={18} /> Загрузить новый ISO / QCOW2
+        </h3>
         
-        {/* Загрузчик файлов */}
-        <div className="card">
-          <div className="card-title">
-            <Upload className="logo-icon" size={20} />
-            <span>Загрузить образ операционной системы (.qcow2 / .img / .iso)</span>
-          </div>
+        <div 
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            border: `2px dashed ${dragActive ? 'var(--accent-primary)' : 'var(--border-subtle)'}`,
+            borderRadius: 'var(--radius-lg)',
+            padding: '40px 24px',
+            textAlign: 'center',
+            cursor: 'pointer',
+            background: dragActive ? 'rgba(56, 189, 248, 0.05)' : 'var(--bg-body)',
+            transition: 'all 0.2s ease'
+          }}
+          onDragEnter={handleDrag}
+          onDragOver={handleDrag}
+          onDragLeave={handleDrag}
+          onDrop={handleDrop}
+          onClick={() => document.getElementById('file-upload-input').click()}
+        >
+          <input 
+            id="file-upload-input" 
+            type="file" 
+            style={{ display: 'none' }} 
+            onChange={handleFileInput}
+            disabled={uploading}
+          />
 
-          <div 
-            style={{
-              border: `2px dashed ${dragActive ? 'var(--primary)' : 'var(--border-color)'}`,
-              borderRadius: '0px',
-              padding: '40px',
-              textAlign: 'center',
-              cursor: 'pointer',
-              background: dragActive ? 'rgba(0, 168, 255, 0.05)' : 'rgba(0, 0, 0, 0.15)',
-              transition: 'all 0.2s ease',
-              position: 'relative',
-              overflow: 'hidden'
-            }}
-            onDragEnter={handleDrag}
-            onDragOver={handleDrag}
-            onDragLeave={handleDrag}
-            onDrop={handleDrop}
-            onClick={() => document.getElementById('file-upload-input').click()}
-          >
-            <input 
-              id="file-upload-input" 
-              type="file" 
-              style={{ display: 'none' }} 
-              onChange={handleFileInput}
-              disabled={uploading}
-            />
-
-            {!uploading ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-                <Upload size={36} color="var(--primary)" />
-                <p style={{ fontWeight: 600 }}>Перетащите файл сюда или кликните для выбора</p>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  Поддерживаются форматы: QCOW2 (рекомендуется для Linux), IMG, ISO (для Windows), RAW
+          {!uploading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+              <div style={{ padding: '16px', background: 'var(--bg-surface)', borderRadius: '50%', boxShadow: 'var(--shadow-sm)' }}>
+                <Upload size={32} color="var(--accent-primary)" />
+              </div>
+              <div>
+                <p style={{ fontWeight: 600, fontSize: '1.05rem', margin: '0 0 4px', color: 'var(--text-heading)' }}>
+                  Перетащите файл сюда
                 </p>
+                <p className="text-muted" style={{ margin: 0, fontSize: '0.85rem' }}>или кликните для выбора с диска</p>
               </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
-                <div className="spinner"></div>
-                <p style={{ fontWeight: 600 }}>Загрузка файла образа на сервер...</p>
-                <div style={{ width: '100%', maxWidth: '300px' }}>
-                  <div className="progress-bar-bg" style={{ height: '6px', marginBottom: '8px' }}>
-                    <div 
-                      className="progress-bar-fill primary"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
-                  </div>
-                  <span className="slider-value" style={{ fontSize: '0.8rem' }}>{uploadProgress}%</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Список образов */}
-        <div className="card">
-          <div className="card-title" style={{ justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <HardDrive className="logo-icon" size={20} />
-              <span>Хранилище кастомных образов</span>
-            </div>
-            <button className="btn btn-secondary btn-sm" onClick={fetchImages} disabled={loading}>
-              <RefreshCw size={12} className={loading ? 'spinner' : ''} />
-            </button>
-          </div>
-
-          {loading && images.length === 0 ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '30px' }}>
-              <div className="spinner"></div>
-            </div>
-          ) : images.length === 0 ? (
-            <div style={{ padding: '30px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              Нет загруженных файлов. Загрузите образ выше, чтобы использовать его.
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', background: 'var(--bg-surface)', padding: '6px 12px', borderRadius: 'var(--radius-pill)', border: '1px solid var(--border-subtle)' }}>
+                Поддерживаются: .qcow2, .img, .iso, .raw
+              </p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {images.map((img) => (
-                <div 
-                  key={img.filename}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '16px',
-                    borderRadius: '0px',
-                    background: 'rgba(255, 255, 255, 0.02)',
-                    border: '1px solid var(--border-color)'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span style={{ fontSize: '1.5rem' }}>{img.extension === 'iso' ? '💿' : '💾'}</span>
-                    <div>
-                      <div style={{ fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-all' }}>{img.filename}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        Размер: {img.size_gb > 1 ? `${img.size_gb} GB` : `${img.size_mb} MB`} | Тип: {img.extension.toUpperCase()}
-                      </div>
-                    </div>
-                  </div>
-                  <button 
-                    className="btn btn-danger btn-sm btn-icon-only"
-                    onClick={() => handleDelete(img.filename)}
-                    title="Удалить образ"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', width: '100%', maxWidth: '280px' }}>
+              <div className="spinner" style={{ width: '28px', height: '28px', borderWidth: '3px' }} />
+              <div style={{ textAlign: 'center' }}>
+                <p style={{ fontWeight: 600, margin: '0 0 4px', color: 'var(--text-heading)' }}>Загрузка образа...</p>
+                <p className="text-muted" style={{ margin: 0, fontSize: '0.85rem' }}>Пожалуйста, подождите</p>
+              </div>
+              <div style={{ width: '100%' }}>
+                <div className="progress-track" style={{ height: '6px', marginBottom: '8px' }}>
+                  <div className="progress-fill primary" style={{ width: `${uploadProgress}%` }} />
                 </div>
-              ))}
+                <div style={{ textAlign: 'right', fontSize: '0.8rem', fontWeight: 600 }}>{uploadProgress}%</div>
+              </div>
             </div>
           )}
         </div>
+      </div>
 
+      {/* Image List */}
+      <div className="glass-card" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h3 className="section-title" style={{ margin: 0 }}>
+            <HardDrive size={18} /> Хранилище образов
+          </h3>
+          <button className="btn btn-secondary btn-icon" onClick={fetchImages} disabled={loading}>
+            <RefreshCw size={14} className={loading ? 'spinner' : ''} />
+          </button>
+        </div>
+
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '12px', overflowY: 'auto', maxHeight: '400px', paddingRight: '8px' }}>
+          {loading && images.length === 0 ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}><span className="spinner" /></div>
+          ) : images.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <HardDrive size={32} style={{ margin: '0 auto 12px', opacity: 0.5 }} />
+              <p>Нет загруженных образов</p>
+            </div>
+          ) : (
+            images.map((img) => (
+              <div key={img.filename} className="interactive" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', background: 'var(--bg-body)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{ fontSize: '1.8rem' }}>{img.extension === 'iso' ? '💿' : '💾'}</div>
+                  <div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-heading)', wordBreak: 'break-all', marginBottom: '4px' }}>{img.filename}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      Размер: <span style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{img.size_gb > 1 ? `${img.size_gb} GB` : `${img.size_mb} MB`}</span>
+                      <span style={{ margin: '0 8px', color: 'var(--border-subtle)' }}>|</span>
+                      Тип: <span style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{img.extension.toUpperCase()}</span>
+                    </div>
+                  </div>
+                </div>
+                <button className="btn btn-danger btn-icon" onClick={() => handleDelete(img.filename)} title="Удалить образ">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
