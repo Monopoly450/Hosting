@@ -322,9 +322,14 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                   <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>SSH Пароль</td>
                   <td style={{ padding: '12px 0', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{showPassword ? (vm.credentials?.password || 'N/A') : '••••••••'}</span>
-                    <button className="btn-icon-only" onClick={() => setShowPassword(!showPassword)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                    <button className="btn-icon-only" onClick={() => setShowPassword(!showPassword)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }} title={showPassword ? 'Скрыть пароль' : 'Показать пароль'}>
                       {showPassword ? <EyeOff size={14} color="var(--text-muted)" /> : <Eye size={14} color="var(--text-muted)" />}
                     </button>
+                    {showPassword && vm.credentials?.password && (
+                      <button className="btn-icon-only" onClick={() => handleCopy(vm.credentials.password, 'tablePass')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }} title="Копировать пароль">
+                        {copiedField === 'tablePass' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} color="var(--text-muted)" />}
+                      </button>
+                    )}
                   </td>
                 </tr>
               </tbody>
@@ -342,10 +347,10 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             </div>
 
             <div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда внешнего SSH (требуется NAT):</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда внешнего SSH:</div>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={vm.ssh_port ? `ssh ${vm.credentials?.username || 'root'}@<IP_ХОСТА> -p ${vm.ssh_port}` : 'Ожидание порта...'} />
-                <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@<IP_ХОСТА> -p ${vm.ssh_port}`, 'extSsh')} disabled={!vm.ssh_port}>
+                <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={vm.ssh_port ? `ssh ${vm.credentials?.username || 'root'}@${window.location.hostname} -p ${vm.ssh_port}` : 'Ожидание порта...'} />
+                <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${window.location.hostname} -p ${vm.ssh_port}`, 'extSsh')} disabled={!vm.ssh_port}>
                   {copiedField === 'extSsh' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
                 </button>
               </div>
@@ -428,11 +433,6 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
           <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 className="section-title" style={{ margin: 0 }}><Network size={18}/> Сеть и доступ</h3>
-              {vm.status === 'Running' && isPrivateIp(sshIp) && (
-                <button className="btn btn-secondary btn-sm" onClick={handleApplyNat} disabled={applyingNat}>
-                  {applyingNat ? <span className="spinner"/> : 'Авто-проброс NAT'}
-                </button>
-              )}
             </div>
 
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>

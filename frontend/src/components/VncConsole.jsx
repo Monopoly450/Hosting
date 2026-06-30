@@ -156,20 +156,7 @@ const VncConsole = ({ name, username, password, onClose, isInline = false }) => 
                 Ctrl+Alt+Del
               </button>
               <div style={{ display: 'flex', gap: '16px', color: '#f8fafc', alignItems: 'center', flexWrap: 'wrap', fontSize: '0.85rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ color: '#94a3b8' }}>Логин:</span>
-                  <strong style={{ color: '#38bdf8' }}>{username}</strong>
-                  <button onClick={() => handleCopy(username, 'user')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#94a3b8', display: 'flex' }} title="Копировать">
-                    {copiedField === 'user' ? <span style={{ color: '#10b981', fontSize: '0.75rem' }}>✓</span> : <span style={{ fontSize: '0.8rem' }}>📋</span>}
-                  </button>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ color: '#94a3b8' }}>Пароль:</span>
-                  <strong style={{ fontFamily: 'var(--font-mono)', color: '#38bdf8' }}>{password}</strong>
-                  <button onClick={() => handleCopy(password, 'pass')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#94a3b8', display: 'flex' }} title="Копировать">
-                    {copiedField === 'pass' ? <span style={{ color: '#10b981', fontSize: '0.75rem' }}>✓</span> : <span style={{ fontSize: '0.8rem' }}>📋</span>}
-                  </button>
-                </div>
+                <span style={{ color: '#94a3b8' }}>Консоль управления</span>
               </div>
             </>
           ) : (
