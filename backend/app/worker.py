@@ -22,7 +22,6 @@ try:
     from .models.models import VMTask, Cluster
     from .core.database import Base
     from .core.k8s_client import K8sClient
-    from .api.vms import add_port_forward
 
     # Инициализация таблиц
     Base.metadata.create_all(bind=engine)
@@ -104,9 +103,6 @@ def process_vm_task(db: Session, task_id: int):
             
         k8s.create_vm_from_manifest(manifest)
         k8s.create_credentials_secret(task.name, username, generated_password)
-        
-        # Пробрасываем порты (через iptables)
-        add_port_forward(task.name)
         
         task.status = "Running"
         db.commit()
