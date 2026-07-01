@@ -7,9 +7,12 @@ import logging
 import pika
 
 def write_crash_log(e):
+    trace = traceback.format_exc()
+    print("CRASH TRACEBACK:")
+    print(trace)
     try:
         with open("/app/data/worker_crash.log", "w") as f:
-            f.write(f"Worker crashed at startup:\n{traceback.format_exc()}\n")
+            f.write(f"Worker crashed at startup:\n{trace}\n")
     except:
         pass
 
