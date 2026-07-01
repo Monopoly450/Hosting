@@ -590,6 +590,87 @@ def reconcile_vm_firewall_rules(vm_ip: str, ports_config: str = None, firewall_r
     except Exception as e:
         logger.error(f"Error in reconcile_vm_firewall_rules for {vm_ip}: {e}")
 
+@router.get("/balancer/resources", response_model=List[dict])
+def get_balancer_resources(client: K8sClient = Depends(get_k8s_client)):
+    try:
+        # 1. List all VMs to get their configurations (CPU limit, RAM limit)
+        vms = client.list_vms()
+        vms_map = {vm["name"]: vm for vm in vms}
+        
+        # 2. Query Prometheus for CPU usage
+        cpu_query = 'sum(rate(container_cpu_usage_seconds_total{container="compute",pod=~"virt-launcher-.*"}[2m])) by (pod)'
+        ram_query = 'container_memory_working_set_bytes{container="compute",pod=~"virt-launcher-.*"}'
+        
+        cpu_res = client.query_prometheus(cpu_query)
+        ram_res = client.query_prometheus(ram_query)
+        
+        # Parse CPU results
+        cpu_data = {}
+        if cpu_res and cpu_res.get("status") == "success":
+            for item in cpu_res.get("data", {}).get("result", []):
+                pod = item.get("metric", {}).get("pod", "")
+                val = float(item.get("value", [0, 0])[1])
+                cpu_data[pod] = val
+                
+        # Parse RAM results
+        ram_data = {}
+        if ram_res and ram_res.get("status") == "success":
+            for item in ram_res.get("data", {}).get("result", []):
+                pod = item.get("metric", {}).get("pod", "")
+                val = float(item.get("value", [0, 0])[1])
+                ram_data[pod] = val
+                
+        # Combine data by matching VM names
+        balancer_stats = []
+        for vm_name, vm in vms_map.items():
+            if vm.get("status") != "Running":
+                continue
+                
+            # Find the corresponding pod
+            pod_name = None
+            cpu_val = 0.0
+            ram_val = 0.0
+            
+            for pod in cpu_data.keys():
+                if pod.startswith(f"virt-launcher-{vm_name}-"):
+                    pod_name = pod
+                    cpu_val = cpu_data[pod]
+                    break
+                    
+            for pod in ram_data.keys():
+                if pod.startswith(f"virt-launcher-{vm_name}-"):
+                    pod_name = pod
+                    ram_val = ram_data[pod]
+                    break
+            
+            if not pod_name:
+                continue
+                
+            # RAM limit
+            ram_limit_gb = float(vm.get("memory_gb", vm.get("memory", 2)))
+            ram_limit_mb = ram_limit_gb * 1024
+            cpu_limit = float(vm.get("cpu_cores", 2))
+            
+            cpu_percent = round((cpu_val / cpu_limit) * 100, 1) if cpu_limit > 0 else 0.0
+            ram_usage_mb = round(ram_val / (1024 * 1024), 1)
+            ram_percent = round((ram_usage_mb / ram_limit_mb) * 100, 1) if ram_limit_mb > 0 else 0.0
+            
+            balancer_stats.append({
+                "vm_name": vm_name,
+                "pod_name": pod_name,
+                "cpu_usage_cores": round(cpu_val, 3),
+                "cpu_limit_cores": cpu_limit,
+                "cpu_usage_percent": min(cpu_percent, 100.0),
+                "memory_usage_mb": ram_usage_mb,
+                "memory_limit_mb": ram_limit_mb,
+                "memory_usage_percent": min(ram_percent, 100.0)
+            })
+            
+        return balancer_stats
+    except Exception as e:
+        logger.error(f"Error in balancer resources: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/{name}", response_model=dict)
 def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client)):
     from app.db import SessionLocal

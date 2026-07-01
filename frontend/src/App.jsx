@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, Package, HardDrive, Square } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, Package, HardDrive, Square, Shuffle } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -12,12 +12,13 @@ import ExternalServerCard from './components/ExternalServerCard';
 import ExternalServerDetail from './components/ExternalServerDetail';
 import ConnectServerModal from './components/ConnectServerModal';
 import ClusterPanel from './components/ClusterPanel';
+import BalancerPanel from './components/BalancerPanel';
 
 const App = () => {
   const [authenticated, setAuthenticated] = useState(!!localStorage.getItem('aegis_admin_token'));
   const [tokenInput, setTokenInput] = useState('');
   
-  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'vms' | 'images' | 'docker' | 'infra' | 'external'
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'vms' | 'clusters' | 'balancer' | 'images' | 'docker' | 'infra' | 'external'
   const [vms, setVms] = useState([]);
   const [customImages, setCustomImages] = useState([]);
   const [externalServers, setExternalServers] = useState([]);
@@ -204,6 +205,7 @@ const App = () => {
       case 'dashboard': return 'Обзор инфраструктуры';
       case 'vms': return 'Серверы и Инстансы';
       case 'clusters': return 'Кластеры';
+      case 'balancer': return 'Балансировщик ресурсов';
       case 'images': return 'Образы дисков';
       case 'docker': return 'Docker Управление';
       case 'infra': return 'Инфраструктура';
@@ -278,6 +280,14 @@ const App = () => {
           >
             <Layers size={18} />
             Кластеры
+          </button>
+
+          <button 
+            className={`nav-item ${activeTab === 'balancer' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => { setActiveTab('balancer'); setSelectedVMDetailName(null); }}
+          >
+            <Shuffle size={18} />
+            Балансировщик
           </button>
 
           <button 
@@ -539,6 +549,8 @@ const App = () => {
                 </div>
               )}
             </div>
+          ) : activeTab === 'balancer' ? (
+            <BalancerPanel />
           ) : activeTab === 'images' ? (
             <ImageManager onImagesChanged={setCustomImages} />
           ) : activeTab === 'docker' ? (
