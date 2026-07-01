@@ -812,7 +812,11 @@ class K8sClient:
             self.ensure_network_isolation()
 
     def query_prometheus(self, prom_query: str, start_time: int = None, end_time: int = None, step: str = "30s"):
-        """Выполняет запрос к Prometheus через прокси API Kubernetes"""
+        """Выполняет запрос к Prometheus: сначала пытается напрямую по ClusterIP, затем через прокси API Kubernetes"""
+        import urllib.request
+        import urllib.parse
+        import json
+
         try:
             # Если start_time и end_time переданы, выполняем query_range
             if start_time and end_time:
@@ -820,20 +824,50 @@ class K8sClient:
             else:
                 path = f"api/v1/query?query={prom_query}"
                 
-            # Кодируем специальные символы в URL
-            import urllib.parse
-            path_encoded = urllib.parse.quote(path, safe="?=&")
-            
-            res = self.core_api.connect_get_namespaced_service_proxy_with_path(
-                name="http:prometheus-kube-prometheus-prometheus:9090",
-                namespace="prometheus",
-                path=path_encoded
-            )
-            # Ответ обычно является строкой JSON
-            import json
-            if isinstance(res, str):
-                return json.loads(res)
-            return res
+            # 1. Попробуем выполнить запрос напрямую к ClusterIP сервиса Prometheus
+            try:
+                svc = self.core_api.read_namespaced_service(
+                    name="prometheus-kube-prometheus-prometheus",
+                    namespace="prometheus"
+                )
+                cluster_ip = svc.spec.cluster_ip
+                port = 9090
+                if svc.spec.ports:
+                    for p in svc.spec.ports:
+                        if p.name == "http-web" or p.port == 9090:
+                            port = p.port
+                            break
+                
+                # Аккуратно кодируем параметры запроса
+                parts = path.split('?', 1)
+                if len(parts) == 2:
+                    base_path = parts[0]
+                    query_params = urllib.parse.parse_qsl(parts[1])
+                    encoded_params = urllib.parse.urlencode(query_params)
+                    full_path = f"{base_path}?{encoded_params}"
+                else:
+                    full_path = path
+                    
+                direct_url = f"http://{cluster_ip}:{port}/{full_path}"
+                logger.info(f"Querying Prometheus directly at {direct_url}")
+                
+                req = urllib.request.Request(direct_url)
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    res_body = response.read().decode("utf-8")
+                    return json.loads(res_body)
+            except Exception as direct_err:
+                logger.warning(f"Direct Prometheus query failed: {direct_err}. Falling back to K8s API proxy.")
+                
+                # 2. Резервный вариант через прокси K8s API
+                path_encoded = urllib.parse.quote(path, safe="?=&")
+                res = self.core_api.connect_get_namespaced_service_proxy_with_path(
+                    name="http:prometheus-kube-prometheus-prometheus:9090",
+                    namespace="prometheus",
+                    path=path_encoded
+                )
+                if isinstance(res, str):
+                    return json.loads(res)
+                return res
         except Exception as e:
             logger.error(f"Error querying Prometheus: {e}")
             return None

@@ -28,6 +28,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [savingSettings, setSavingSettings] = useState(false);
   const [metricsHistory, setMetricsHistory] = useState([]);
   const [historyRange, setHistoryRange] = useState(1); // Hours
+  const [historyLoading, setHistoryLoading] = useState(true);
 
   const [actionLoading, setActionLoading] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -277,6 +278,8 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       }
     } catch (e) {
       console.error("Error fetching metrics history:", e);
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -637,10 +640,14 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             
             {vm.status !== 'Running' ? (
               <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>ВМ выключена</div>
-            ) : metricsHistory.length === 0 ? (
+            ) : historyLoading ? (
               <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
                 <span className="spinner" style={{ marginBottom: '12px' }}/> <br/> 
                 Загрузка истории метрик из Prometheus...
+              </div>
+            ) : metricsHistory.length === 0 ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                Нет исторических данных за выбранный период (ВМ была запущена недавно)
               </div>
             ) : (
               <div style={{ height: '220px', width: '100%' }}>
