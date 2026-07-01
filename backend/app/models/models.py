@@ -64,9 +64,7 @@ class Cluster(Base):
     
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
-    # lazy="selectin" or just use string for imports if not needed
-    # but we need to import relationship from sqlalchemy.orm
-    vms = None # we will define it after VMTask
+    vms = relationship("VMTask", back_populates="cluster")
 
 class VMTask(Base):
     __tablename__ = "vm_tasks"
@@ -84,11 +82,17 @@ class VMTask(Base):
     packages = Column(String, nullable=True)
     network_drives = Column(String, nullable=True)
     
+    # New limits and security fields
+    disk_read_mbs = Column(Integer, default=0)
+    disk_write_mbs = Column(Integer, default=0)
+    disk_read_iops = Column(Integer, default=0)
+    disk_write_iops = Column(Integer, default=0)
+    ports_config = Column(String, nullable=True) # JSON array of ports and forwarding rules
+    firewall_rules = Column(String, nullable=True) # JSON array of firewall whitelist rules
+    
     # Queue / State
     status = Column(String, default="Pending") # Pending, Provisioning, Running, Error
     error_message = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
-from sqlalchemy.orm import relationship
-Cluster.vms = relationship("VMTask", back_populates="cluster")
-VMTask.cluster = relationship("Cluster", back_populates="vms")
+    
+    cluster = relationship("Cluster", back_populates="vms")
