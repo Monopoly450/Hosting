@@ -643,9 +643,6 @@ def get_balancer_resources(client: K8sClient = Depends(get_k8s_client)):
                     ram_val = ram_data[pod]
                     break
             
-            if not pod_name:
-                continue
-                
             # RAM limit
             ram_limit_gb = float(vm.get("memory_gb", vm.get("memory", 2)))
             ram_limit_mb = ram_limit_gb * 1024
@@ -657,7 +654,7 @@ def get_balancer_resources(client: K8sClient = Depends(get_k8s_client)):
             
             balancer_stats.append({
                 "vm_name": vm_name,
-                "pod_name": pod_name,
+                "pod_name": pod_name or f"virt-launcher-{vm_name}",
                 "cpu_usage_cores": round(cpu_val, 3),
                 "cpu_limit_cores": cpu_limit,
                 "cpu_usage_percent": min(cpu_percent, 100.0),

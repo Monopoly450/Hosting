@@ -1,0 +1,39 @@
+#!/usr/bin/expect -f
+set timeout 60
+spawn ssh -o StrictHostKeyChecking=no user@192.168.31.14
+expect "assword:"
+send "12345\r"
+expect "$ "
+send "sudo -i\r"
+expect "Password:"
+send "12345\r"
+expect "# "
+# 1. Get the VM password
+send "kubectl get secret brbrb-credentials -n default -o jsonpath='{.data.password}' | base64 -d\r"
+expect {
+    -re "(\[^\r\n\]+)\r" {
+        set vm_password $expect_out(1,string)
+    }
+}
+expect "# "
+# 2. SSH into the VM from host and run dd
+send "ssh -o StrictHostKeyChecking=no cloud-user@10.42.0.65\r"
+expect {
+    "assword:" {
+        send "12345\r"
+    }
+    "Connection refused" {
+        send_user "SSH connection refused\n"
+        exit 1
+    }
+}
+expect "$ "
+# Run dd to generate 1GB write load
+send "dd if=/dev/zero of=test_load.img bs=1M count=1000 oflag=direct\r"
+expect "$ "
+send "exit\r"
+expect "# "
+send "exit\r"
+expect "$ "
+send "exit\r"
+expect eof

@@ -4,7 +4,9 @@ spawn ssh -o StrictHostKeyChecking=no user@192.168.31.14
 expect "assword:"
 send "12345\r"
 expect "$ "
-send "python3 /root/Hosting/test_balancer_endpoint.py\r"
+send "sudo python3 /root/Hosting/test_balancer_endpoint.py\r"
+expect "password"
+send "12345\r"
 expect "$ "
 send "exit\r"
 expect eof
