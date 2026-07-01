@@ -1,24 +1,38 @@
 import os
+import sys
+import traceback
 import json
 import time
 import logging
 import pika
-from sqlalchemy.orm import Session
-from .db import SessionLocal, engine
-from .models.models import VMTask, Cluster
-from .core.database import Base
-from .core.k8s_client import K8sClient
-from .api.vms import add_port_forward
 
-# Инициализация таблиц
-Base.metadata.create_all(bind=engine)
+def write_crash_log(e):
+    try:
+        with open("/app/data/worker_crash.log", "w") as f:
+            f.write(f"Worker crashed at startup:\n{traceback.format_exc()}\n")
+    except:
+        pass
 
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+try:
+    from sqlalchemy.orm import Session
+    from .db import SessionLocal, engine
+    from .models.models import VMTask, Cluster
+    from .core.database import Base
+    from .core.k8s_client import K8sClient
+    from .api.vms import add_port_forward
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+    # Инициализация таблиц
+    Base.metadata.create_all(bind=engine)
 
-k8s = K8sClient()
+    RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    k8s = K8sClient()
+except Exception as e:
+    write_crash_log(e)
+    sys.exit(1)
 
 def process_vm_task(db: Session, task_id: int):
     task = db.query(VMTask).filter(VMTask.id == task_id).first()
