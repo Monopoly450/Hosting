@@ -768,7 +768,7 @@ class K8sClient:
                 "namespace": namespace
             },
             "spec": {
-                "config": '{ "cniVersion": "0.3.1", "type": "bridge", "bridge": "br-' + name[:11] + '", "ipam": { "type": "host-local", "subnet": "192.168.100.0/24" } }'
+                "config": '{ "cniVersion": "0.3.1", "type": "bridge", "bridge": "br-' + name[:11] + '", "isGateway": true, "ipam": { "type": "host-local", "subnet": "192.168.100.0/24" } }'
             }
         }
         try:
