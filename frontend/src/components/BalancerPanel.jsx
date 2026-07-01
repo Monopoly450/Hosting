@@ -5,10 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 const BalancerPanel = () => {
   const [stats, setStats] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [pools, setPools] = useState([
-    { id: 1, name: 'Web Upstream Pool', port: 80, method: 'Round Robin', vms: ['ubuntu-vm-1', 'ubuntu-vm-2'], requestsPerSec: 145 },
-    { id: 2, name: 'API Services Pool', port: 8080, method: 'Least Connections', vms: ['centos-vm-1'], requestsPerSec: 42 }
-  ]);
+  const [pools, setPools] = useState([]);
   const [showCreatePool, setShowCreatePool] = useState(false);
   const [newPoolName, setNewPoolName] = useState('');
   const [newPoolPort, setNewPoolPort] = useState(80);

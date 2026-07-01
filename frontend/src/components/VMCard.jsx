@@ -14,7 +14,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
       !ip.startsWith('127.0.') &&
       !ip.includes(':')
     );
-    return bridgeIp || null;
+    return bridgeIp || vm.ips[0] || null;
   };
 
   const sshIp = getSshIp();
