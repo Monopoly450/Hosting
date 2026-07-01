@@ -301,8 +301,29 @@ chmod +x virtctl-${KUBEVIRT_VERSION}-linux-${ARCH}
 mv virtctl-${KUBEVIRT_VERSION}-linux-${ARCH} /usr/local/bin/virtctl
 log "virtctl успешно установлен!"
 
+# 11. Установка Helm и Prometheus Stack (для сбора метрик)
+log "Установка Helm..."
+if ! command -v helm &> /dev/null; then
+    curl -fsSL -o /tmp/get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    chmod +x /tmp/get_helm.sh
+    /tmp/get_helm.sh
+    rm -f /tmp/get_helm.sh
+    log "Helm успешно установлен!"
+else
+    log "Helm уже установлен."
+fi
+
+log "Установка Prometheus Stack для сбора метрик ВМ..."
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
+helm repo update
+kubectl create namespace prometheus || true
+helm install prometheus prometheus-community/kube-prometheus-stack -n prometheus \
+  --set grafana.enabled=false \
+  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false || true
+log "Prometheus Stack успешно развернут в namespace prometheus!"
+
 log "=========================================================="
-log "Установка завершена! Kubernetes + KubeVirt + CDI развернуты."
+log "Установка завершена! Kubernetes + KubeVirt + CDI + Prometheus + Nginx развернуты."
 log "Проверьте статус подов: kubectl get pods -A"
 log "Панель управления можно запускать и подключать к /etc/rancher/k3s/k3s.yaml"
 log "=========================================================="
