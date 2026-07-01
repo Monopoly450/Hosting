@@ -709,10 +709,10 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client)):
             
         # Получаем данные о текущей скорости диска из Prometheus
         try:
-            read_speed_query = f'sum(rate(kubevirt_vmi_storage_read_traffic_bytes_total{{namespace="default",name="{name}"}}[2m]))'
-            write_speed_query = f'sum(rate(kubevirt_vmi_storage_write_traffic_bytes_total{{namespace="default",name="{name}"}}[2m]))'
-            read_iops_query = f'sum(rate(kubevirt_vmi_storage_read_iops_total{{namespace="default",name="{name}"}}[2m]))'
-            write_iops_query = f'sum(rate(kubevirt_vmi_storage_write_iops_total{{namespace="default",name="{name}"}}[2m]))'
+            read_speed_query = f'sum(rate(container_fs_reads_bytes_total{{container=\"compute\",pod=~\"virt-launcher-{name}-.*\"}}[2m]))'
+            write_speed_query = f'sum(rate(container_fs_writes_bytes_total{{container=\"compute\",pod=~\"virt-launcher-{name}-.*\"}}[2m]))'
+            read_iops_query = f'sum(rate(container_fs_reads_total{{container=\"compute\",pod=~\"virt-launcher-{name}-.*\"}}[2m]))'
+            write_iops_query = f'sum(rate(container_fs_writes_total{{container=\"compute\",pod=~\"virt-launcher-{name}-.*\"}}[2m]))'
             
             read_res = client.query_prometheus(read_speed_query)
             write_res = client.query_prometheus(write_speed_query)
