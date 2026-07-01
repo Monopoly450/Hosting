@@ -1276,3 +1276,178 @@ WantedBy=multi-user.target
     await db.commit()
     
     return {"status": "success", "message": f"ВМ {name} успешно мигрирована", "new_server_id": new_server.id}
+
+# --- УПРАВЛЕНИЕ БАЛАНСИРОВОЧНЫМИ ПУЛАМИ (Nginx) ---
+
+POOLS_FILE = "/app/data/balancer_pools.json"
+
+class BalancerPoolCreate(BaseModel):
+    name: str
+    port: int
+    method: str
+    vms: List[str]
+    backend_port: int = 80
+
+def load_balancer_pools() -> list:
+    import json
+    import os
+    if os.path.exists(POOLS_FILE):
+        try:
+            with open(POOLS_FILE, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading pools: {e}")
+    return []
+
+def save_balancer_pools(pools: list):
+    import json
+    import os
+    os.makedirs(os.path.dirname(POOLS_FILE), exist_ok=True)
+    try:
+        with open(POOLS_FILE, "w") as f:
+            json.dump(pools, f, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving pools: {e}")
+
+@router.get("/balancer/pools", response_model=List[dict])
+def get_balancer_pools():
+    """Получить список активных балансировочных пулов"""
+    return load_balancer_pools()
+
+@router.post("/balancer/pools")
+def create_balancer_pool(payload: BalancerPoolCreate, client: K8sClient = Depends(get_k8s_client)):
+    """Создать новый балансировочный пул и применить конфигурацию Nginx на хосте"""
+    import os
+    import subprocess
+    
+    pools = load_balancer_pools()
+    
+    # 1. Проверяем уникальность имени
+    if any(p["name"] == payload.name for p in pools):
+        raise HTTPException(status_code=400, detail=f"Пул с именем {payload.name} уже существует")
+        
+    # 2. Проверяем порты
+    if payload.port in [8000, 5432, 5672, 15672]:
+        raise HTTPException(status_code=400, detail="Этот порт зарезервирован системой")
+         
+    # 3. Собираем IP-адреса виртуальных машин
+    servers = []
+    for vm_name in payload.vms:
+        try:
+            vmi = client.custom_api.get_namespaced_custom_object(
+                group="kubevirt.io",
+                version="v1",
+                namespace="default",
+                plural="virtualmachineinstances",
+                name=vm_name
+            )
+            interfaces = vmi.get("status", {}).get("interfaces", [])
+            if interfaces:
+                ip = interfaces[0].get("ipAddress")
+                if ip:
+                    servers.append(f"server {ip}:{payload.backend_port};")
+        except Exception as e:
+            logger.error(f"Error resolving IP for VM {vm_name}: {e}")
+            
+    if not servers:
+        raise HTTPException(status_code=400, detail="Ни одна из выбранных виртуальных машин не запущена или не имеет IP-адреса")
+        
+    # 4. Генерируем конфигурацию Nginx
+    method_directive = ""
+    if payload.method == "Least Connections":
+        method_directive = "least_conn;"
+    elif payload.method == "IP Hash":
+        method_directive = "ip_hash;"
+        
+    servers_str = "\n    ".join(servers)
+    
+    nginx_config = f"""upstream balancer_{payload.name} {{
+    {method_directive}
+    {servers_str}
+}}
+
+server {{
+    listen {payload.port};
+    server_name _;
+    
+    location / {{
+        proxy_pass http://balancer_{payload.name};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+}}
+"""
+    
+    # 5. Записываем конфигурацию в хост Nginx директорию
+    host_nginx_dir = "/proc/1/root/etc/nginx/conf.d"
+    os.makedirs(host_nginx_dir, exist_ok=True)
+    config_path = os.path.join(host_nginx_dir, f"aegis_balancer_{payload.name}.conf")
+    
+    try:
+        with open(config_path, "w") as f:
+            f.write(nginx_config)
+    except Exception as write_err:
+        raise HTTPException(status_code=500, detail=f"Не удалось записать конфигурацию Nginx: {write_err}")
+        
+    # 6. Перезапускаем Nginx на хосте
+    nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
+    
+    # Проверка
+    test_res = subprocess.run(nsenter_prefix + ["nginx -t"], capture_output=True, text=True, timeout=5)
+    if test_res.returncode != 0:
+        # Откат изменений
+        if os.path.exists(config_path):
+            os.remove(config_path)
+        raise HTTPException(status_code=400, detail=f"Конфигурация Nginx не прошла валидацию: {test_res.stderr}")
+        
+    # Перезапуск
+    reload_res = subprocess.run(nsenter_prefix + ["nginx -s reload"], capture_output=True, text=True, timeout=5)
+    if reload_res.returncode != 0:
+        if os.path.exists(config_path):
+            os.remove(config_path)
+        raise HTTPException(status_code=500, detail=f"Ошибка перезапуска Nginx: {reload_res.stderr}")
+        
+    # 7. Добавляем в список пулов и сохраняем
+    new_pool = {
+        "name": payload.name,
+        "port": payload.port,
+        "method": payload.method,
+        "vms": payload.vms,
+        "backend_port": payload.backend_port,
+        "requestsPerSec": 0
+    }
+    pools.append(new_pool)
+    save_balancer_pools(pools)
+    
+    return {"status": "success", "message": f"Пул балансировки {payload.name} успешно запущен на порту {payload.port}"}
+
+@router.delete("/balancer/pools/{name}")
+def delete_balancer_pool(name: str):
+    """Удалить балансировочный пул и стереть его конфигурацию из Nginx на хосте"""
+    import os
+    import subprocess
+    
+    pools = load_balancer_pools()
+    pool_to_delete = next((p for p in pools if p["name"] == name), None)
+    if not pool_to_delete:
+        raise HTTPException(status_code=404, detail=f"Пул с именем {name} не найден")
+        
+    # 1. Удаляем файл конфигурации Nginx
+    config_path = f"/proc/1/root/etc/nginx/conf.d/aegis_balancer_{name}.conf"
+    if os.path.exists(config_path):
+        try:
+            os.remove(config_path)
+        except Exception as e:
+            logger.error(f"Failed to remove Nginx config {config_path}: {e}")
+            
+    # 2. Перезапускаем Nginx на хосте
+    nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
+    subprocess.run(nsenter_prefix + ["nginx -s reload"], capture_output=True, timeout=5)
+    
+    # 3. Обновляем список пулов
+    updated_pools = [p for p in pools if p["name"] != name]
+    save_balancer_pools(updated_pools)
+    
+    return {"status": "success", "message": f"Пул балансировки {name} успешно удален"}

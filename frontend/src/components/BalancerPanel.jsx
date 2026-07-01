@@ -6,11 +6,26 @@ const BalancerPanel = () => {
   const [stats, setStats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pools, setPools] = useState([]);
+  const [poolsLoading, setPoolsLoading] = useState(true);
   const [showCreatePool, setShowCreatePool] = useState(false);
   const [newPoolName, setNewPoolName] = useState('');
   const [newPoolPort, setNewPoolPort] = useState(80);
   const [newPoolMethod, setNewPoolMethod] = useState('Round Robin');
   const [selectedVms, setSelectedVms] = useState([]);
+
+  const fetchPools = async () => {
+    try {
+      const response = await fetch('/api/vms/balancer/pools');
+      if (response.ok) {
+        const data = await response.json();
+        setPools(data);
+      }
+    } catch (e) {
+      console.error("Error fetching pools:", e);
+    } finally {
+      setPoolsLoading(false);
+    }
+  };
 
   const fetchBalancerStats = async () => {
     try {
@@ -28,29 +43,62 @@ const BalancerPanel = () => {
 
   useEffect(() => {
     fetchBalancerStats();
-    const interval = setInterval(fetchBalancerStats, 5000);
-    return () => clearInterval(interval);
+    fetchPools();
+    const statsInterval = setInterval(fetchBalancerStats, 5000);
+    const poolsInterval = setInterval(fetchPools, 8000);
+    return () => {
+      clearInterval(statsInterval);
+      clearInterval(poolsInterval);
+    };
   }, []);
 
-  const handleCreatePool = (e) => {
+  const handleCreatePool = async (e) => {
     e.preventDefault();
     if (!newPoolName.trim()) return;
-    const newPool = {
-      id: Date.now(),
+    
+    const payload = {
       name: newPoolName.trim(),
       port: parseInt(newPoolPort),
       method: newPoolMethod,
       vms: selectedVms,
-      requestsPerSec: 0
+      backend_port: 80
     };
-    setPools(prev => [...prev, newPool]);
-    setNewPoolName('');
-    setSelectedVms([]);
-    setShowCreatePool(false);
+    
+    try {
+      const response = await fetch('/api/vms/balancer/pools', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (response.ok) {
+        fetchPools();
+        setNewPoolName('');
+        setSelectedVms([]);
+        setShowCreatePool(false);
+      } else {
+        const errData = await response.json();
+        alert(`Ошибка: ${errData.detail || 'Не удалось создать пул'}`);
+      }
+    } catch (err) {
+      alert(`Ошибка сети: ${err.message}`);
+    }
   };
 
-  const handleDeletePool = (id) => {
-    setPools(prev => prev.filter(p => p.id !== id));
+  const handleDeletePool = async (name) => {
+    if (!confirm(`Вы действительно хотите удалить пул балансировки ${name}?`)) return;
+    try {
+      const response = await fetch(`/api/vms/balancer/pools/${name}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        fetchPools();
+      } else {
+        const errData = await response.json();
+        alert(`Ошибка: ${errData.detail || 'Не удалось удалить пул'}`);
+      }
+    } catch (err) {
+      alert(`Ошибка сети: ${err.message}`);
+    }
   };
 
   const toggleVmSelection = (vmName) => {
@@ -235,13 +283,13 @@ const BalancerPanel = () => {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {pools.map(pool => (
-              <div key={pool.id} style={{ background: 'var(--card-bg-subtle)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div key={pool.name} style={{ background: 'var(--card-bg-subtle)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-heading)' }}>{pool.name}</span>
                     <span className="text-muted" style={{ fontSize: '0.8rem', marginLeft: '10px' }}>Порт: {pool.port} | {pool.method}</span>
                   </div>
-                  <button className="btn btn-secondary" style={{ padding: '4px', color: 'var(--status-danger)' }} onClick={() => handleDeletePool(pool.id)}>
+                  <button className="btn btn-secondary" style={{ padding: '4px', color: 'var(--status-danger)' }} onClick={() => handleDeletePool(pool.name)}>
                     <Trash2 size={14} />
                   </button>
                 </div>
