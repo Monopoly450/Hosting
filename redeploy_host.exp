@@ -1,0 +1,24 @@
+#!/usr/bin/expect -f
+set timeout 180
+spawn ssh -o StrictHostKeyChecking=no user@192.168.31.14
+expect "assword:"
+send "12345\r"
+expect "$ "
+send "sudo -i\r"
+expect "Password:"
+send "12345\r"
+expect "# "
+send "cd /root/Hosting\r"
+expect "# "
+send "git pull\r"
+expect "# "
+send "docker compose down\r"
+expect "# "
+send "docker compose up -d --build\r"
+expect "# "
+send "docker exec -i hosting-backend python /app/repo/backend/run_migrations.py\r"
+expect "# "
+send "exit\r"
+expect "$ "
+send "exit\r"
+expect eof

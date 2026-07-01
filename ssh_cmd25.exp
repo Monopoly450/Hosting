@@ -1,0 +1,14 @@
+#!/usr/bin/expect -f
+set timeout 15
+spawn ssh -o StrictHostKeyChecking=no user@192.168.31.14
+expect "assword:"
+send "12345\r"
+expect "$ "
+send "sudo -S kubectl get dv\r"
+expect "assword:"
+send "12345\r"
+expect "$ "
+send "sudo -S kubectl get pods\r"
+expect "$ "
+send "exit\r"
+expect eof

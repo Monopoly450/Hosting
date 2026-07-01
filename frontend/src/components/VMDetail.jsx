@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { X, RefreshCw, Cpu, HardDrive, ShieldAlert, Terminal, Activity, Layers, ListFilter, Play, Square, RotateCw, Monitor, Settings, Trash2, Copy, Check, Eye, EyeOff, AlertTriangle, Key, Shield, Network, Send } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import VncConsole from './VncConsole';
 import BackupList from './BackupList';
 
@@ -18,6 +19,16 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [hasInitializedResize, setHasInitializedResize] = useState(false);
   const [savingResize, setSavingResize] = useState(false);
 
+  const [diskReadMbs, setDiskReadMbs] = useState(0);
+  const [diskWriteMbs, setDiskWriteMbs] = useState(0);
+  const [diskReadIops, setDiskReadIops] = useState(0);
+  const [diskWriteIops, setDiskWriteIops] = useState(0);
+  const [portsConfig, setPortsConfig] = useState([]);
+  const [firewallRules, setFirewallRules] = useState([]);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [metricsHistory, setMetricsHistory] = useState([]);
+  const [historyRange, setHistoryRange] = useState(1); // Hours
+
   const [actionLoading, setActionLoading] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [copiedField, setCopiedField] = useState(null);
@@ -28,7 +39,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [cwd, setCwd] = useState('~');
   const [terminalHistory, setTerminalHistory] = useState([]);
   const [applyingNat, setApplyingNat] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'vnc', 'backups'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'vnc', 'backups', 'settings'
 
   // Migration state
   const [showMigrateModal, setShowMigrateModal] = useState(false);
@@ -119,6 +130,12 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
         const currentDisk = data.disks && data.disks[0] ? parseInt(data.disks[0].size) || 20 : 20;
         setMemoryGb(currentRam);
         setDiskGb(currentDisk);
+        setDiskReadMbs(data.disk_read_mbs || 0);
+        setDiskWriteMbs(data.disk_write_mbs || 0);
+        setDiskReadIops(data.disk_read_iops || 0);
+        setDiskWriteIops(data.disk_write_iops || 0);
+        setPortsConfig(data.ports_config || []);
+        setFirewallRules(data.firewall_rules || []);
         setHasInitializedResize(true);
       }
     } catch (err) {
@@ -153,6 +170,14 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
     const interval = setInterval(fetchVmDetails, 4000);
     return () => clearInterval(interval);
   }, [vmName]);
+
+  useEffect(() => {
+    if (vm?.status === 'Running') {
+      fetchMetricsHistory();
+      const interval = setInterval(fetchMetricsHistory, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [vmName, historyRange, vm?.status, vm?.memory_gb]);
 
   useEffect(() => {
     fetchSshDetails();
@@ -230,6 +255,106 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
     } finally {
       setSavingResize(false);
     }
+  };
+
+  const fetchMetricsHistory = async () => {
+    try {
+      const response = await fetch(`/api/vms/${vmName}/metrics/history?range_hours=${historyRange}`);
+      if (response.ok) {
+        const data = await response.json();
+        const ramTotalMb = (vm?.memory_gb || 2) * 1024;
+        const formatted = data.map(pt => {
+          const timeStr = new Date(pt.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const memUsagePct = ramTotalMb > 0 ? Math.round((pt.memory_mb / ramTotalMb) * 100 * 10) / 10 : 0;
+          return {
+            time: timeStr,
+            cpu: pt.cpu,
+            memory: memUsagePct,
+            rawMemoryMb: pt.memory_mb
+          };
+        });
+        setMetricsHistory(formatted);
+      }
+    } catch (e) {
+      console.error("Error fetching metrics history:", e);
+    }
+  };
+
+  const handleSaveSettings = async (e) => {
+    if (e) e.preventDefault();
+    setSavingSettings(true);
+    try {
+      const response = await fetch(`/api/vms/${vmName}/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cpu_cores: parseInt(cpuCores),
+          memory_gb: parseInt(memoryGb),
+          disk_gb: parseInt(diskGb),
+          disk_read_mbs: parseInt(diskReadMbs),
+          disk_write_mbs: parseInt(diskWriteMbs),
+          disk_read_iops: parseInt(diskReadIops),
+          disk_write_iops: parseInt(diskWriteIops),
+          ports_config: portsConfig,
+          firewall_rules: firewallRules
+        })
+      });
+      if (!response.ok) throw new Error('Не удалось сохранить настройки.');
+      alert('Настройки успешно сохранены! Изменения CPU/RAM/Диска вступят в силу после перезапуска ВМ, лимиты диска и фаервол применились мгновенно.');
+      fetchVmDetails();
+      if (onActionSuccess) onActionSuccess();
+    } catch (err) {
+      alert(`Ошибка: ${err.message}`);
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  const handleAddPortForwardRule = () => {
+    const nameInput = document.getElementById('new_port_name');
+    const extInput = document.getElementById('new_ext_port');
+    const intInput = document.getElementById('new_int_port');
+    
+    const name = nameInput?.value?.trim() || 'PortForward';
+    const ext_port = parseInt(extInput?.value);
+    const int_port = parseInt(intInput?.value);
+    
+    if (!ext_port || !int_port) {
+      alert('Пожалуйста, введите корректные порты.');
+      return;
+    }
+    
+    // Проверяем дубли
+    if (portsConfig.some(p => p.int_port === int_port || p.ext_port === ext_port)) {
+      alert('Порт уже используется в других правилах.');
+      return;
+    }
+    
+    const newPort = { ext_port, int_port, name };
+    setPortsConfig(prev => [...prev, newPort]);
+    setFirewallRules(prev => [...prev, { port: int_port, allowed_ips: ["0.0.0.0/0"] }]);
+    
+    if (nameInput) nameInput.value = '';
+    if (extInput) extInput.value = '';
+    if (intInput) intInput.value = '';
+  };
+
+  const handleDeletePortRule = (int_port) => {
+    setPortsConfig(prev => prev.filter(p => p.int_port !== int_port));
+    setFirewallRules(prev => prev.filter(r => r.port !== int_port));
+  };
+
+  const handleUpdatePortWhitelist = (int_port, value) => {
+    const ips = value.split(',').map(ip => ip.trim());
+    setFirewallRules(prev => {
+      const idx = prev.findIndex(r => r.port === int_port);
+      if (idx !== -1) {
+        const next = [...prev];
+        next[idx] = { port: int_port, allowed_ips: ips };
+        return next;
+      }
+      return [...prev, { port: int_port, allowed_ips: ips }];
+    });
   };
 
   const handleExecuteCommand = async (e) => {
@@ -346,6 +471,9 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             </button>
             <button className={`btn ${activeTab === 'backups' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('backups')}>
               💾 Бэкапы
+            </button>
+            <button className={`btn ${activeTab === 'settings' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('settings')}>
+              <Settings size={14} /> Настройки
             </button>
             <div style={{ width: '1px', background: 'var(--border-subtle)', margin: '0 8px' }}></div>
             <button className="btn btn-secondary" onClick={() => { setShowMigrateModal(true); fetchExternalServersForMigration(); }}>
@@ -488,9 +616,67 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             )}
           </div>
 
-          {/* Usage Monitoring */}
+          {/* Real-time and Historical Metrics */}
           <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <h3 className="section-title" style={{ margin: 0 }}><Activity size={18}/> Показатели системы (Гостевая ОС)</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 className="section-title" style={{ margin: 0 }}><Activity size={18}/> График истории нагрузки (Prometheus)</h3>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {[1, 3, 6, 12, 24].map(h => (
+                  <button 
+                    key={h} 
+                    className={`btn ${historyRange === h ? 'btn-primary' : 'btn-secondary'}`} 
+                    style={{ padding: '2px 8px', fontSize: '0.75rem', minWidth: '32px' }} 
+                    onClick={() => setHistoryRange(h)}
+                  >
+                    {h}ч
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            {vm.status !== 'Running' ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>ВМ выключена</div>
+            ) : metricsHistory.length === 0 ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                <span className="spinner" style={{ marginBottom: '12px' }}/> <br/> 
+                Загрузка истории метрик из Prometheus...
+              </div>
+            ) : (
+              <div style={{ height: '220px', width: '100%' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={metricsHistory} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--accent-primary)" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="var(--accent-primary)" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorMem" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--status-success)" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="var(--status-success)" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="time" style={{ fontSize: '9px', fill: 'var(--text-muted)' }} />
+                    <YAxis domain={[0, 100]} tickLine={false} axisLine={false} style={{ fontSize: '10px', fill: 'var(--text-muted)' }} />
+                    <RechartsTooltip 
+                      contentStyle={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)' }}
+                      labelStyle={{ color: 'var(--text-secondary)', marginBottom: '4px', fontSize: '0.8rem' }}
+                      itemStyle={{ fontSize: '0.85rem', fontWeight: 500 }}
+                    />
+                    <Area type="monotone" dataKey="cpu" name="CPU Нагрузка %" stroke="var(--accent-primary)" fillOpacity={1} fill="url(#colorCpu)" strokeWidth={2} />
+                    <Area type="monotone" dataKey="memory" name="ОЗУ Загрузка %" stroke="var(--status-success)" fillOpacity={1} fill="url(#colorMem)" strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          
+          {/* Guest OS Metrics */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h3 className="section-title" style={{ margin: 0 }}><Activity size={18}/> Текущие показатели системы</h3>
             {!sshData ? (
               <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
                 {vm.status === 'Running' ? <><span className="spinner" style={{ marginBottom: '12px' }}/> <br/> Ожидание агента SSH...</> : 'ВМ выключена'}
@@ -527,75 +713,49 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               </div>
             )}
           </div>
-        </div>
 
-        {/* RIGHT COLUMN */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          
-          {/* Resource Allocation */}
+          {/* Detailed Storage Stats & Limits */}
           <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <h3 className="section-title" style={{ margin: 0 }}><Cpu size={18}/> Выделение ресурсов</h3>
-            <form onSubmit={handleResize} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
-                  <span className="text-muted">CPU Cores</span>
-                  <span style={{ fontWeight: 600 }}>{cpuCores} vCPUs</span>
-                </div>
-                <input type="range" min="1" max="16" value={cpuCores} onChange={(e) => setCpuCores(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingResize} />
-              </div>
-
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
-                  <span className="text-muted">Memory (RAM)</span>
-                  <span style={{ fontWeight: 600 }}>{memoryGb} GB</span>
-                </div>
-                <input type="range" min="1" max="64" value={memoryGb} onChange={(e) => setMemoryGb(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingResize} />
-              </div>
-
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
-                  <span className="text-muted">Storage Disk</span>
-                  <span style={{ fontWeight: 600 }}>{diskGb} GB</span>
-                </div>
-                <input type="range" min={currentDiskLimit} max="500" step="10" value={diskGb} onChange={(e) => setDiskGb(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingResize} />
-              </div>
-
-              <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }} disabled={savingResize}>
-                {savingResize ? <span className="spinner" /> : 'Применить изменения (после Reboot)'}
-              </button>
-            </form>
-          </div>
-
-          {/* Network & Access */}
-          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 className="section-title" style={{ margin: 0 }}><Network size={18}/> Сеть и доступ</h3>
-            </div>
-
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <th style={{ padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 500 }}>Действие</th>
-                  <th style={{ padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 500 }}>Внешний порт</th>
-                  <th style={{ padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 500 }}>Внутренний порт</th>
-                  <th style={{ padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 500 }}>Протокол</th>
-                </tr>
-              </thead>
+            <h3 className="section-title" style={{ margin: 0 }}><HardDrive size={18}/> Производительность диска и Лимиты</h3>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <tbody>
                 <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '12px 0', fontWeight: 500 }}>SSH ВМ</td>
-                  <td style={{ padding: '12px 0' }}>{vm.ssh_port || 'N/A'}</td>
-                  <td style={{ padding: '12px 0' }}>22</td>
-                  <td style={{ padding: '12px 0', color: 'var(--text-muted)' }}>TCP</td>
+                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Скорость чтения (текущая)</td>
+                  <td style={{ padding: '12px 0', textAlign: 'right', fontWeight: 600 }}>
+                    {vm.disk_read_speed_kbps > 1024 ? `${(vm.disk_read_speed_kbps / 1024).toFixed(2)} МБ/с` : `${vm.disk_read_speed_kbps || 0} КБ/с`}
+                  </td>
                 </tr>
-                {/* Здесь можно добавить другие порты, если они будут прокидываться в будущем */}
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Скорость записи (текущая)</td>
+                  <td style={{ padding: '12px 0', textAlign: 'right', fontWeight: 600 }}>
+                    {vm.disk_write_speed_kbps > 1024 ? `${(vm.disk_write_speed_kbps / 1024).toFixed(2)} МБ/с` : `${vm.disk_write_speed_kbps || 0} КБ/с`}
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>IOPS чтения / записи (текущий)</td>
+                  <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                    {vm.disk_read_iops_realtime || 0} / {vm.disk_write_iops_realtime || 0}
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--card-bg-subtle)' }}>
+                  <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>Лимит чтения / записи (cgroup)</td>
+                  <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>
+                    {vm.disk_read_mbs ? `${vm.disk_read_mbs} МБ/с` : 'Без лимита'} / {vm.disk_write_mbs ? `${vm.disk_write_mbs} МБ/с` : 'Без лимита'}
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--card-bg-subtle)' }}>
+                  <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>Лимит IOPS чтения / записи (cgroup)</td>
+                  <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>
+                    {vm.disk_read_iops ? `${vm.disk_read_iops} IOPS` : 'Без лимита'} / {vm.disk_write_iops ? `${vm.disk_write_iops} IOPS` : 'Без лимита'}
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
 
           {/* Terminal */}
           {vm.status === 'Running' && vm.os_type !== 'windows' && (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '300px', background: '#0f172a', borderRadius: 'var(--radius-md)', overflow: 'hidden', padding: '16px', boxShadow: 'var(--shadow-md)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', height: '240px', background: '#0f172a', borderRadius: 'var(--radius-md)', overflow: 'hidden', padding: '16px', boxShadow: 'var(--shadow-md)' }}>
               <div style={{ color: '#94a3b8', fontSize: '0.8rem', fontWeight: 600, borderBottom: '1px solid #1e293b', paddingBottom: '8px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
                 <span>user@{vmName} ~</span>
                 <Terminal size={14} />
@@ -628,6 +788,155 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
         </div>
       </div>
+      )}
+
+      {activeTab === 'settings' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+          {/* Left Panel: CPU/RAM/Disk limits */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <h3 className="section-title" style={{ margin: 0 }}><Settings size={18}/> Выделение ресурсов и лимиты диска</h3>
+            
+            <form onSubmit={handleSaveSettings} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                  <span className="text-muted">CPU Cores</span>
+                  <span style={{ fontWeight: 600 }}>{cpuCores} vCPUs</span>
+                </div>
+                <input type="range" min="1" max="16" value={cpuCores} onChange={(e) => setCpuCores(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingSettings} />
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                  <span className="text-muted">Memory (RAM)</span>
+                  <span style={{ fontWeight: 600 }}>{memoryGb} GB</span>
+                </div>
+                <input type="range" min="1" max="64" value={memoryGb} onChange={(e) => setMemoryGb(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingSettings} />
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                  <span className="text-muted">Storage Disk</span>
+                  <span style={{ fontWeight: 600 }}>{diskGb} GB</span>
+                </div>
+                <input type="range" min={currentDiskLimit} max="500" step="10" value={diskGb} onChange={(e) => setDiskGb(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingSettings} />
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: '10px', paddingTop: '16px' }}></div>
+
+              <h4 style={{ margin: '0 0 10px 0', fontSize: '0.95rem' }}><HardDrive size={16} style={{ marginRight: '6px', verticalAlign: 'middle' }}/> Ограничения скорости диска (IOPS / MBs)</h4>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                  <span className="text-muted">Лимит чтения (МБ/с)</span>
+                  <span style={{ fontWeight: 600 }}>{diskReadMbs === 0 ? 'Без лимита' : `${diskReadMbs} МБ/с`}</span>
+                </div>
+                <input type="range" min="0" max="500" step="10" value={diskReadMbs} onChange={(e) => setDiskReadMbs(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingSettings} />
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                  <span className="text-muted">Лимит записи (МБ/с)</span>
+                  <span style={{ fontWeight: 600 }}>{diskWriteMbs === 0 ? 'Без лимита' : `${diskWriteMbs} МБ/с`}</span>
+                </div>
+                <input type="range" min="0" max="500" step="10" value={diskWriteMbs} onChange={(e) => setDiskWriteMbs(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingSettings} />
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                  <span className="text-muted">Лимит операций чтения (IOPS)</span>
+                  <span style={{ fontWeight: 600 }}>{diskReadIops === 0 ? 'Без лимита' : `${diskReadIops} IOPS`}</span>
+                </div>
+                <input type="range" min="0" max="5000" step="100" value={diskReadIops} onChange={(e) => setDiskReadIops(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingSettings} />
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
+                  <span className="text-muted">Лимит операций записи (IOPS)</span>
+                  <span style={{ fontWeight: 600 }}>{diskWriteIops === 0 ? 'Без лимита' : `${diskWriteIops} IOPS`}</span>
+                </div>
+                <input type="range" min="0" max="5000" step="100" value={diskWriteIops} onChange={(e) => setDiskWriteIops(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingSettings} />
+              </div>
+
+              <button type="submit" className="btn btn-primary" disabled={savingSettings}>
+                {savingSettings ? <span className="spinner" /> : 'Сохранить настройки ресурсов'}
+              </button>
+            </form>
+          </div>
+
+          {/* Right Panel: Port forwarding and Firewall */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <h3 className="section-title" style={{ margin: 0 }}><Shield size={18}/> Проброс портов и Белый список IP</h3>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', background: 'var(--card-bg-subtle)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Название</label>
+                  <input type="text" id="new_port_name" className="form-control" placeholder="Например, Web API" style={{ fontSize: '0.8rem' }} />
+                </div>
+                <div style={{ width: '90px' }}>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Внешний</label>
+                  <input type="number" id="new_ext_port" className="form-control" placeholder="30000" style={{ fontSize: '0.8rem' }} />
+                </div>
+                <div style={{ width: '90px' }}>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Внутренний</label>
+                  <input type="number" id="new_int_port" className="form-control" placeholder="80" style={{ fontSize: '0.8rem' }} />
+                </div>
+                <div>
+                  <button className="btn btn-primary" onClick={handleAddPortForwardRule} style={{ fontSize: '0.8rem', padding: '10px 14px' }}>Добавить</button>
+                </div>
+              </div>
+
+              <div style={{ overflowY: 'auto', maxHeight: '300px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <th style={{ padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 500 }}>Название</th>
+                      <th style={{ padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 500 }}>Внешний &rarr; Внутр.</th>
+                      <th style={{ padding: '8px 0', color: 'var(--text-secondary)', fontWeight: 500 }}>Разрешенные IP (Белый список)</th>
+                      <th style={{ padding: '8px 0', textAlign: 'right' }}>Действие</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {portsConfig.length === 0 ? (
+                      <tr>
+                        <td colSpan="4" style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-muted)' }}>
+                          Кастомные порты не настроены. Используются стандартные порты (SSH, HTTP, HTTPS).
+                        </td>
+                      </tr>
+                    ) : (
+                      portsConfig.map((p, idx) => {
+                        const rule = firewallRules.find(r => r.port === p.int_port) || { allowed_ips: [] };
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                            <td style={{ padding: '12px 0', fontWeight: 500 }}>{p.name}</td>
+                            <td style={{ padding: '12px 0', fontFamily: 'var(--font-mono)' }}>{p.ext_port} → {p.int_port}</td>
+                            <td style={{ padding: '12px 0' }}>
+                              <input 
+                                type="text" 
+                                className="form-control" 
+                                style={{ fontSize: '0.8rem', padding: '4px 8px', width: '90%' }} 
+                                value={rule.allowed_ips.join(', ')} 
+                                placeholder="0.0.0.0/0 (доступно всем)"
+                                onChange={(e) => handleUpdatePortWhitelist(p.int_port, e.target.value)} 
+                              />
+                            </td>
+                            <td style={{ padding: '12px 0', textAlign: 'right' }}>
+                              <button className="btn btn-secondary" style={{ padding: '4px 8px', color: 'var(--status-danger)' }} onClick={() => handleDeletePortRule(p.int_port)}>Удалить</button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <button className="btn btn-primary" onClick={handleSaveSettings} disabled={savingSettings} style={{ marginTop: '10px' }}>
+                {savingSettings ? <span className="spinner" /> : 'Применить правила проброса и фаервола'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

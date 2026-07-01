@@ -1,0 +1,12 @@
+#!/usr/bin/expect -f
+set timeout 15
+spawn ssh -o StrictHostKeyChecking=no user@192.168.31.14
+expect "assword:"
+send "12345\r"
+expect "$ "
+send "mount | grep cgroup\r"
+expect "$ "
+send "ls -la /sys/fs/cgroup/\r"
+expect "$ "
+send "exit\r"
+expect eof

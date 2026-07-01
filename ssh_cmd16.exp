@@ -1,0 +1,12 @@
+#!/usr/bin/expect -f
+set timeout 15
+spawn ssh -o StrictHostKeyChecking=no user@192.168.31.14
+expect "assword:"
+send "12345\r"
+expect "$ "
+send "sudo -S ls -la /etc/cni/net.d/ /var/lib/rancher/k3s/agent/etc/cni/net.d/\r"
+expect "assword:"
+send "12345\r"
+expect "$ "
+send "exit\r"
+expect eof

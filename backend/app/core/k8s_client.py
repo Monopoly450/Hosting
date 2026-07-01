@@ -758,6 +758,27 @@ class K8sClient:
             "credentials": credentials
         }
 
+    def ensure_network_isolation(self):
+        """Гарантирует, что мосты Multus не могут общаться друг с другом на L3"""
+        try:
+            import subprocess
+            nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
+            
+            # Проверяем, существует ли уже правило
+            check_cmd = "iptables -S FORWARD"
+            res = subprocess.run(nsenter_prefix + [check_cmd], capture_output=True, text=True, timeout=5)
+            
+            # Правило для изоляции br-+ от br-+
+            rule_pattern = "-i br-+ -o br-+ -j REJECT"
+            if res.returncode == 0 and "br-+" not in res.stdout:
+                logger.info("Добавляем правило iptables для L3 изоляции приватных мостов Multus")
+                add_cmd = "iptables -I FORWARD -i br-+ -o br-+ -j REJECT --reject-with icmp-port-unreachable"
+                subprocess.run(nsenter_prefix + [add_cmd], capture_output=True, text=True, timeout=5)
+                # Сохраняем правила
+                subprocess.run(nsenter_prefix + ["netfilter-persistent save"], capture_output=True, text=True, timeout=5)
+        except Exception as e:
+            logger.error(f"Ошибка при настройке L3 изоляции сетей: {e}")
+
     def create_network_attachment_definition(self, name: str, namespace="default"):
         """Создает Multus NetworkAttachmentDefinition для приватной сети"""
         manifest = {
@@ -780,7 +801,39 @@ class K8sClient:
                 body=manifest
             )
             logger.info(f"Created NAD {name}")
+            
+            # Применяем L3 изоляцию сетей
+            self.ensure_network_isolation()
         except ApiException as e:
             if e.status != 409: # Игнорируем если уже существует
                 logger.error(f"Ошибка создания Multus Network {name}: {e}")
                 raise e
+            # Убедимся, что правила изоляции применены даже если NAD уже существовал
+            self.ensure_network_isolation()
+
+    def query_prometheus(self, prom_query: str, start_time: int = None, end_time: int = None, step: str = "30s"):
+        """Выполняет запрос к Prometheus через прокси API Kubernetes"""
+        try:
+            # Если start_time и end_time переданы, выполняем query_range
+            if start_time and end_time:
+                path = f"api/v1/query_range?query={prom_query}&start={start_time}&end={end_time}&step={step}"
+            else:
+                path = f"api/v1/query?query={prom_query}"
+                
+            # Кодируем специальные символы в URL
+            import urllib.parse
+            path_encoded = urllib.parse.quote(path, safe="?=&")
+            
+            res = self.core_api.connect_get_namespaced_service_proxy_with_path(
+                name="http:prometheus-kube-prometheus-prometheus:9090",
+                namespace="prometheus",
+                path=path_encoded
+            )
+            # Ответ обычно является строкой JSON
+            import json
+            if isinstance(res, str):
+                return json.loads(res)
+            return res
+        except Exception as e:
+            logger.error(f"Error querying Prometheus: {e}")
+            return None

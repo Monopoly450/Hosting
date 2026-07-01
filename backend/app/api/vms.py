@@ -16,7 +16,7 @@ def generate_mac_address(name: str) -> str:
 import logging
 from fastapi import APIRouter, HTTPException, Depends, status, Query
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict
 from app.core.k8s_client import K8sClient
 from app.services.ssh_inspector import SSHInspector
 
@@ -59,6 +59,24 @@ class VMResizeRequest(BaseModel):
     cpu_cores: int = Field(..., ge=1, le=16)
     memory_gb: int = Field(..., ge=1, le=64)
     disk_gb: int = Field(..., ge=10, le=500)
+
+class PortConfigItem(BaseModel):
+    ext_port: int
+    int_port: int
+    name: str
+
+class VMSettingsUpdateRequest(BaseModel):
+    cpu_cores: int = Field(..., ge=1, le=16)
+    memory_gb: int = Field(..., ge=1, le=64)
+    disk_gb: int = Field(..., ge=10, le=500)
+    # Storage Throttling (Disk Limits)
+    disk_read_mbs: int = Field(0, ge=0, le=1000)
+    disk_write_mbs: int = Field(0, ge=0, le=1000)
+    disk_read_iops: int = Field(0, ge=0, le=10000)
+    disk_write_iops: int = Field(0, ge=0, le=10000)
+    # Port configuration and firewall
+    ports_config: Optional[List[PortConfigItem]] = None
+    firewall_rules: Optional[List[dict]] = None # List of {"port": int, "allowed_ips": ["1.2.3.4"]}
 
 def generate_random_password(length=12) -> str:
     """Генерирует криптографически стойкий случайный пароль"""
@@ -481,56 +499,163 @@ def list_vms(client: K8sClient = Depends(get_k8s_client)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def setup_auto_port_forward(vm_ip: str):
-    """
-    Автоматически настраивает проброс порта 22000+X на хост-машине для указанного IP виртуальной машины,
-    где X - последний октет IP-адреса.
-    """
+def clear_iptables_rules_for_ip(vm_ip: str):
     import subprocess
-    import re
+    nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
+    
+    # Clear PREROUTING rules
+    res = subprocess.run(nsenter_prefix + ["iptables -t nat -S PREROUTING"], capture_output=True, text=True, timeout=5)
+    if res.returncode == 0:
+        for line in res.stdout.splitlines():
+            if vm_ip in line:
+                del_cmd = line.replace("-A ", "-D ")
+                subprocess.run(nsenter_prefix + [f"iptables -t nat {del_cmd}"], capture_output=True, timeout=5)
+                
+    # Clear FORWARD rules
+    res = subprocess.run(nsenter_prefix + ["iptables -S FORWARD"], capture_output=True, text=True, timeout=5)
+    if res.returncode == 0:
+        for line in res.stdout.splitlines():
+            if vm_ip in line:
+                del_cmd = line.replace("-A ", "-D ")
+                subprocess.run(nsenter_prefix + [f"iptables {del_cmd}"], capture_output=True, timeout=5)
+
+def reconcile_vm_firewall_rules(vm_ip: str, ports_config: str = None, firewall_rules: str = None):
+    """Настраивает проброс портов и правила доступа для ВМ с помощью iptables на хосте"""
+    import subprocess
+    import json
     try:
-        # Извлекаем последний октет из IP (например, 15 из 172.20.0.15)
         last_octet = int(vm_ip.split('.')[-1])
-        ssh_port = 22000 + last_octet
-        http_port = 28000 + last_octet
-        https_port = 44300 + last_octet
-        
         nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
         
-        # Функция для добавления правила проброса порта
-        def add_port_forward(external_port, internal_port):
-            res = subprocess.run(nsenter_prefix + ["iptables -t nat -S PREROUTING"], capture_output=True, text=True, timeout=5)
-            if res.returncode == 0:
-                if f"--to-destination {vm_ip}:{internal_port}" in res.stdout and f"--dport {external_port}" in res.stdout:
-                    return # Правило уже существует
-
-            logger.info(f"Добавляем автоматическое правило проброса: порт {external_port} -> {vm_ip}:{internal_port}")
-            add_dnat = f"iptables -t nat -A PREROUTING -p tcp --dport {external_port} -j DNAT --to-destination {vm_ip}:{internal_port}"
-            add_forward = f"iptables -I FORWARD -p tcp -d {vm_ip} --dport {internal_port} -j ACCEPT"
+        # Очищаем старые правила
+        clear_iptables_rules_for_ip(vm_ip)
+        
+        # Парсим список портов
+        ports = []
+        if ports_config:
+            try:
+                ports = json.loads(ports_config)
+            except Exception as e:
+                logger.error(f"Error parsing ports_config: {e}")
+                
+        # Если порты не настроены, используем дефолтные
+        if not ports:
+            ports = [
+                {"ext_port": 22000 + last_octet, "int_port": 22, "name": "SSH"},
+                {"ext_port": 28000 + last_octet, "int_port": 80, "name": "HTTP"},
+                {"ext_port": 44300 + last_octet, "int_port": 443, "name": "HTTPS"}
+            ]
             
-            subprocess.run(nsenter_prefix + [add_dnat], capture_output=True, text=True, timeout=5)
-            subprocess.run(nsenter_prefix + [add_forward], capture_output=True, text=True, timeout=5)
-
-        # Пробрасываем SSH, HTTP и HTTPS
-        add_port_forward(ssh_port, 22)
-        add_port_forward(http_port, 80)
-        add_port_forward(https_port, 443)
-        
-        save_rules = "netfilter-persistent save"
-        subprocess.run(nsenter_prefix + [save_rules], capture_output=True, text=True, timeout=5)
-        logger.info(f"Правила iptables для ВМ {vm_ip} успешно добавлены!")
-        
+        # Парсим список разрешенных IP
+        fw_map = {}
+        if firewall_rules:
+            try:
+                rules_list = json.loads(firewall_rules)
+                for r in rules_list:
+                    port_val = r.get("port")
+                    if port_val is not None:
+                        fw_map[int(port_val)] = r.get("allowed_ips", [])
+            except Exception as e:
+                logger.error(f"Error parsing firewall_rules: {e}")
+                
+        # Применяем правила для каждого порта
+        for p in ports:
+            ext_port = int(p.get("ext_port"))
+            int_port = int(p.get("int_port"))
+            
+            # 1. Добавляем DNAT правило в PREROUTING
+            add_dnat = f"iptables -t nat -A PREROUTING -p tcp --dport {ext_port} -j DNAT --to-destination {vm_ip}:{int_port}"
+            subprocess.run(nsenter_prefix + [add_dnat], capture_output=True, timeout=5)
+            
+            # 2. Получаем белый список IP для этого порта
+            whitelist = fw_map.get(int_port) or fw_map.get(ext_port) or []
+            whitelist = [ip.strip() for ip in whitelist if ip.strip()]
+            
+            # Если белый список пуст или содержит 0.0.0.0/0, разрешаем всем
+            if not whitelist or "0.0.0.0/0" in whitelist:
+                add_forward = f"iptables -A FORWARD -p tcp -d {vm_ip} --dport {int_port} -j ACCEPT"
+                subprocess.run(nsenter_prefix + [add_forward], capture_output=True, timeout=5)
+            else:
+                # Разрешаем доступ только для белого списка
+                for ip_addr in whitelist:
+                    add_allow = f"iptables -A FORWARD -p tcp -s {ip_addr} -d {vm_ip} --dport {int_port} -j ACCEPT"
+                    subprocess.run(nsenter_prefix + [add_allow], capture_output=True, timeout=5)
+                # Все остальное для этого порта сбрасываем
+                add_drop = f"iptables -A FORWARD -p tcp -d {vm_ip} --dport {int_port} -j DROP"
+                subprocess.run(nsenter_prefix + [add_drop], capture_output=True, timeout=5)
+                
+        # Сохраняем правила
+        subprocess.run(nsenter_prefix + ["netfilter-persistent save"], capture_output=True, timeout=5)
+        logger.info(f"Firewall reconciled successfully for {vm_ip}")
     except Exception as e:
-        logger.error(f"Ошибка при автоматической настройке проброса порта для {vm_ip}: {e}")
+        logger.error(f"Error in reconcile_vm_firewall_rules for {vm_ip}: {e}")
 
 @router.get("/{name}", response_model=dict)
 def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client)):
+    from app.db import SessionLocal
+    from app.models.models import VMTask
+    
     try:
         vm_data = client.get_vm(name)
-        # Если виртуальная машина активна и получила IP-адрес, автоматически пробрасываем порт
-        if vm_data.get("status") == "Running" and vm_data.get("ips"):
-            ip = vm_data["ips"][0]
-            setup_auto_port_forward(ip)
+        
+        # Загружаем лимиты и сетевые настройки из БД
+        db = SessionLocal()
+        try:
+            db_vm = db.query(VMTask).filter(VMTask.name == name).first()
+            if db_vm:
+                vm_data["disk_read_mbs"] = db_vm.disk_read_mbs
+                vm_data["disk_write_mbs"] = db_vm.disk_write_mbs
+                vm_data["disk_read_iops"] = db_vm.disk_read_iops
+                vm_data["disk_write_iops"] = db_vm.disk_write_iops
+                
+                # Парсим JSON портов
+                import json
+                try:
+                    vm_data["ports_config"] = json.loads(db_vm.ports_config) if db_vm.ports_config else []
+                except Exception:
+                    vm_data["ports_config"] = []
+                try:
+                    vm_data["firewall_rules"] = json.loads(db_vm.firewall_rules) if db_vm.firewall_rules else []
+                except Exception:
+                    vm_data["firewall_rules"] = []
+                
+                # Если виртуальная машина активна и получила IP-адрес, автоматически пробрасываем порт
+                if vm_data.get("status") == "Running" and vm_data.get("ips"):
+                    ip = vm_data["ips"][0]
+                    reconcile_vm_firewall_rules(ip, db_vm.ports_config, db_vm.firewall_rules)
+        finally:
+            db.close()
+            
+        # Получаем данные о текущей скорости диска из Prometheus
+        try:
+            read_speed_query = f'sum(rate(kubevirt_vmi_storage_read_traffic_bytes_total{{namespace="default",name="{name}"}}[2m]))'
+            write_speed_query = f'sum(rate(kubevirt_vmi_storage_write_traffic_bytes_total{{namespace="default",name="{name}"}}[2m]))'
+            read_iops_query = f'sum(rate(kubevirt_vmi_storage_read_iops_total{{namespace="default",name="{name}"}}[2m]))'
+            write_iops_query = f'sum(rate(kubevirt_vmi_storage_write_iops_total{{namespace="default",name="{name}"}}[2m]))'
+            
+            read_res = client.query_prometheus(read_speed_query)
+            write_res = client.query_prometheus(write_speed_query)
+            read_iops_res = client.query_prometheus(read_iops_query)
+            write_iops_res = client.query_prometheus(write_iops_query)
+            
+            def parse_single_val(prom_data):
+                if prom_data and prom_data.get("status") == "success":
+                    results = prom_data.get("data", {}).get("result", [])
+                    if results:
+                        return float(results[0].get("value", [0, 0])[1])
+                return 0.0
+                
+            vm_data["disk_read_speed_kbps"] = round(parse_single_val(read_res) / 1024, 2)
+            vm_data["disk_write_speed_kbps"] = round(parse_single_val(write_res) / 1024, 2)
+            vm_data["disk_read_iops_realtime"] = round(parse_single_val(read_iops_res), 2)
+            vm_data["disk_write_iops_realtime"] = round(parse_single_val(write_iops_res), 2)
+        except Exception as pe:
+            logger.error(f"Error fetching realtime disk stats from Prometheus for {name}: {pe}")
+            vm_data["disk_read_speed_kbps"] = 0.0
+            vm_data["disk_write_speed_kbps"] = 0.0
+            vm_data["disk_read_iops_realtime"] = 0.0
+            vm_data["disk_write_iops_realtime"] = 0.0
+
         return vm_data
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Виртуальная машина {name} не найдена: {e}")
@@ -630,6 +755,106 @@ def resize_vm(name: str, req: VMResizeRequest, client: K8sClient = Depends(get_k
         return {"status": "resized", "name": name, "cpu_cores": req.cpu_cores, "memory_gb": req.memory_gb, "disk_gb": req.disk_gb}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{name}/settings")
+def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClient = Depends(get_k8s_client)):
+    """Обновление настроек ВМ (ресурсы, лимиты диска, проброс портов, фаервол)"""
+    from app.db import SessionLocal
+    from app.models.models import VMTask
+    import json
+    
+    try:
+        db = SessionLocal()
+        try:
+            db_vm = db.query(VMTask).filter(VMTask.name == name).first()
+            if not db_vm:
+                raise HTTPException(status_code=404, detail="ВМ не найдена в БД")
+                
+            # 1. Изменение CPU, RAM и диска в K8s
+            if db_vm.cpu_cores != req.cpu_cores or db_vm.memory_gb != req.memory_gb:
+                client.resize_vm_resources(name, req.cpu_cores, req.memory_gb)
+                db_vm.cpu_cores = req.cpu_cores
+                db_vm.memory_gb = req.memory_gb
+                
+            if db_vm.disk_gb != req.disk_gb:
+                client.resize_vm_disk(name, req.disk_gb)
+                db_vm.disk_gb = req.disk_gb
+                
+            # 2. Обновление лимитов диска в БД
+            db_vm.disk_read_mbs = req.disk_read_mbs
+            db_vm.disk_write_mbs = req.disk_write_mbs
+            db_vm.disk_read_iops = req.disk_read_iops
+            db_vm.disk_write_iops = req.disk_write_iops
+            
+            # 3. Обновление портов и фаервола в БД
+            ports_list = [p.dict() for p in req.ports_config] if req.ports_config is not None else []
+            fw_list = req.firewall_rules if req.firewall_rules is not None else []
+            
+            db_vm.ports_config = json.dumps(ports_list)
+            db_vm.firewall_rules = json.dumps(fw_list)
+            db.commit()
+            
+            # 4. Если ВМ запущена, мгновенно перенастраиваем фаервол/порты
+            vm_k8s = client.get_vm(name)
+            if vm_k8s.get("status") == "Running" and vm_k8s.get("ips"):
+                ip = vm_k8s["ips"][0]
+                reconcile_vm_firewall_rules(ip, db_vm.ports_config, db_vm.firewall_rules)
+                
+            return {"status": "success", "message": "Настройки ВМ сохранены"}
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error updating VM settings for {name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/{name}/metrics/history")
+def get_vm_metrics_history(name: str, range_hours: int = Query(1, ge=1, le=24), client: K8sClient = Depends(get_k8s_client)):
+    """Получение истории метрик CPU/RAM из Prometheus за указанный период (в часах)"""
+    import time
+    
+    end_time = int(time.time())
+    start_time = end_time - (range_hours * 3600)
+    
+    # 1. Запрос CPU
+    cpu_query = f'sum(rate(container_cpu_usage_seconds_total{{namespace="default",pod=~"virt-launcher-{name}-.*",container="compute"}}[2m])) * 100'
+    cpu_data = client.query_prometheus(cpu_query, start_time, end_time, step="30s")
+    
+    # 2. Запрос RAM
+    ram_query = f'container_memory_working_set_bytes{{namespace="default",pod=~"virt-launcher-{name}-.*",container="compute"}}'
+    ram_data = client.query_prometheus(ram_query, start_time, end_time, step="30s")
+    
+    # Форматируем данные для фронтенда
+    formatted_points = {}
+    
+    # Разбираем CPU
+    if cpu_data and cpu_data.get("status") == "success":
+        results = cpu_data.get("data", {}).get("result", [])
+        if results:
+            values = results[0].get("values", [])
+            for val in values:
+                ts = int(float(val[0]))
+                ts_aligned = (ts // 30) * 30
+                cpu_val = round(float(val[1]), 2)
+                formatted_points[ts_aligned] = {"timestamp": ts_aligned, "cpu": cpu_val, "memory_mb": 0.0}
+                
+    # Разбираем RAM
+    if ram_data and ram_data.get("status") == "success":
+        results = ram_data.get("data", {}).get("result", [])
+        if results:
+            values = results[0].get("values", [])
+            for val in values:
+                ts = int(float(val[0]))
+                ts_aligned = (ts // 30) * 30
+                ram_bytes = float(val[1])
+                ram_mb = round(ram_bytes / (1024 * 1024), 2)
+                if ts_aligned in formatted_points:
+                    formatted_points[ts_aligned]["memory_mb"] = ram_mb
+                else:
+                    formatted_points[ts_aligned] = {"timestamp": ts_aligned, "cpu": 0.0, "memory_mb": ram_mb}
+                    
+    # Превращаем в отсортированный список
+    history_list = sorted(formatted_points.values(), key=lambda x: x["timestamp"])
+    return history_list
 
 @router.post("/{name}/backup")
 def create_backup(name: str, client: K8sClient = Depends(get_k8s_client)):

@@ -1,0 +1,12 @@
+#!/usr/bin/expect -f
+set timeout 15
+spawn ssh -o StrictHostKeyChecking=no user@192.168.31.14
+expect "assword:"
+send "12345\r"
+expect "$ "
+send "sudo -S kubectl -n kube-system logs -l app=multus --tail=100\r"
+expect "assword:"
+send "12345\r"
+expect "$ "
+send "exit\r"
+expect eof

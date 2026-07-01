@@ -1,0 +1,15 @@
+#!/usr/bin/expect -f
+set timeout 15
+spawn scp -o StrictHostKeyChecking=no test_prom.py user@192.168.31.14:/home/user/test_prom.py
+expect "assword:"
+send "12345\r"
+expect eof
+
+spawn ssh -o StrictHostKeyChecking=no user@192.168.31.14
+expect "assword:"
+send "12345\r"
+expect "$ "
+send "python3 /home/user/test_prom.py\r"
+expect "$ "
+send "exit\r"
+expect eof

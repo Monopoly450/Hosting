@@ -1,0 +1,12 @@
+#!/usr/bin/expect -f
+set timeout 15
+spawn ssh -o StrictHostKeyChecking=no user@192.168.31.14
+expect "assword:"
+send "12345\r"
+expect "$ "
+send "sudo -S kubectl delete pods -l kubevirt.io=virt-launcher --force --grace-period=0\r"
+expect "assword:"
+send "12345\r"
+expect "$ "
+send "exit\r"
+expect eof
