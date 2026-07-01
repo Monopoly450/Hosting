@@ -644,7 +644,29 @@ def get_balancer_resources(client: K8sClient = Depends(get_k8s_client)):
                     break
             
             # RAM limit
-            ram_limit_gb = float(vm.get("memory_gb", vm.get("memory", 2)))
+            ram_val_raw = vm.get("memory_gb") or vm.get("memory") or 2
+            if isinstance(ram_val_raw, str):
+                match = re.match(r'^([\d\.]+)\s*([A-Za-z]*)$', ram_val_raw.strip())
+                if match:
+                    val = float(match.group(1))
+                    suffix = match.group(2).upper()
+                    if suffix in ("GI", "G"):
+                        ram_limit_gb = val
+                    elif suffix in ("MI", "M"):
+                        ram_limit_gb = val / 1024.0
+                    elif suffix in ("KI", "K"):
+                        ram_limit_gb = val / (1024.0 * 1024.0)
+                    elif suffix in ("TI", "T"):
+                        ram_limit_gb = val * 1024.0
+                    else:
+                        ram_limit_gb = val
+                else:
+                    try:
+                        ram_limit_gb = float(ram_val_raw)
+                    except ValueError:
+                        ram_limit_gb = 2.0
+            else:
+                ram_limit_gb = float(ram_val_raw)
             ram_limit_mb = ram_limit_gb * 1024
             cpu_limit = float(vm.get("cpu_cores", 2))
             
