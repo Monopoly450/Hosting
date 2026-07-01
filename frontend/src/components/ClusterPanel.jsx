@@ -55,12 +55,18 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
   const handleCreateCluster = async (e) => {
     e.preventDefault();
     try {
+      const sanitizedClusterName = clusterName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      const sanitizedVms = clusterVms.map(vm => ({
+        ...vm,
+        name: vm.name.toLowerCase().replace(/[^a-z0-9-]/g, '-')
+      }));
+
       const res = await fetch('/api/clusters', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: clusterName,
-          vms: clusterVms
+          name: sanitizedClusterName,
+          vms: sanitizedVms
         })
       });
       if (!res.ok) {
