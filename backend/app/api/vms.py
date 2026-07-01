@@ -1394,20 +1394,36 @@ server {{
     # 6. Перезапускаем Nginx на хосте
     nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
     
-    # Проверка
-    test_res = subprocess.run(nsenter_prefix + ["/usr/sbin/nginx -t"], capture_output=True, text=True, timeout=5)
-    if test_res.returncode != 0:
+    # Ищем путь к исполняемому файлу Nginx на хосте
+    which_res = subprocess.run(nsenter_prefix + ["which nginx || find /usr/sbin /usr/local/nginx/sbin /usr/bin -name nginx 2>/dev/null"], capture_output=True, text=True, timeout=5)
+    nginx_bin = None
+    if which_res.returncode == 0:
+        lines = [line.strip() for line in which_res.stdout.splitlines() if line.strip()]
+        if lines:
+            nginx_bin = lines[0]
+            
+    if not nginx_bin:
         # Откат изменений
         if os.path.exists(config_path):
             os.remove(config_path)
-        raise HTTPException(status_code=400, detail=f"Конфигурация Nginx не прошла валидацию: {test_res.stderr}")
+        raise HTTPException(
+            status_code=400, 
+            detail="Nginx не установлен на основном хост-сервере. Пожалуйста, выполните 'sudo apt update && sudo apt install -y nginx' на хосте 192.168.31.14."
+        )
+        
+    # Проверка конфигурации
+    test_res = subprocess.run(nsenter_prefix + [f"{nginx_bin} -t"], capture_output=True, text=True, timeout=5)
+    if test_res.returncode != 0:
+        if os.path.exists(config_path):
+            os.remove(config_path)
+        raise HTTPException(status_code=400, detail=f"Конфигурация Nginx не прошла валидацию: {test_res.stderr or test_res.stdout}")
         
     # Перезапуск
-    reload_res = subprocess.run(nsenter_prefix + ["/usr/sbin/nginx -s reload"], capture_output=True, text=True, timeout=5)
+    reload_res = subprocess.run(nsenter_prefix + [f"{nginx_bin} -s reload"], capture_output=True, text=True, timeout=5)
     if reload_res.returncode != 0:
         if os.path.exists(config_path):
             os.remove(config_path)
-        raise HTTPException(status_code=500, detail=f"Ошибка перезапуска Nginx: {reload_res.stderr}")
+        raise HTTPException(status_code=500, detail=f"Ошибка перезапуска Nginx: {reload_res.stderr or reload_res.stdout}")
         
     # 7. Добавляем в список пулов и сохраняем
     new_pool = {
@@ -1444,7 +1460,13 @@ def delete_balancer_pool(name: str):
             
     # 2. Перезапускаем Nginx на хосте
     nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
-    subprocess.run(nsenter_prefix + ["/usr/sbin/nginx -s reload"], capture_output=True, timeout=5)
+    which_res = subprocess.run(nsenter_prefix + ["which nginx || find /usr/sbin /usr/local/nginx/sbin /usr/bin -name nginx 2>/dev/null"], capture_output=True, text=True, timeout=5)
+    nginx_bin = "nginx"
+    if which_res.returncode == 0:
+        lines = [line.strip() for line in which_res.stdout.splitlines() if line.strip()]
+        if lines:
+            nginx_bin = lines[0]
+    subprocess.run(nsenter_prefix + [f"{nginx_bin} -s reload"], capture_output=True, timeout=5)
     
     # 3. Обновляем список пулов
     updated_pools = [p for p in pools if p["name"] != name]
