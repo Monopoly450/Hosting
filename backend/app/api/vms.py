@@ -546,34 +546,47 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client)):
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client)):
     try:
-        # Генерируем случайный пароль для рута
-        generated_password = generate_random_password()
+        from app.db import SessionLocal
+        from app.models import VMTask
+        from app.queue_client import publish_task
         
-        # Определяем стандартный логин
-        username = "root"
-        if req.os_type == "ubuntu":
-            username = "ubuntu"
-        elif req.os_type == "windows":
-            username = "Administrator"
+        db = SessionLocal()
+        
+        # Проверяем, нет ли уже такой ВМ
+        existing = db.query(VMTask).filter(VMTask.name == req.name).first()
+        if existing:
+            db.close()
+            raise HTTPException(status_code=400, detail="ВМ с таким именем уже существует или создается.")
             
-        # Windows устанавливается из ISO в ручном режиме, но пароль все равно генерируем
-        # Ubuntu и кастомные образы дисков (если поддерживают cloud-init) настраиваем через cloud-init
-        if req.os_type in ["ubuntu", "centos", "debian", "bitrix", "custom"]:
-            manifest = generate_linux_manifest(req, generated_password)
-            username = "cloud-user" if req.os_type in ["centos", "bitrix"] else ("debian" if req.os_type == "debian" else "ubuntu")
-        elif req.os_type in ["windows", "proxmox"]:
-            manifest = generate_iso_manifest(req)
-            username = "Administrator" # Windows or Installer default
-        else:
-            raise HTTPException(status_code=400, detail="Неверный тип ОС.")
-            
-        # 1. Создаем VM
-        client.create_vm_from_manifest(manifest)
+        task = VMTask(
+            name=req.name,
+            os_type=req.os_type,
+            cpu_cores=req.cpu_cores,
+            memory_gb=req.memory_gb,
+            disk_gb=req.disk_gb,
+            custom_image=req.custom_image,
+            packages=req.packages,
+            network_drives=req.network_drives,
+            status="Pending"
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
         
-        # 2. Сохраняем пароль в Kubernetes Secrets
-        client.create_credentials_secret(req.name, username, generated_password)
+        # Отправляем в RabbitMQ
+        publish_task("vm_tasks", {
+            "task_id": task.id,
+            "action": "create_vm"
+        })
         
-        return {"status": "creating", "name": req.name, "username": username, "password": generated_password}
+        db.close()
+        
+        # Временно возвращаем те же ключи, чтобы фронт не сломался (пароль будет сгенерирован воркером, 
+        # но чтобы не ломать текущий UX фронта, пароль можно будет запрашивать из секрета. 
+        # Пока возвращаем статус).
+        return {"status": "creating", "name": req.name, "task_id": task.id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

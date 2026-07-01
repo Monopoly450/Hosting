@@ -757,3 +757,30 @@ class K8sClient:
             "created_at": creation_timestamp,
             "credentials": credentials
         }
+
+    def create_network_attachment_definition(self, name: str, namespace="default"):
+        """Создает Multus NetworkAttachmentDefinition для приватной сети"""
+        manifest = {
+            "apiVersion": "k8s.cni.cncf.io/v1",
+            "kind": "NetworkAttachmentDefinition",
+            "metadata": {
+                "name": name,
+                "namespace": namespace
+            },
+            "spec": {
+                "config": '{ "cniVersion": "0.3.1", "type": "bridge", "bridge": "br-' + name[:11] + '", "ipam": { "type": "host-local", "subnet": "192.168.100.0/24" } }'
+            }
+        }
+        try:
+            self.custom_api.create_namespaced_custom_object(
+                group="k8s.cni.cncf.io",
+                version="v1",
+                namespace=namespace,
+                plural="network-attachment-definitions",
+                body=manifest
+            )
+            logger.info(f"Created NAD {name}")
+        except ApiException as e:
+            if e.status != 409: # Игнорируем если уже существует
+                logger.error(f"Ошибка создания Multus Network {name}: {e}")
+                raise e

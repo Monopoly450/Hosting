@@ -9,12 +9,28 @@ services:
     environment:
       - POSTGRES_DB=aegis
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d aegis"]
       interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: hosting-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
@@ -31,21 +47,50 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     volumes:
-      # Пробрасываем kubeconfig из K3s для авторизации в Kubernetes API
       - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
-      # Пробрасываем Docker-сокет для администрирования контейнеров
       - /var/run/docker.sock:/var/run/docker.sock:rw
-      # Папка для загрузки и хранения кастомных образов ОС и настроек серверов
       - ./data:/app/data:rw
-      # Пробрасываем корень проекта для Git-интеграции
       - .:/app/repo:rw
     environment:
       - PORT=8000
       - HOST=0.0.0.0
       - IMAGES_DIR=/app/data/images
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/aegis}
+      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@localhost:5672/}
       - ADMIN_TOKEN=${ADMIN_TOKEN}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hosting-worker
+    network_mode: host
+    privileged: true
+    pid: host
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      - ./data:/app/data:rw
+      - .:/app/repo:rw
+    environment:
+      - IMAGES_DIR=/app/data/images
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/aegis}
+      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@localhost:5672/}
     logging:
       driver: "json-file"
       options:

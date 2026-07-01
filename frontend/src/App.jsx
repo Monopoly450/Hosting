@@ -11,6 +11,7 @@ import InfraPanel from './components/InfraPanel';
 import ExternalServerCard from './components/ExternalServerCard';
 import ExternalServerDetail from './components/ExternalServerDetail';
 import ConnectServerModal from './components/ConnectServerModal';
+import ClusterPanel from './components/ClusterPanel';
 
 const App = () => {
   const [authenticated, setAuthenticated] = useState(!!localStorage.getItem('aegis_admin_token'));
@@ -200,6 +201,7 @@ const App = () => {
     switch (activeTab) {
       case 'dashboard': return 'Обзор инфраструктуры';
       case 'vms': return 'Серверы и Инстансы';
+      case 'clusters': return 'Кластеры';
       case 'images': return 'Образы дисков';
       case 'docker': return 'Docker Управление';
       case 'infra': return 'Инфраструктура';
@@ -266,6 +268,14 @@ const App = () => {
           >
             <Activity size={18} />
             Серверы и Инстансы
+          </button>
+
+          <button 
+            className={`nav-item ${activeTab === 'clusters' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => { setActiveTab('clusters'); setSelectedVMDetailName(null); }}
+          >
+            <Layers size={18} />
+            Кластеры
           </button>
 
           <button 
@@ -341,6 +351,8 @@ const App = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
               <HostStats />
             </div>
+          ) : activeTab === 'clusters' ? (
+            <ClusterPanel vms={vms} onRefreshVms={fetchVMs} />
           ) : activeTab === 'vms' ? (
             /* Combined Servers List */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
