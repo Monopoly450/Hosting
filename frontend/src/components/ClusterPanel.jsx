@@ -128,6 +128,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                   <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-heading)' }}>{cluster.name}</h3>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Сеть: {cluster.network_name}</div>
                 </div>
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <span className={`status-badge status-${cluster.status.toLowerCase()}`}>{cluster.status}</span>
                 <button 
