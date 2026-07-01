@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layers, Plus, Server, Activity, ArrowRight, X } from 'lucide-react';
+import { Layers, Plus, Server, Activity, ArrowRight, X, Trash } from 'lucide-react';
 
 const ClusterPanel = ({ vms, onRefreshVms }) => {
   const [clusters, setClusters] = useState([]);
@@ -9,7 +9,9 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
 
   // Form State
   const [clusterName, setClusterName] = useState('');
-  const [clusterVms, setClusterVms] = useState([]);
+  const [clusterVms, setClusterVms] = useState([
+    { name: '', os_type: 'ubuntu', cpu_cores: 2, memory_gb: 2, disk_gb: 20 }
+  ]);
   
   const fetchClusters = async () => {
     try {
@@ -126,8 +128,27 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                   <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-heading)' }}>{cluster.name}</h3>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Сеть: {cluster.network_name}</div>
                 </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span className={`status-badge status-${cluster.status.toLowerCase()}`}>{cluster.status}</span>
+                <button 
+                  className="btn-icon" 
+                  style={{ color: 'var(--status-danger)', background: 'var(--status-danger-bg)' }}
+                  title="Удалить кластер"
+                  onClick={async () => {
+                    if(window.confirm('Вы уверены, что хотите удалить этот кластер? Все ВМ внутри будут безвозвратно удалены!')) {
+                      try {
+                        const res = await fetch(`/api/clusters/${cluster.id}`, { method: 'DELETE' });
+                        if(!res.ok) throw new Error('Ошибка удаления кластера');
+                        onRefreshVms();
+                      } catch(e) {
+                        alert(e.message);
+                      }
+                    }
+                  }}
+                >
+                  <Trash size={16} />
+                </button>
               </div>
-              <span className={`status-badge status-${cluster.status.toLowerCase()}`}>{cluster.status}</span>
             </div>
 
             <div style={{ marginBottom: '16px' }}>
@@ -218,6 +239,10 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                     <div className="input-group">
                       <label className="input-label">Память (ГБ)</label>
                       <input type="number" className="form-control" value={vm.memory_gb} onChange={e => handleUpdateVm(index, 'memory_gb', parseInt(e.target.value))} required />
+                    </div>
+                    <div className="input-group">
+                      <label className="input-label">Диск (ГБ)</label>
+                      <input type="number" className="form-control" value={vm.disk_gb} onChange={e => handleUpdateVm(index, 'disk_gb', parseInt(e.target.value))} min="10" max="500" required />
                     </div>
                   </div>
                 </div>

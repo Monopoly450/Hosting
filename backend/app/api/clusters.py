@@ -117,3 +117,33 @@ def list_clusters():
         ]
     finally:
         db.close()
+
+@router.delete("/{cluster_id}", status_code=status.HTTP_200_OK)
+def delete_cluster(cluster_id: int):
+    db = SessionLocal()
+    try:
+        cluster = db.query(Cluster).filter(Cluster.id == cluster_id).first()
+        if not cluster:
+            raise HTTPException(status_code=404, detail="Кластер не найден")
+        
+        # Получаем все ВМ в кластере
+        vms = db.query(VMTask).filter(VMTask.cluster_id == cluster_id).all()
+        for vm in vms:
+            # Отправляем задачу на удаление каждой ВМ
+            publish_task("vm_tasks", {
+                "task_id": vm.id,
+                "action": "delete_vm"
+            })
+            db.delete(vm)
+            
+        # Удаляем сетевое окружение кластера через воркер
+        publish_task("vm_tasks", {
+            "task_id": cluster.id,
+            "action": "delete_cluster_env"
+        })
+        
+        db.delete(cluster)
+        db.commit()
+        return {"status": "Deleting cluster and its VMs"}
+    finally:
+        db.close()

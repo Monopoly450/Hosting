@@ -182,7 +182,14 @@ def callback(ch, method, properties, body):
             process_vm_task(db, task_id)
         elif action == "attach_network":
             process_attach_network(db, task_id, data.get("network_name"))
-        # Можно добавить delete_vm и т.д.
+        elif action == "delete_vm":
+            task = db.query(VMTask).filter(VMTask.id == task_id).first()
+            if task:
+                k8s.delete_vm(task.name)
+        elif action == "delete_cluster_env":
+            cluster = db.query(Cluster).filter(Cluster.id == task_id).first()
+            if cluster:
+                k8s.delete_cluster_env(str(cluster.id))
     finally:
         db.close()
     
