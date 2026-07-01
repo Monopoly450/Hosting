@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from app.db import SessionLocal
-from app.models import Cluster, VMTask
+from app.models.models import Cluster, VMTask
 from app.queue_client import publish_task
 from app.api.vms import VMCreationRequest
 

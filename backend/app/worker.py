@@ -4,8 +4,9 @@ import time
 import logging
 import pika
 from sqlalchemy.orm import Session
-from .db import SessionLocal, engine, Base
-from .models import VMTask, Cluster
+from .db import SessionLocal, engine
+from .models.models import VMTask, Cluster
+from .core.database import Base
 from .core.k8s_client import K8sClient
 from .api.vms import add_port_forward
 

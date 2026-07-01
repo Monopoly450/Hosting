@@ -547,7 +547,7 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client)):
 def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client)):
     try:
         from app.db import SessionLocal
-        from app.models import VMTask
+        from app.models.models import VMTask
         from app.queue_client import publish_task
         
         db = SessionLocal()
