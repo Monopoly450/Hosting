@@ -1395,7 +1395,7 @@ server {{
     nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
     
     # Проверка
-    test_res = subprocess.run(nsenter_prefix + ["nginx -t"], capture_output=True, text=True, timeout=5)
+    test_res = subprocess.run(nsenter_prefix + ["/usr/sbin/nginx -t"], capture_output=True, text=True, timeout=5)
     if test_res.returncode != 0:
         # Откат изменений
         if os.path.exists(config_path):
@@ -1403,7 +1403,7 @@ server {{
         raise HTTPException(status_code=400, detail=f"Конфигурация Nginx не прошла валидацию: {test_res.stderr}")
         
     # Перезапуск
-    reload_res = subprocess.run(nsenter_prefix + ["nginx -s reload"], capture_output=True, text=True, timeout=5)
+    reload_res = subprocess.run(nsenter_prefix + ["/usr/sbin/nginx -s reload"], capture_output=True, text=True, timeout=5)
     if reload_res.returncode != 0:
         if os.path.exists(config_path):
             os.remove(config_path)
@@ -1444,7 +1444,7 @@ def delete_balancer_pool(name: str):
             
     # 2. Перезапускаем Nginx на хосте
     nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
-    subprocess.run(nsenter_prefix + ["nginx -s reload"], capture_output=True, timeout=5)
+    subprocess.run(nsenter_prefix + ["/usr/sbin/nginx -s reload"], capture_output=True, timeout=5)
     
     # 3. Обновляем список пулов
     updated_pools = [p for p in pools if p["name"] != name]
