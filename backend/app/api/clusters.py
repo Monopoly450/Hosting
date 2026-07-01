@@ -112,7 +112,14 @@ def list_clusters():
                 "network_name": c.network_name,
                 "status": c.status,
                 "created_at": c.created_at,
-                "vms": [{"name": v.name, "status": v.status} for v in c.vms]
+                "vms": [{
+                    "name": v.name,
+                    "status": v.status,
+                    "os_type": v.os_type,
+                    "cpu_cores": v.cpu_cores,
+                    "memory_gb": v.memory_gb,
+                    "disk_gb": v.disk_gb
+                } for v in c.vms]
             } for c in clusters
         ]
     finally:
