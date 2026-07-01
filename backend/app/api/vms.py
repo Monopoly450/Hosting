@@ -172,7 +172,6 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
                             }
                         },
                         "devices": {
-                            "autoattachPodInterface": False,
                             "disks": [
                                 {
                                     "name": "datavolume",
@@ -189,9 +188,8 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
                             ],
                             "interfaces": [
                                 {
-                                    "name": "bridge-net",
-                                    "bridge": {},
-                                    "macAddress": generate_mac_address(req.name)
+                                    "name": "default",
+                                    "masquerade": {}
                                 }
                             ],
                             "inputs": [
@@ -205,10 +203,8 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
                     },
                     "networks": [
                         {
-                            "name": "bridge-net",
-                            "multus": {
-                                "networkName": "bridge-network"
-                            }
+                            "name": "default",
+                            "pod": {}
                         }
                     ],
                     "volumes": [
@@ -355,7 +351,6 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                             }
                         },
                         "devices": {
-                            "autoattachPodInterface": False,
                             "disks": [
                                 {
                                     "name": "winhd",
@@ -380,9 +375,8 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                             ],
                             "interfaces": [
                                 {
-                                    "name": "bridge-net",
-                                    "bridge": {},
-                                    "macAddress": generate_mac_address(req.name)
+                                    "name": "default",
+                                    "masquerade": {}
                                 }
                             ],
                             "inputs": [
@@ -396,10 +390,8 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                     },
                     "networks": [
                         {
-                            "name": "bridge-net",
-                            "multus": {
-                                "networkName": "bridge-network"
-                            }
+                            "name": "default",
+                            "pod": {}
                         }
                     ],
                     "volumes": [
