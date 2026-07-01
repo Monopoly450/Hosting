@@ -147,6 +147,8 @@ const App = () => {
         let errMsg = 'Не удалось создать ВМ.';
         if (typeof err.detail === 'string') {
           errMsg = err.detail;
+        } else if (Array.isArray(err.detail)) {
+          errMsg = err.detail.map(e => `${e.loc.join('.')}: ${e.msg}`).join(', ');
         }
         throw new Error(errMsg);
       }

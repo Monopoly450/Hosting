@@ -63,7 +63,13 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.detail || 'Ошибка создания кластера');
+        let errorMsg = 'Ошибка создания кластера';
+        if (typeof data.detail === 'string') {
+          errorMsg = data.detail;
+        } else if (Array.isArray(data.detail)) {
+          errorMsg = data.detail.map(e => `${e.loc.join('.')}: ${e.msg}`).join(', ');
+        }
+        throw new Error(errorMsg);
       }
       setShowCreate(false);
       setClusterName('');
