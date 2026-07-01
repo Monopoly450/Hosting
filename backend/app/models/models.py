@@ -1,4 +1,6 @@
-from sqlalchemy import Column, String, Integer, Float, Boolean
+from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
+import datetime
 from sqlalchemy.dialects.postgresql import JSONB
 from app.core.database import Base
 
@@ -60,8 +62,6 @@ class Cluster(Base):
     network_name = Column(String)  # Multus NetworkAttachmentDefinition name
     status = Column(String, default="Creating") # Creating, Active, Error
     
-    import datetime
-    from sqlalchemy import DateTime
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
     # lazy="selectin" or just use string for imports if not needed
@@ -73,7 +73,6 @@ class VMTask(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
-    from sqlalchemy import ForeignKey
     cluster_id = Column(Integer, ForeignKey("clusters.id"), nullable=True)
     
     # VM Spec
