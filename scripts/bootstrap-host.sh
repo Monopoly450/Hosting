@@ -50,9 +50,9 @@ fi
 log "Активный сетевой интерфейс хоста: $ACTIVE_IFACE"
 
 # 4. Установка зависимостей
-log "Установка необходимых пакетов (curl, iptables, bridge-utils, docker)..."
+log "Установка необходимых пакетов (curl, iptables, bridge-utils, docker, nginx)..."
 apt-get update
-apt-get install -y curl iptables bridge-utils jq net-tools openssl
+apt-get install -y curl iptables bridge-utils jq net-tools openssl nginx
 
 # Установка Docker и Docker Compose v2 для запуска панели
 log "Проверка и установка Docker & Docker Compose..."
