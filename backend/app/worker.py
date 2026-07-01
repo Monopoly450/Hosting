@@ -67,7 +67,7 @@ def process_vm_task(db: Session, task_id: int):
             network_drives = task.network_drives
         
         # Вызываем логику создания ВМ
-        from .api.vms import generate_linux_manifest, generate_iso_manifest, generate_random_password
+        from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password
         
         generated_password = generate_random_password()
         
@@ -75,7 +75,7 @@ def process_vm_task(db: Session, task_id: int):
             manifest = generate_linux_manifest(FakeReq(), generated_password)
             username = "cloud-user" if task.os_type in ["centos", "bitrix"] else ("debian" if task.os_type == "debian" else "ubuntu")
         elif task.os_type in ["windows", "proxmox"]:
-            manifest = generate_iso_manifest(FakeReq())
+            manifest = generate_windows_manifest(FakeReq())
             username = "Administrator"
         else:
             raise Exception("Неверный тип ОС.")
