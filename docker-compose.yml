@@ -58,7 +58,7 @@ services:
       - PORT=8000
       - HOST=0.0.0.0
       - IMAGES_DIR=/app/data/images
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/aegis}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5432/aegis}
       - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@localhost:5672/}
       - ADMIN_TOKEN=${ADMIN_TOKEN}
     logging:
@@ -89,7 +89,7 @@ services:
       - .:/app/repo:rw
     environment:
       - IMAGES_DIR=/app/data/images
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/aegis}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5432/aegis}
       - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@localhost:5672/}
     logging:
       driver: "json-file"
