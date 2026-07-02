@@ -121,7 +121,15 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
           <div style={{ fontSize: '1.75rem', lineHeight: 1 }}>{getOSIcon(vm.os_type)}</div>
           <div>
             <div style={{ fontWeight: 600, color: 'var(--text-heading)', fontSize: '1.05rem', marginBottom: '2px' }}>{vm.name}</div>
-            <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase' }}>{vm.os_type} OS</div>
+            <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span>{vm.os_type} OS</span>
+              {vm.owner_username && (
+                <>
+                  <span style={{ width: '4px', height: '4px', borderRadius: '50%', backgroundColor: 'var(--border-subtle)' }}></span>
+                  <span style={{ color: 'var(--accent-primary)', fontWeight: 500 }}>👤 {vm.owner_username}</span>
+                </>
+              )}
+            </div>
           </div>
         </div>
         <span className={`badge ${getBadgeClass(vm.status)}`}>

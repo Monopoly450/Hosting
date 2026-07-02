@@ -553,14 +553,20 @@ def list_vms(client: K8sClient = Depends(get_k8s_client), current_user: User = D
     try:
         all_vms = client.list_vms()
         from app.db import SessionLocal
-        from app.models.models import VMTask
+        from app.models.models import VMTask, User
         db = SessionLocal()
         try:
             if current_user.role == "admin":
                 db_vms = db.query(VMTask).all()
+                db_users = db.query(User).all()
+                user_map = {u.id: u.username for u in db_users}
+                
                 db_vm_map = {vm.name: vm.id for vm in db_vms}
+                db_vm_owner_map = {vm.name: user_map.get(vm.owner_id, "Unknown") for vm in db_vms}
                 for vm in all_vms:
-                    vm["id"] = db_vm_map.get(vm.get("name"))
+                    name = vm.get("name")
+                    vm["id"] = db_vm_map.get(name)
+                    vm["owner_username"] = db_vm_owner_map.get(name, "Unknown")
                 return all_vms
             else:
                 db_vms = db.query(VMTask).filter(VMTask.owner_id == current_user.id).all()
@@ -570,6 +576,7 @@ def list_vms(client: K8sClient = Depends(get_k8s_client), current_user: User = D
                     name = vm.get("name")
                     if name in db_vm_map:
                         vm["id"] = db_vm_map[name]
+                        vm["owner_username"] = current_user.username
                         filtered_vms.append(vm)
                 return filtered_vms
         finally:
