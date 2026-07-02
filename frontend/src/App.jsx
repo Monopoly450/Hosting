@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -46,6 +46,20 @@ const App = () => {
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [selectedServerId, setSelectedServerId] = useState(null);
   const [selectedVMDetailName, setSelectedVMDetailName] = useState(null);
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [theme, setTheme] = useState(localStorage.getItem('aegis_theme') || 'dark');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('aegis_theme', theme);
+  }, [theme]);
+
+  const navigateToTab = (tab) => {
+    setActiveTab(tab);
+    setSelectedVMDetailName(null);
+    setSidebarOpen(false);
+  };
 
   // VM Creation Form
   const [name, setName] = useState('');
@@ -349,8 +363,14 @@ const App = () => {
 
   return (
     <div className="app-layout">
+      {/* Sidebar mobile overlay */}
+      <div 
+        className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`} 
+        onClick={() => setSidebarOpen(false)} 
+      />
+
       {/* Left Sidebar */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-logo">
           <Layers className="logo-icon" size={28} strokeWidth={2.5} />
           <span className="logo-text">ByteBurnes</span>
@@ -360,7 +380,7 @@ const App = () => {
           {userRole === 'admin' && (
             <button 
               className={`nav-item ${activeTab === 'dashboard' && !selectedVMDetailName ? 'active' : ''}`}
-              onClick={() => { setActiveTab('dashboard'); setSelectedVMDetailName(null); }}
+              onClick={() => navigateToTab('dashboard')}
             >
               <LayoutDashboard size={18} />
               Дашборд
@@ -369,7 +389,7 @@ const App = () => {
 
           <button 
             className={`nav-item ${(activeTab === 'vms' || selectedVMDetailName) ? 'active' : ''}`}
-            onClick={() => { setActiveTab('vms'); setSelectedVMDetailName(null); }}
+            onClick={() => navigateToTab('vms')}
           >
             <Activity size={18} />
             Серверы и Инстансы
@@ -377,7 +397,7 @@ const App = () => {
 
           <button 
             className={`nav-item ${activeTab === 'clusters' && !selectedVMDetailName ? 'active' : ''}`}
-            onClick={() => { setActiveTab('clusters'); setSelectedVMDetailName(null); }}
+            onClick={() => navigateToTab('clusters')}
           >
             <Layers size={18} />
             Кластеры
@@ -385,7 +405,7 @@ const App = () => {
 
           <button 
             className={`nav-item ${activeTab === 'balancer' && !selectedVMDetailName ? 'active' : ''}`}
-            onClick={() => { setActiveTab('balancer'); setSelectedVMDetailName(null); }}
+            onClick={() => navigateToTab('balancer')}
           >
             <Shuffle size={18} />
             Балансировщик
@@ -394,7 +414,7 @@ const App = () => {
           {userRole === 'admin' && (
             <button 
               className={`nav-item ${activeTab === 'images' && !selectedVMDetailName ? 'active' : ''}`}
-              onClick={() => { setActiveTab('images'); setSelectedVMDetailName(null); }}
+              onClick={() => navigateToTab('images')}
             >
               <FolderOpen size={18} />
               Образы ОС
@@ -403,7 +423,7 @@ const App = () => {
 
           <button 
             className={`nav-item ${activeTab === 'databases' && !selectedVMDetailName ? 'active' : ''}`}
-            onClick={() => { setActiveTab('databases'); setSelectedVMDetailName(null); }}
+            onClick={() => navigateToTab('databases')}
           >
             <Database size={18} />
             Базы данных
@@ -411,7 +431,7 @@ const App = () => {
 
           <button 
             className={`nav-item ${activeTab === 's3' && !selectedVMDetailName ? 'active' : ''}`}
-            onClick={() => { setActiveTab('s3'); setSelectedVMDetailName(null); }}
+            onClick={() => navigateToTab('s3')}
           >
             <FolderOpen size={18} />
             S3 Хранилище
@@ -419,7 +439,7 @@ const App = () => {
 
           <button 
             className={`nav-item ${activeTab === 'volumes' && !selectedVMDetailName ? 'active' : ''}`}
-            onClick={() => { setActiveTab('volumes'); setSelectedVMDetailName(null); }}
+            onClick={() => navigateToTab('volumes')}
           >
             <HardDrive size={18} />
             Сетевые диски
@@ -427,7 +447,7 @@ const App = () => {
 
           <button 
             className={`nav-item ${activeTab === 'mail' && !selectedVMDetailName ? 'active' : ''}`}
-            onClick={() => { setActiveTab('mail'); setSelectedVMDetailName(null); }}
+            onClick={() => navigateToTab('mail')}
           >
             <Mail size={18} />
             Почтовый хостинг
@@ -437,7 +457,7 @@ const App = () => {
             <>
               <button 
                 className={`nav-item ${activeTab === 'docker' && !selectedVMDetailName ? 'active' : ''}`}
-                onClick={() => { setActiveTab('docker'); setSelectedVMDetailName(null); }}
+                onClick={() => navigateToTab('docker')}
               >
                 <Shield size={18} />
                 Docker Управление
@@ -445,7 +465,7 @@ const App = () => {
 
               <button 
                 className={`nav-item ${activeTab === 'infra' && !selectedVMDetailName ? 'active' : ''}`}
-                onClick={() => { setActiveTab('infra'); setSelectedVMDetailName(null); }}
+                onClick={() => navigateToTab('infra')}
               >
                 <Terminal size={18} />
                 Инфраструктура
@@ -453,7 +473,7 @@ const App = () => {
 
               <button 
                 className={`nav-item ${activeTab === 'users' && !selectedVMDetailName ? 'active' : ''}`}
-                onClick={() => { setActiveTab('users'); setSelectedVMDetailName(null); }}
+                onClick={() => navigateToTab('users')}
               >
                 <Users size={18} />
                 Пользователи
@@ -539,9 +559,21 @@ const App = () => {
       {/* Main Area */}
       <div className="main-area">
         <header className="top-header">
-          <div className="header-title">{getTabTitle()}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button className="btn-menu" onClick={() => setSidebarOpen(true)}>
+              <Menu size={20} />
+            </button>
+            <div className="header-title">{getTabTitle()}</div>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            {/* Header widgets could go here */}
+            <button 
+              className="btn btn-secondary btn-icon" 
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              style={{ borderRadius: 'var(--radius-pill)', width: '36px', height: '36px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              title="Переключить тему"
+            >
+              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
           </div>
         </header>
 
