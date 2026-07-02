@@ -646,12 +646,12 @@ body {
   }
 
   .top-header {
-    padding: 0 16px;
-    height: 60px;
+    padding: 0 12px;
+    height: 56px;
   }
 
   .content-container {
-    padding: 16px 12px;
+    padding: 12px 8px;
   }
 
   /* Grid adjustments for mobile */
@@ -677,6 +677,64 @@ body {
 
   .desktop-only {
     display: none !important;
+  }
+
+  /* Mobile Card adjustments */
+  .glass-card {
+    padding: 16px !important;
+    border-radius: var(--radius-md) !important;
+  }
+
+  .login-card {
+    padding: 24px !important;
+  }
+
+  .stat-box {
+    padding: 12px !important;
+  }
+
+  .stat-box-value {
+    font-size: 1.5rem !important;
+  }
+
+  .panel-title {
+    font-size: 1.25rem !important;
+  }
+
+  .panel-subtitle {
+    font-size: 0.8rem !important;
+  }
+
+  /* Detail key-value tables stacking */
+  .glass-card table:not(.table-responsive table) {
+    display: block !important;
+    width: 100% !important;
+  }
+  .glass-card table:not(.table-responsive table) tbody,
+  .glass-card table:not(.table-responsive table) tr,
+  .glass-card table:not(.table-responsive table) td {
+    display: block !important;
+    width: 100% !important;
+  }
+  .glass-card table:not(.table-responsive table) tr {
+    display: flex !important;
+    flex-direction: column !important;
+    padding: 10px 0 !important;
+    border-bottom: 1px solid var(--border-subtle) !important;
+  }
+  .glass-card table:not(.table-responsive table) td {
+    text-align: left !important;
+    padding: 2px 0 !important;
+  }
+  .glass-card table:not(.table-responsive table) td:first-child {
+    color: var(--text-secondary) !important;
+    font-size: 0.75rem !important;
+    text-transform: uppercase !important;
+    margin-bottom: 2px !important;
+  }
+  .glass-card table:not(.table-responsive table) td:last-child {
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
   }
 }
 
