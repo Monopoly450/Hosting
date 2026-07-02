@@ -93,10 +93,11 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: openebs-lvm
-provisioner: lvm.openebs.io
+provisioner: local.csi.openebs.io
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
 parameters:
+  storage: "lvm"
   volgroup: "vg-aegis"
 EOF
 
