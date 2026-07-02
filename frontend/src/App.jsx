@@ -43,6 +43,7 @@ const App = () => {
   const [editingVM, setEditingVM] = useState(null);
   const [showCreateVM, setShowCreateVM] = useState(false);
   const [showConnectModal, setShowConnectModal] = useState(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [selectedServerId, setSelectedServerId] = useState(null);
   const [selectedVMDetailName, setSelectedVMDetailName] = useState(null);
 
@@ -515,10 +516,15 @@ const App = () => {
               <span className="status-dot" style={{ backgroundColor: 'var(--status-success)', width: '8px', height: '8px' }}></span>
               <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>{username || 'Администратор'}</span>
             </div>
-            {quotaUsage && userRole !== 'admin' && (
-              <span style={{ fontSize: '0.75rem', color: 'var(--accent-primary)' }}>Баланс: {quotaUsage.balance.toFixed(2)} ₽</span>
-            )}
           </div>
+          <button 
+            className="nav-item" 
+            style={{ width: '100%', color: 'var(--text-secondary)', marginBottom: '4px' }}
+            onClick={() => setShowChangePasswordModal(true)}
+          >
+            <Key size={18} />
+            Сменить пароль
+          </button>
           <button 
             className="nav-item" 
             style={{ width: '100%', color: 'var(--status-danger)' }}
@@ -835,6 +841,105 @@ const App = () => {
         />
       )}
 
+      {showChangePasswordModal && (
+        <ChangePasswordModal onClose={() => setShowChangePasswordModal(false)} />
+      )}
+
+    </div>
+  );
+};
+
+const ChangePasswordModal = ({ onClose }) => {
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setError('Новые пароли не совпадают');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('aegis_admin_token')}`
+        },
+        body: JSON.stringify({
+          old_password: oldPassword,
+          new_password: newPassword
+        })
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.detail || 'Не удалось изменить пароль');
+      }
+      alert('Пароль успешно изменен');
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="slide-over-overlay" onClick={onClose}>
+      <div className="slide-over-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+        <div className="slide-over-header">
+          <h2>Смена пароля</h2>
+          <button className="btn-close" onClick={onClose} type="button">
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="slide-over-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {error && <div className="alert alert-danger">{error}</div>}
+          <div className="input-group">
+            <label className="input-label">Текущий пароль</label>
+            <input 
+              type="password" 
+              className="form-control" 
+              value={oldPassword} 
+              onChange={e => setOldPassword(e.target.value)} 
+              required 
+            />
+          </div>
+          <div className="input-group">
+            <label className="input-label">Новый пароль</label>
+            <input 
+              type="password" 
+              className="form-control" 
+              value={newPassword} 
+              onChange={e => setNewPassword(e.target.value)} 
+              required 
+            />
+          </div>
+          <div className="input-group">
+            <label className="input-label">Подтвердите новый пароль</label>
+            <input 
+              type="password" 
+              className="form-control" 
+              value={confirmPassword} 
+              onChange={e => setConfirmPassword(e.target.value)} 
+              required 
+            />
+          </div>
+          <div style={{ marginTop: 'auto', display: 'flex', gap: '12px', paddingTop: '20px' }}>
+            <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={onClose}>
+              Отмена
+            </button>
+            <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={loading}>
+              {loading ? <span className="spinner" /> : 'Сохранить'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };

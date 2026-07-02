@@ -17,6 +17,49 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
     const [maxVms, setMaxVms] = useState(2);
     const [maxStorageGb, setMaxStorageGb] = useState(40);
 
+    // Edit user fields
+    const [editingUser, setEditingUser] = useState(null);
+    const [editMaxVcpus, setEditMaxVcpus] = useState(4);
+    const [editMaxRamMb, setEditMaxRamMb] = useState(4096);
+    const [editMaxVms, setEditMaxVms] = useState(2);
+    const [editMaxStorageGb, setEditMaxStorageGb] = useState(40);
+    const [editPassword, setEditPassword] = useState('');
+
+    const handleStartEdit = (user) => {
+        setEditingUser(user);
+        setEditMaxVcpus(user.max_vcpus);
+        setEditMaxRamMb(user.max_ram_mb);
+        setEditMaxVms(user.max_vms);
+        setEditMaxStorageGb(user.max_storage_gb);
+        setEditPassword('');
+    };
+
+    const handleEditUser = async (e) => {
+        e.preventDefault();
+        try {
+            const res = await fetch(`${apiUrl}/api/auth/users/${editingUser.id}`, {
+                method: 'PUT',
+                headers: getHeaders(),
+                body: JSON.stringify({
+                    max_vcpus: Number(editMaxVcpus),
+                    max_ram_mb: Number(editMaxRamMb),
+                    max_vms: Number(editMaxVms),
+                    max_storage_gb: Number(editMaxStorageGb),
+                    password: editPassword || null
+                })
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || 'Ошибка изменения пользователя');
+            }
+            
+            setEditingUser(null);
+            fetchUsers();
+        } catch (err) {
+            alert(err.message || 'Ошибка изменения пользователя');
+        }
+    };
+
     const getHeaders = () => ({
         'Authorization': `Bearer ${apiToken}`,
         'Content-Type': 'application/json'
@@ -160,6 +203,13 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
                                     <td>{u.max_storage_gb} GB</td>
                                     <td>
                                         <button 
+                                            className="btn btn-secondary btn-sm" 
+                                            onClick={() => handleStartEdit(u)}
+                                            style={{ padding: '4px 8px', fontSize: '12px', marginRight: '8px' }}
+                                        >
+                                            Редактировать
+                                        </button>
+                                        <button 
                                             className="btn btn-danger btn-sm" 
                                             onClick={() => handleDeleteUser(u.id)}
                                             style={{ padding: '4px 8px', fontSize: '12px' }}
@@ -288,6 +338,90 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
                                 </button>
                                 <button type="submit" className="btn btn-primary">
                                     Создать
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {editingUser && (
+                <div className="slide-over-overlay" onClick={() => setEditingUser(null)}>
+                    <div className="slide-over-content" onClick={e => e.stopPropagation()}>
+                        <div className="slide-over-header">
+                            <h2>Редактирование пользователя: {editingUser.username}</h2>
+                            <button className="btn-close" onClick={() => setEditingUser(null)} type="button">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleEditUser} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            <div className="slide-over-body">
+                                <div className="input-group">
+                                    <label className="input-label">Новый пароль (оставьте пустым, чтобы не менять)</label>
+                                    <input 
+                                        type="text" 
+                                        className="form-control" 
+                                        value={editPassword} 
+                                        onChange={e => setEditPassword(e.target.value)} 
+                                        placeholder="Введите новый пароль, если хотите изменить"
+                                    />
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '15px' }}>
+                                    <div className="input-group">
+                                        <label className="input-label">Лимит CPU (ядер)</label>
+                                        <input 
+                                            type="number" 
+                                            className="form-control" 
+                                            value={editMaxVcpus} 
+                                            onChange={e => setEditMaxVcpus(e.target.value)} 
+                                            min="1" 
+                                            required
+                                        />
+                                    </div>
+                                    <div className="input-group">
+                                        <label className="input-label">Лимит RAM (МБ)</label>
+                                        <input 
+                                            type="number" 
+                                            className="form-control" 
+                                            value={editMaxRamMb} 
+                                            onChange={e => setEditMaxRamMb(e.target.value)} 
+                                            min="256" 
+                                            step="256"
+                                            required
+                                        />
+                                    </div>
+                                    <div className="input-group">
+                                        <label className="input-label">Лимит ВМ (шт)</label>
+                                        <input 
+                                            type="number" 
+                                            className="form-control" 
+                                            value={editMaxVms} 
+                                            onChange={e => setEditMaxVms(e.target.value)} 
+                                            min="1" 
+                                            required
+                                        />
+                                    </div>
+                                    <div className="input-group">
+                                        <label className="input-label">Лимит диска (ГБ)</label>
+                                        <input 
+                                            type="number" 
+                                            className="form-control" 
+                                            value={editMaxStorageGb} 
+                                            onChange={e => setEditMaxStorageGb(e.target.value)} 
+                                            min="5" 
+                                            required
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="slide-over-actions">
+                                <button type="button" className="btn btn-secondary" onClick={() => setEditingUser(null)}>
+                                    Отмена
+                                </button>
+                                <button type="submit" className="btn btn-primary">
+                                    Сохранить
                                 </button>
                             </div>
                         </form>

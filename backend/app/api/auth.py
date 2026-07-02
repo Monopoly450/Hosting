@@ -47,6 +47,17 @@ class UserListItem(BaseModel):
     max_vms: int
     max_storage_gb: int
 
+class UserUpdateRequest(BaseModel):
+    max_vcpus: int
+    max_ram_mb: int
+    max_vms: int
+    max_storage_gb: int
+    password: Optional[str] = None
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
 # --- ЭНДПОИНТЫ ---
 
 @router.post("/login", response_model=TokenResponse)
@@ -163,3 +174,32 @@ async def delete_user(user_id: int, admin: User = Depends(check_admin), db: Asyn
     await db.delete(user)
     await db.commit()
     return {"status": "deleted"}
+
+@router.put("/users/{user_id}")
+async def update_user(user_id: int, req: UserUpdateRequest, admin: User = Depends(check_admin), db: AsyncSession = Depends(get_db)):
+    """Редактирование лимитов и пароля пользователя администратором"""
+    res = await db.execute(select(User).filter_by(id=user_id))
+    user = res.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    user.max_vcpus = req.max_vcpus
+    user.max_ram_mb = req.max_ram_mb
+    user.max_vms = req.max_vms
+    user.max_storage_gb = req.max_storage_gb
+    
+    if req.password and req.password.strip():
+        user.password_hash = hash_password(req.password.strip())
+        
+    await db.commit()
+    return {"status": "updated"}
+
+@router.post("/change-password")
+async def change_own_password(req: ChangePasswordRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Смена пароля самим пользователем"""
+    if not verify_password(req.password_hash if hasattr(req, "password_hash") else req.old_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Неверный старый пароль")
+    
+    current_user.password_hash = hash_password(req.new_password)
+    await db.commit()
+    return {"status": "success", "detail": "Пароль успешно изменен"}
