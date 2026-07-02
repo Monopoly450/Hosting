@@ -554,6 +554,14 @@ body {
   color: var(--text-heading);
 }
 
+.stat-box-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
 /* Login screen */
 .login-wrapper {
   display: flex;
@@ -695,6 +703,12 @@ body {
 
   .stat-box-value {
     font-size: 1.5rem !important;
+  }
+
+  .stat-box-meta {
+    flex-direction: column !important;
+    gap: 4px !important;
+    align-items: flex-start !important;
   }
 
   .panel-title {
