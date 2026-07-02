@@ -94,6 +94,11 @@ const HostStats = ({ onMetricsLoaded }) => {
             <span>Текущая: {metrics.cpu.usage_cores} / {metrics.cpu.total_cores} ядер</span>
             <span>Занято ВМ: {metrics.cpu.reserved_cores} (своб. {metrics.cpu.available_cores})</span>
           </div>
+          {metrics.cpu.model && (
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={metrics.cpu.model}>
+              ЦП: {metrics.cpu.sockets > 1 ? `${metrics.cpu.sockets}x ` : ''}{metrics.cpu.model}
+            </div>
+          )}
         </div>
 
         {/* RAM */}
@@ -163,6 +168,14 @@ const HostStats = ({ onMetricsLoaded }) => {
           <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px' }}>Host Node</div>
           <div style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.node_name}</div>
         </div>
+        {metrics.cpu.model && (
+          <div>
+            <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px' }}>Processor</div>
+            <div style={{ fontWeight: 600, color: 'var(--text-heading)', fontSize: '0.85rem' }}>
+              {metrics.cpu.sockets > 1 ? `${metrics.cpu.sockets}x ` : ''}{metrics.cpu.model}
+            </div>
+          </div>
+        )}
         <div>
           <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', marginBottom: '4px' }}>Architecture</div>
           <div style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.architecture}</div>
