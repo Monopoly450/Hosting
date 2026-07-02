@@ -176,6 +176,18 @@ export default function DatabasesPanel() {
         return window.location.hostname;
     };
 
+    const getVmIp = (vm) => {
+        if (!vm || !vm.ips || vm.ips.length === 0) return null;
+        const bridgeIp = vm.ips.find(ip => 
+            !ip.startsWith('10.244.') && 
+            !ip.startsWith('10.42.') && 
+            !ip.startsWith('10.0.2.') && 
+            !ip.startsWith('127.0.') && 
+            !ip.includes(':')
+        );
+        return bridgeIp || vm.ips[0] || null;
+    };
+
     return (
         <div className="panel-container">
             <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -387,11 +399,14 @@ export default function DatabasesPanel() {
                                         required
                                     >
                                         <option value="">-- Выберите ВМ --</option>
-                                        {vms.map(vm => (
-                                            <option key={vm.id} value={vm.id}>
-                                                {vm.name} ({vm.ip || 'Нет IP'})
-                                            </option>
-                                        ))}
+                                        {vms.map(vm => {
+                                            const ip = getVmIp(vm);
+                                            return (
+                                                <option key={vm.id} value={vm.id}>
+                                                    {vm.name} ({ip || 'Нет IP'})
+                                                </option>
+                                            );
+                                        })}
                                     </select>
                                 </div>
                             </div>
