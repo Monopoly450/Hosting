@@ -87,8 +87,37 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
         reserved_ram_gb = 0
         reserved_disk_gb = 0
 
+        # Get host CPU model and socket count
+        cpu_model = "Unknown Processor"
+        physical_ids = set()
+        if os.path.exists("/proc/cpuinfo"):
+            try:
+                with open("/proc/cpuinfo", "r") as f:
+                    for line in f:
+                        if "model name" in line:
+                            cpu_model = line.split(":", 1)[1].strip()
+                        elif "physical id" in line:
+                            physical_ids.add(line.split(":", 1)[1].strip())
+            except Exception:
+                pass
+        cpu_sockets = len(physical_ids) if physical_ids else 1
+
         db = SessionLocal()
         try:
+            # Получаем реальный список виртуальных машин из Kubernetes для синхронизации
+            try:
+                all_k8s_vms = {v["name"] for v in client.list_vms()}
+            except Exception:
+                all_k8s_vms = None
+
+            # Если успешно получили список из K8s, удаляем осиротевшие записи из БД
+            if all_k8s_vms is not None:
+                db_vms = db.query(VMTask).all()
+                for vm in db_vms:
+                    if vm.name not in all_k8s_vms:
+                        db.delete(vm)
+                db.commit()
+
             db_vms = db.query(VMTask).all()
             reserved_cpu_cores = sum(vm.cpu_cores for vm in db_vms)
             reserved_ram_gb = sum(vm.memory_gb for vm in db_vms)
@@ -108,7 +137,9 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                 "usage_cores": round(cpu_usage_milli / 1000, 2),
                 "usage_percent": round((cpu_usage_milli / 1000) / cpu_capacity * 100, 1) if cpu_capacity else 0,
                 "reserved_cores": reserved_cpu_cores,
-                "available_cores": max(0, cpu_capacity - reserved_cpu_cores)
+                "available_cores": max(0, cpu_capacity - reserved_cpu_cores),
+                "model": cpu_model,
+                "sockets": cpu_sockets
             },
             "memory": {
                 "total_gb": total_ram_gb,
