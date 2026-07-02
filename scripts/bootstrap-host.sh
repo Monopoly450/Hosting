@@ -247,10 +247,12 @@ kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEV
 log "Применение KubeVirt Custom Resource..."
 kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml"
 
-# Если KVM не поддерживается процессором в VMware, включаем программную эмуляцию
+# Настройка параметров KubeVirt (включаем горячее подключение дисков HotplugVolumes и эмуляцию при необходимости)
+log "Настройка конфигурации KubeVirt (Feature Gates)..."
 if [ "$KVM_SUPPORTED" = false ]; then
-    log "Настройка KubeVirt для работы в режиме эмуляции (без KVM)..."
-    kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true}}}}'
+    kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true,"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes"]}}}}'
+else
+    kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes"]}}}}'
 fi
 
 # Ждем развертывания KubeVirt
