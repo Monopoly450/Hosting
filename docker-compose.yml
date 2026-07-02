@@ -187,7 +187,7 @@ services:
       - ENABLE_FAIL2BAN=0
       - ENABLE_POSTGREY=0
       - ONE_DIR=1
-      - SSL_TYPE=none
+      - SSL_TYPE=self-signed
     volumes:
       - mail_data:/var/mail
       - mail_state:/var/mail-state
