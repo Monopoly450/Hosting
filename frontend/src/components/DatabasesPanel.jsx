@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Database, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, X, Link2, Unlink } from 'lucide-react';
+import CustomSelect from './CustomSelect';
 
 export default function DatabasesPanel() {
     const [databases, setDatabases] = useState([]);
@@ -351,10 +352,14 @@ export default function DatabasesPanel() {
 
                                 <div className="input-group">
                                     <label className="input-label">Тип СУБД</label>
-                                    <select className="form-control" value={engine} onChange={e => setEngine(e.target.value)}>
-                                        <option value="postgresql">PostgreSQL (Порт 5432)</option>
-                                        <option value="mysql">MySQL/MariaDB (Порт 3306)</option>
-                                    </select>
+                                    <CustomSelect 
+                                        value={engine} 
+                                        onChange={e => setEngine(e.target.value)}
+                                        options={[
+                                            { value: 'postgresql', label: 'PostgreSQL (Порт 5432)' },
+                                            { value: 'mysql', label: 'MySQL/MariaDB (Порт 3306)' }
+                                        ]}
+                                    />
                                 </div>
 
                                 <div style={{ background: 'var(--bg-surface-hover)', padding: '12px', borderRadius: '8px', marginTop: '20px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -392,22 +397,18 @@ export default function DatabasesPanel() {
                                 </p>
                                 <div className="input-group">
                                     <label className="input-label">Виртуальная машина</label>
-                                    <select 
-                                        className="form-control" 
+                                    <CustomSelect 
                                         value={selectedVmId} 
                                         onChange={e => setSelectedVmId(e.target.value)}
-                                        required
-                                    >
-                                        <option value="">-- Выберите ВМ --</option>
-                                        {vms.map(vm => {
+                                        placeholder="-- Выберите ВМ --"
+                                        options={vms.map(vm => {
                                             const ip = getVmIp(vm);
-                                            return (
-                                                <option key={vm.id} value={vm.id}>
-                                                    {vm.name} ({ip || 'Нет IP'})
-                                                </option>
-                                            );
+                                            return {
+                                                value: vm.id,
+                                                label: `${vm.name} (${ip || 'Нет IP'})`
+                                            };
                                         })}
-                                    </select>
+                                    />
                                 </div>
                             </div>
                             <div className="slide-over-actions">

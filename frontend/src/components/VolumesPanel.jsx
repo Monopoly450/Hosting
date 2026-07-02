@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { HardDrive, Plus, Trash2, Link2, Unlink, Info, X } from 'lucide-react';
+import CustomSelect from './CustomSelect';
 
 export default function VolumesPanel() {
     const [volumes, setVolumes] = useState([]);
@@ -315,12 +316,15 @@ export default function VolumesPanel() {
                             <div className="slide-over-body">
                                 <div className="input-group">
                                     <label className="input-label">Выберите виртуальную машину</label>
-                                    <select className="form-control" value={selectedVmName} onChange={e => setSelectedVmName(e.target.value)} required>
-                                        {vms.map(vm => (
-                                            <option key={vm.name} value={vm.name}>{vm.name} ({vm.status})</option>
-                                        ))}
-                                        {vms.length === 0 && <option value="" disabled>У вас нет виртуальных машин</option>}
-                                    </select>
+                                    <CustomSelect 
+                                        value={selectedVmName} 
+                                        onChange={e => setSelectedVmName(e.target.value)}
+                                        placeholder="Выберите виртуальную машину"
+                                        options={vms.map(vm => ({
+                                            value: vm.name,
+                                            label: `${vm.name} (${vm.status})`
+                                        }))}
+                                    />
                                 </div>
 
                                 <div style={{ background: 'var(--bg-surface-hover)', padding: '12px', borderRadius: '8px', marginTop: '20px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GitBranch, RefreshCw, Terminal as TerminalIcon, ShieldAlert, Cpu, HardDrive, FileText, ChevronRight, Play, CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
+import CustomSelect from './CustomSelect';
 
 const InfraPanel = () => {
   const [gitInfo, setGitInfo] = useState(null);
@@ -246,16 +247,17 @@ const InfraPanel = () => {
             <FileText size={18} /> Логи контейнеров Aegis
           </h3>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <select 
-              className="form-control" 
+            <CustomSelect 
               value={selectedService}
               onChange={(e) => setSelectedService(e.target.value)}
-            >
-              <option value="backend">FastAPI Бэкенд</option>
-              <option value="frontend">Админ Панель (Nginx)</option>
-              <option value="orchestrator">Go-Оркестратор</option>
-              <option value="db">База данных Postgres</option>
-            </select>
+              style={{ width: '220px' }}
+              options={[
+                { value: 'backend', label: 'FastAPI Бэкенд' },
+                { value: 'frontend', label: 'Админ Панель (Nginx)' },
+                { value: 'orchestrator', label: 'Go-Оркестратор' },
+                { value: 'db', label: 'База данных Postgres' }
+              ]}
+            />
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>
               <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
               Автообновление (4с)

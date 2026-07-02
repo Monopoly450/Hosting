@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
+import CustomSelect from './CustomSelect';
 
 export default function UsersAdminPanel({ apiToken, apiUrl }) {
     const [users, setUsers] = useState([]);
@@ -222,10 +223,14 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
 
                                 <div className="input-group">
                                     <label className="input-label">Роль</label>
-                                    <select className="form-control" value={role} onChange={e => setRole(e.target.value)}>
-                                        <option value="student">Студент</option>
-                                        <option value="admin">Преподаватель (Администратор)</option>
-                                    </select>
+                                    <CustomSelect 
+                                        value={role} 
+                                        onChange={e => setRole(e.target.value)}
+                                        options={[
+                                            { value: 'student', label: 'Студент' },
+                                            { value: 'admin', label: 'Преподаватель (Администратор)' }
+                                        ]}
+                                    />
                                 </div>
 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '15px' }}>

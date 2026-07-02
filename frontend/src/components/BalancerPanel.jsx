@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Layers, Activity, Server, Shuffle, Settings, Plus, Trash2, Cpu, HardDrive } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import CustomSelect from './CustomSelect';
 
 const BalancerPanel = () => {
   const [stats, setStats] = useState([]);
@@ -245,11 +246,15 @@ const BalancerPanel = () => {
                 </div>
                 <div style={{ flex: 1 }}>
                   <label className="input-label" style={{ fontSize: '0.75rem' }}>Метод балансировки</label>
-                  <select className="form-control" style={{ fontSize: '0.85rem' }} value={newPoolMethod} onChange={(e) => setNewPoolMethod(e.target.value)}>
-                    <option value="Round Robin">Round Robin (по очереди)</option>
-                    <option value="Least Connections">Least Connections (наименее нагруженный)</option>
-                    <option value="IP Hash">IP Hash (по IP клиента)</option>
-                  </select>
+                  <CustomSelect 
+                    value={newPoolMethod} 
+                    onChange={(e) => setNewPoolMethod(e.target.value)}
+                    options={[
+                      { value: 'Round Robin', label: 'Round Robin (по очереди)' },
+                      { value: 'Least Connections', label: 'Least Connections (наименее нагруженный)' },
+                      { value: 'IP Hash', label: 'IP Hash (по IP клиента)' }
+                    ]}
+                  />
                 </div>
               </div>
 

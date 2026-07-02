@@ -3,6 +3,7 @@ import { X, RefreshCw, Cpu, HardDrive, ShieldAlert, Terminal, Activity, Layers, 
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import VncConsole from './VncConsole';
 import BackupList from './BackupList';
+import CustomSelect from './CustomSelect';
 
 const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [vm, setVm] = useState(null);
@@ -524,17 +525,16 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               
               <div className="input-group">
                 <label className="input-label">Выберите внешний сервер (Target)</label>
-                <select 
-                  className="form-control" 
+                <CustomSelect 
                   value={selectedTargetServer} 
                   onChange={e => setSelectedTargetServer(e.target.value)}
                   disabled={migrating}
-                >
-                  {externalServers.length === 0 && <option disabled value="">Нет доступных внешних серверов</option>}
-                  {externalServers.map(s => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.ip})</option>
-                  ))}
-                </select>
+                  placeholder="Выберите внешний сервер"
+                  options={externalServers.map(s => ({
+                    value: s.id,
+                    label: `${s.name} (${s.ip})`
+                  }))}
+                />
               </div>
               
             </div>

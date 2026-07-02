@@ -18,6 +18,7 @@ import DatabasesPanel from './components/DatabasesPanel';
 import S3Panel from './components/S3Panel';
 import VolumesPanel from './components/VolumesPanel';
 import MailPanel from './components/MailPanel';
+import CustomSelect from './components/CustomSelect';
 
 const App = () => {
   const [authenticated, setAuthenticated] = useState(!!localStorage.getItem('aegis_admin_token'));
@@ -622,16 +623,15 @@ const App = () => {
                         {osType === 'custom' && (
                           <div className="input-group">
                             <label className="input-label">Выберите загруженный образ</label>
-                            <select 
-                              className="form-control"
+                            <CustomSelect 
                               value={selectedCustomImage}
                               onChange={(e) => setSelectedCustomImage(e.target.value)}
-                            >
-                              {customImages.length === 0 && <option disabled value="">Нет образов. Загрузите в соседней вкладке.</option>}
-                              {customImages.map(img => (
-                                <option key={img.filename} value={img.filename}>{img.filename} ({img.size_gb > 1 ? `${img.size_gb} GB` : `${img.size_mb} MB`})</option>
-                              ))}
-                            </select>
+                              placeholder="Выберите загруженный образ"
+                              options={customImages.map(img => ({
+                                value: img.filename,
+                                label: `${img.filename} (${img.size_gb > 1 ? `${img.size_gb} GB` : `${img.size_mb} MB`})`
+                              }))}
+                            />
                           </div>
                         )}
 
@@ -661,17 +661,18 @@ const App = () => {
 
                         <div className="input-group">
                           <label className="input-label">Шаблон окружения (Cloud-Init)</label>
-                          <select 
-                            className="form-control" 
+                          <CustomSelect 
                             value={cloudInitTemplate} 
                             onChange={e => setCloudInitTemplate(e.target.value)}
-                          >
-                            <option value="">Без шаблона (Чистая ОС)</option>
-                            <option value="lamp">LAMP (Nginx, PHP, MariaDB)</option>
-                            <option value="docker">Docker Environment (Engine + CLI)</option>
-                            <option value="nodejs">Node.js Environment (Node.js LTS)</option>
-                            <option value="wordpress">WordPress (Apache + MySQL + PHP + WP)</option>
-                          </select>
+                            placeholder="Без шаблона (Чистая ОС)"
+                            options={[
+                              { value: '', label: 'Без шаблона (Чистая ОС)' },
+                              { value: 'lamp', label: 'LAMP (Nginx, PHP, MariaDB)' },
+                              { value: 'docker', label: 'Docker Environment (Engine + CLI)' },
+                              { value: 'nodejs', label: 'Node.js Environment (Node.js LTS)' },
+                              { value: 'wordpress', label: 'WordPress (Apache + MySQL + PHP + WP)' }
+                            ]}
+                          />
                         </div>
 
                         <div className="input-group">
