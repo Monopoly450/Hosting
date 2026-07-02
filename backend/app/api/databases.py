@@ -16,6 +16,74 @@ from app.core.auth import get_current_user
 router = APIRouter()
 logger = logging.getLogger("app.api.databases")
 
+def resolve_ip(ips: list) -> Optional[str]:
+    for ip in ips:
+        if (
+            not ip.startswith("10.244.") and 
+            not ip.startswith("10.42.") and 
+            not ip.startswith("10.0.2.") and 
+            not ip.startswith("127.0.") and 
+            ":" not in ip
+        ):
+            return ip
+    for ip in ips:
+        if (ip.startswith("10.42.") or ip.startswith("10.244.")) and ":" not in ip:
+            return ip
+    for ip in ips:
+        if ":" not in ip:
+            return ip
+    return ips[0] if ips else None
+
+def get_vm_ip_by_name(vm_name: str) -> Optional[str]:
+    try:
+        from app.core.k8s_client import K8sClient
+        client = K8sClient()
+        vm_data = client.get_vm(vm_name)
+        if vm_data and vm_data.get("ips"):
+            return resolve_ip(vm_data["ips"])
+    except Exception as e:
+        logger.error(f"Failed to get VM IP for {vm_name}: {e}")
+    return None
+
+def update_mysql_user_host(db_user: str, new_host: str):
+    try:
+        conn = pymysql.connect(
+            host="127.0.0.1",
+            user="root",
+            password=os.getenv("MARIADB_ROOT_PASSWORD", "mariadb-root-secret-2026"),
+            port=3306
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT Host FROM mysql.user WHERE User = %s;", (db_user,))
+            row = cursor.fetchone()
+            if row:
+                old_host = row[0]
+                if old_host != new_host:
+                    cursor.execute(f"RENAME USER '{db_user}'@'{old_host}' TO '{db_user}'@'{new_host}';")
+                    cursor.execute("FLUSH PRIVILEGES;")
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to update MariaDB user host for {db_user} to {new_host}: {e}")
+        raise e
+
+def update_postgres_role_login(db_user: str, allow_login: bool):
+    try:
+        conn = psycopg2.connect(
+            dbname="postgres",
+            user="postgres",
+            password=os.getenv("POSTGRES_PASSWORD", "postgres"),
+            host="127.0.0.1",
+            port=5432
+        )
+        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        with conn.cursor() as cursor:
+            login_clause = "LOGIN" if allow_login else "NOLOGIN"
+            cursor.execute(f'ALTER ROLE "{db_user}" {login_clause};')
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to update Postgres role login for {db_user}: {e}")
+        raise e
+
 class DatabaseCreateRequest(BaseModel):
     name: str = Field(..., description="Имя базы данных (a-z, 0-9, _)")
     engine: str = Field("postgresql", description="СУБД (postgresql или mysql)")
@@ -81,8 +149,8 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
                 with conn.cursor() as cursor:
                     # Создаем БД
                     cursor.execute(f'CREATE DATABASE "{req.name}";')
-                    # Создаем юзера
-                    cursor.execute(f'CREATE USER "{db_user}" WITH PASSWORD \'{db_password}\';')
+                    # Создаем юзера с NOLOGIN
+                    cursor.execute(f'CREATE USER "{db_user}" WITH PASSWORD \'{db_password}\' NOLOGIN;')
                     # Даем права
                     cursor.execute(f'GRANT ALL PRIVILEGES ON DATABASE "{req.name}" TO "{db_user}";')
                 conn.close()
@@ -101,8 +169,8 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
                 )
                 with conn.cursor() as cursor:
                     cursor.execute(f"CREATE DATABASE `{req.name}`;")
-                    cursor.execute(f"CREATE USER '{db_user}'@'%' IDENTIFIED BY '{db_password}';")
-                    cursor.execute(f"GRANT ALL PRIVILEGES ON `{req.name}`.* TO '{db_user}'@'%';")
+                    cursor.execute(f"CREATE USER '{db_user}'@'127.0.0.1' IDENTIFIED BY '{db_password}';")
+                    cursor.execute(f"GRANT ALL PRIVILEGES ON `{req.name}`.* TO '{db_user}'@'127.0.0.1';")
                     cursor.execute("FLUSH PRIVILEGES;")
                 conn.close()
             except Exception as e:
@@ -215,8 +283,15 @@ def delete_database(db_id: int, current_user: User = Depends(get_current_user)):
                     port=3306
                 )
                 with conn.cursor() as cursor:
+                    # Находим хост пользователя в СУБД перед удалением
+                    cursor.execute("SELECT Host FROM mysql.user WHERE User = %s;", (user_db.db_user,))
+                    row = cursor.fetchone()
+                    if row:
+                        user_host = row[0]
+                        cursor.execute(f"DROP USER IF EXISTS '{user_db.db_user}'@'{user_host}';")
+                    else:
+                        cursor.execute(f"DROP USER IF EXISTS '{user_db.db_user}'@'%';")
                     cursor.execute(f"DROP DATABASE IF EXISTS `{user_db.db_name}`;")
-                    cursor.execute(f"DROP USER IF EXISTS '{user_db.db_user}'@'%';")
                     cursor.execute("FLUSH PRIVILEGES;")
                 conn.close()
             except Exception as e:
@@ -255,8 +330,28 @@ def bind_database(db_id: int, req: DatabaseBindRequest, current_user: User = Dep
             if current_user.role != "admin" and vm.owner_id != current_user.id:
                 raise HTTPException(status_code=403, detail="Виртуальная машина вам не принадлежит")
             
+            # Получаем IP-адрес ВМ для настройки ограничений доступа
+            vm_ip = get_vm_ip_by_name(vm.name)
+            if not vm_ip:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Не удалось получить IP-адрес виртуальной машины. Пожалуйста, запустите её перед выполнением привязки."
+                )
+
+            # Настраиваем доступ в СУБД
+            if user_db.db_type == "postgresql":
+                update_postgres_role_login(user_db.db_user, True)
+            elif user_db.db_type == "mysql":
+                update_mysql_user_host(user_db.db_user, vm_ip)
+
             user_db.associated_vm_id = req.vm_id
         else:
+            # При отвязке блокируем внешний доступ к базе данных
+            if user_db.db_type == "postgresql":
+                update_postgres_role_login(user_db.db_user, False)
+            elif user_db.db_type == "mysql":
+                update_mysql_user_host(user_db.db_user, "127.0.0.1")
+
             user_db.associated_vm_id = None
 
         db.commit()
