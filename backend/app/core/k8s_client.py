@@ -885,7 +885,7 @@ class K8sClient:
             return None
 
     def create_pvc(self, name: str, size_gb: int, namespace: str = "default"):
-        """Создает PersistentVolumeClaim в Kubernetes"""
+        """Создает PersistentVolumeClaim в Kubernetes с поддержкой блочного режима для горячей замены"""
         body = {
             "apiVersion": "v1",
             "kind": "PersistentVolumeClaim",
@@ -894,6 +894,8 @@ class K8sClient:
             },
             "spec": {
                 "accessModes": ["ReadWriteOnce"],
+                "storageClassName": "openebs-lvm",
+                "volumeMode": "Block",
                 "resources": {
                     "requests": {
                         "storage": f"{size_gb}Gi"
