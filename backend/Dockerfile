@@ -2,12 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Устанавливаем системные зависимости (curl, git, iptables, util-linux)
+# Устанавливаем системные зависимости (curl, git, iptables, util-linux, lvm2)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     iptables \
     util-linux \
+    lvm2 \
     && ARCH=$(uname -m) \
     && if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi \
     && if [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi \

@@ -54,6 +54,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - ./data:/app/data:rw
       - .:/app/repo:rw
+      - /var/lib/aegis:/var/lib/aegis:rw
+      - /run/lvm:/run/lvm:rw
     environment:
       - PORT=8000
       - HOST=0.0.0.0
@@ -88,6 +90,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - ./data:/app/data:rw
       - .:/app/repo:rw
+      - /var/lib/aegis:/var/lib/aegis:rw
+      - /run/lvm:/run/lvm:rw
     environment:
       - IMAGES_DIR=/app/data/images
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5432/aegis}
