@@ -194,6 +194,19 @@ services:
       - mail_config:/tmp/docker-mailserver
     restart: unless-stopped
 
+  webmail:
+    image: roundcube/roundcubemail:latest
+    container_name: aegis-webmail
+    ports:
+      - "8082:80"
+    environment:
+      - ROUNDCUBEMAIL_DEFAULT_HOST=mailserver
+      - ROUNDCUBEMAIL_SMTP_SERVER=mailserver
+      - ROUNDCUBEMAIL_SMTP_PORT=25
+    depends_on:
+      - mailserver
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   mariadb_data:

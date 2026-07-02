@@ -182,6 +182,8 @@ kvm-ok
 * **Кабинет пользователя VDS**: 
   * HTTP: `http://<IP_СЕРВЕРА>:8081`
   * HTTPS: `https://<IP_СЕРВЕРА>:8444`
+* **Веб-интерфейс почты (Roundcube Webmail)**:
+  * HTTP: `http://<IP_СЕРВЕРА>:8082`
 * **Документация API (Swagger)**:
   * Swagger UI: `http://<IP_СЕРВЕРА>:8000/docs`
 
