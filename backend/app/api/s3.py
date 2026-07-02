@@ -86,16 +86,49 @@ def create_bucket(req: BucketCreateRequest, current_user: User = Depends(get_cur
             ]
         }
 
-        # Создаем сервисный аккаунт в MinIO с привязкой к этой политике
-        # В некоторых версиях SDK minio.create_service_account(policy=...) используется для создания ключей
+        # Создаем сервисный аккаунт в MinIO с привязкой к этой политике через утилиту mc
         try:
-            sa = client.create_service_account(policy=json.dumps(policy))
-            access_key = sa.get("accessKey")
-            secret_key = sa.get("secretKey")
+            import subprocess
+            import tempfile
+            import uuid
+
+            # Генерируем случайные ключи
+            access_key = f"ak_{uuid.uuid4().hex[:12]}"
+            secret_key = f"sk_{uuid.uuid4().hex[:16]}"
+
+            # Сохраняем политику во временный файл
+            with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as f:
+                json.dump(policy, f)
+                policy_path = f.name
+
+            try:
+                root_user = os.getenv("MINIO_ROOT_USER", "minioadmin")
+                root_password = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin-secret-2026")
+
+                # Настраиваем алиас для mc
+                subprocess.run([
+                    "mc", "alias", "set", "myminio", "http://127.0.0.1:9000",
+                    root_user, root_password
+                ], capture_output=True, check=True, timeout=10)
+
+                # Создаем service account
+                cmd = [
+                    "mc", "admin", "user", "svcacct", "add",
+                    "--access-key", access_key,
+                    "--secret-key", secret_key,
+                    "--policy", policy_path,
+                    "myminio", root_user
+                ]
+                res = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
+                logger.info(f"mc svcacct add success: {res.stdout.strip()}")
+            finally:
+                try:
+                    os.unlink(policy_path)
+                except Exception:
+                    pass
+
         except Exception as e:
-            logger.error(f"Failed to create service account in MinIO: {e}")
-            # Фолбэк: если create_service_account не поддерживается в данной сборке, 
-            # используем корневые ключи или генерируем случайные (но для продакшена лучше использовать SA)
+            logger.error(f"Failed to create service account in MinIO via mc: {e}")
             raise HTTPException(status_code=500, detail=f"Ошибка генерации ключей S3 в MinIO: {e}")
 
         # Запись в системную БД
