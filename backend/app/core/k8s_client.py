@@ -184,7 +184,7 @@ class K8sClient:
                 if "persistentVolumeClaim" in vol:
                     pvc_name = vol["persistentVolumeClaim"]["claimName"]
                     try:
-                        self.core_api.delete_namespaced_volume_claim(pvc_name, namespace)
+                        self.core_api.delete_namespaced_persistent_volume_claim(pvc_name, namespace)
                         logger.info(f"Удален PVC: {pvc_name}")
                     except ApiException as e:
                         if e.status != 404:
@@ -495,7 +495,7 @@ class K8sClient:
             
             # Удаляем PVC
             try:
-                self.core_api.delete_namespaced_volume_claim(backup_name, namespace)
+                self.core_api.delete_namespaced_persistent_volume_claim(backup_name, namespace)
             except ApiException as e:
                 if e.status != 404:
                     raise e
