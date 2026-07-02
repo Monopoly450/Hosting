@@ -31,11 +31,15 @@ app.mount("/static/images", StaticFiles(directory=IMAGES_DIR), name="static-imag
 async def startup_event():
     from app.core.database import engine, Base
     from app.models.models import SystemState, AWSSecurityGroup, AWSS3Bucket, AWSIAMUser
-    from sqlalchemy import select
+    from sqlalchemy import select, text
     
     logger.info("Инициализация таблиц базы данных...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS iso_url VARCHAR;"))
+        except Exception as alter_err:
+            logger.warning(f"Could not run ALTER TABLE: {alter_err}")
     logger.info("Таблицы базы данных успешно проверены/созданы.")
     
     # Заполнение начальными данными при пустой БД

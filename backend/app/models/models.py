@@ -171,6 +171,7 @@ class VMTask(Base):
     firewall_rules = Column(String, nullable=True) # JSON array of firewall whitelist rules
     cloud_init_template = Column(String, nullable=True)
     custom_user_data = Column(Text, nullable=True)
+    iso_url = Column(String, nullable=True)
     
     # Queue / State
     status = Column(String, default="Pending") # Pending, Provisioning, Running, Error

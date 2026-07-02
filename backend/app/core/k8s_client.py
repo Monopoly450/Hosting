@@ -728,6 +728,7 @@ class K8sClient:
         ssh_port = None
         http_port = None
         https_port = None
+        rdp_port = None
         for ip in ips:
             if "." in ip and not ip.startswith("10.244.") and not ip.startswith("127."):
                 try:
@@ -735,6 +736,7 @@ class K8sClient:
                     ssh_port = 22000 + last_octet
                     http_port = 28000 + last_octet
                     https_port = 44300 + last_octet
+                    rdp_port = 33000 + last_octet
                     break
                 except ValueError:
                     pass
@@ -751,6 +753,7 @@ class K8sClient:
             "disks": disks,
             "ips": ips,
             "ssh_port": ssh_port,
+            "rdp_port": rdp_port,
             "http_port": http_port,
             "https_port": https_port,
             "node": node_name,

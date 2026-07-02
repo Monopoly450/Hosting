@@ -679,6 +679,12 @@ const App = () => {
                               <div className="os-card-version">Debian 13 <ChevronDown size={14} /></div>
                             </div>
                             
+                            <div className={`os-card ${osType === 'windows' ? 'selected' : ''}`} onClick={() => setOsType('windows')}>
+                              <div className="os-card-icon" style={{ color: '#0078d4' }}><Server size={24} /></div>
+                              <div className="os-card-title">Windows Server</div>
+                              <div className="os-card-version">Windows 2022</div>
+                            </div>
+
                             <div className={`os-card ${osType === 'bitrix' ? 'selected' : ''}`} onClick={() => setOsType('bitrix')}>
                               <div className="os-card-icon" style={{ color: '#ef4444' }}><Activity size={24} /></div>
                               <div className="os-card-title">BitrixVM</div>

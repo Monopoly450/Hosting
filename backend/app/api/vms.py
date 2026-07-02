@@ -604,7 +604,7 @@ def clear_iptables_rules_for_ip(vm_ip: str):
                 del_cmd = line.replace("-A ", "-D ")
                 subprocess.run(nsenter_prefix + [f"iptables {del_cmd}"], capture_output=True, timeout=5)
 
-def reconcile_vm_firewall_rules(vm_ip: str, ports_config: str = None, firewall_rules: str = None):
+def reconcile_vm_firewall_rules(vm_ip: str, ports_config: str = None, firewall_rules: str = None, os_type: str = "linux"):
     """Настраивает проброс портов и правила доступа для ВМ с помощью iptables на хосте"""
     import subprocess
     import json
@@ -625,11 +625,18 @@ def reconcile_vm_firewall_rules(vm_ip: str, ports_config: str = None, firewall_r
                 
         # Если порты не настроены, используем дефолтные
         if not ports:
-            ports = [
-                {"ext_port": 22000 + last_octet, "int_port": 22, "name": "SSH"},
-                {"ext_port": 28000 + last_octet, "int_port": 80, "name": "HTTP"},
-                {"ext_port": 44300 + last_octet, "int_port": 443, "name": "HTTPS"}
-            ]
+            if os_type == "windows":
+                ports = [
+                    {"ext_port": 33000 + last_octet, "int_port": 3389, "name": "RDP"},
+                    {"ext_port": 22000 + last_octet, "int_port": 22, "name": "SSH"},
+                    {"ext_port": 28000 + last_octet, "int_port": 80, "name": "HTTP"}
+                ]
+            else:
+                ports = [
+                    {"ext_port": 22000 + last_octet, "int_port": 22, "name": "SSH"},
+                    {"ext_port": 28000 + last_octet, "int_port": 80, "name": "HTTP"},
+                    {"ext_port": 44300 + last_octet, "int_port": 443, "name": "HTTPS"}
+                ]
             
         # Парсим список разрешенных IP
         fw_map = {}
@@ -807,7 +814,7 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client)):
                 # Если виртуальная машина активна и получила IP-адрес, автоматически пробрасываем порт
                 if vm_data.get("status") == "Running" and vm_data.get("ips"):
                     ip = vm_data["ips"][0]
-                    reconcile_vm_firewall_rules(ip, db_vm.ports_config, db_vm.firewall_rules)
+                    reconcile_vm_firewall_rules(ip, db_vm.ports_config, db_vm.firewall_rules, db_vm.os_type)
         finally:
             db.close()
             
@@ -968,6 +975,7 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
             network_drives=req.network_drives,
             cloud_init_template=req.cloud_init_template,
             custom_user_data=req.custom_user_data,
+            iso_url=req.iso_url,
             owner_id=current_user.id,
             status="Pending"
         )
@@ -1140,7 +1148,7 @@ def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClien
             vm_k8s = client.get_vm(name)
             if vm_k8s.get("status") == "Running" and vm_k8s.get("ips"):
                 ip = vm_k8s["ips"][0]
-                reconcile_vm_firewall_rules(ip, db_vm.ports_config, db_vm.firewall_rules)
+                reconcile_vm_firewall_rules(ip, db_vm.ports_config, db_vm.firewall_rules, db_vm.os_type)
                 
             return {"status": "success", "message": "Настройки ВМ сохранены"}
         finally:

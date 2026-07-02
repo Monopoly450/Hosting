@@ -590,25 +590,51 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             </table>
 
             {/* Команды */}
-            <div style={{ marginTop: '8px' }}>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда локального SSH (внутри сети):</div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={sshIp ? `ssh ${vm.credentials?.username || 'root'}@${sshIp}` : 'Ожидание сети...'} />
-                <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${sshIp}`, 'localSsh')} disabled={!sshIp}>
-                  {copiedField === 'localSsh' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
-                </button>
-              </div>
-            </div>
+            {vm.os_type === 'windows' ? (
+              <>
+                <div style={{ marginTop: '8px' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Адрес локального RDP (внутри сети):</div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={sshIp ? `${sshIp}:3389` : 'Ожидание сети...'} />
+                    <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(sshIp ? `${sshIp}:3389` : '', 'localRdp')} disabled={!sshIp}>
+                      {copiedField === 'localRdp' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                </div>
 
-            <div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда внешнего SSH:</div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={vm.ssh_port ? `ssh ${vm.credentials?.username || 'root'}@${window.location.hostname} -p ${vm.ssh_port}` : 'Ожидание порта...'} />
-                <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${window.location.hostname} -p ${vm.ssh_port}`, 'extSsh')} disabled={!vm.ssh_port}>
-                  {copiedField === 'extSsh' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
-                </button>
-              </div>
-            </div>
+                <div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Адрес внешнего RDP (для подключения извне):</div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={vm.rdp_port ? `${window.location.hostname}:${vm.rdp_port}` : 'Ожидание порта...'} />
+                    <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(vm.rdp_port ? `${window.location.hostname}:${vm.rdp_port}` : '', 'extRdp')} disabled={!vm.rdp_port}>
+                      {copiedField === 'extRdp' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ marginTop: '8px' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда локального SSH (внутри сети):</div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={sshIp ? `ssh ${vm.credentials?.username || 'root'}@${sshIp}` : 'Ожидание сети...'} />
+                    <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${sshIp}`, 'localSsh')} disabled={!sshIp}>
+                      {copiedField === 'localSsh' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда внешнего SSH:</div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={vm.ssh_port ? `ssh ${vm.credentials?.username || 'root'}@${window.location.hostname} -p ${vm.ssh_port}` : 'Ожидание порта...'} />
+                    <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${window.location.hostname} -p ${vm.ssh_port}`, 'extSsh')} disabled={!vm.ssh_port}>
+                      {copiedField === 'extSsh' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
 
             {vm.http_port && (
               <div style={{ marginTop: '8px' }}>
