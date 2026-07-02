@@ -238,7 +238,8 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
                 "spec": {
                     "domain": {
                         "cpu": {
-                            "cores": req.cpu_cores
+                            "cores": req.cpu_cores,
+                            "model": "host-passthrough"
                         },
                         "resources": {
                             "requests": {
@@ -407,7 +408,8 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                 "spec": {
                     "domain": {
                         "cpu": {
-                            "cores": req.cpu_cores
+                            "cores": req.cpu_cores,
+                            "model": "host-passthrough"
                         },
                         "resources": {
                             "requests": {
