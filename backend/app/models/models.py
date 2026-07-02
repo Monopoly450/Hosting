@@ -33,7 +33,7 @@ class UserDatabase(Base):
     __tablename__ = "user_databases"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True, nullable=False)
+    db_name = Column(String, unique=True, index=True, nullable=False)
     db_type = Column(String, default="postgres")  # "postgres" or "mysql"
     db_user = Column(String, nullable=False)
     db_password = Column(String, nullable=False)
@@ -48,7 +48,7 @@ class UserBucket(Base):
     __tablename__ = "user_buckets"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True, nullable=False)
+    bucket_name = Column(String, unique=True, index=True, nullable=False)
     access_key = Column(String, nullable=False)
     secret_key = Column(String, nullable=False)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
