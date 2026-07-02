@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, X } from 'lucide-react';
+import { Database, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, X, Link2, Unlink } from 'lucide-react';
 
 export default function DatabasesPanel() {
     const [databases, setDatabases] = useState([]);
@@ -14,6 +14,12 @@ export default function DatabasesPanel() {
     
     // Visibility of password
     const [visiblePasswords, setVisiblePasswords] = useState({});
+
+    // VM and Bind states
+    const [vms, setVms] = useState([]);
+    const [showBindModal, setShowBindModal] = useState(false);
+    const [selectedDbId, setSelectedDbId] = useState(null);
+    const [selectedVmId, setSelectedVmId] = useState('');
 
     const getHeaders = () => {
         const token = localStorage.getItem('aegis_admin_token') || '';
@@ -43,8 +49,70 @@ export default function DatabasesPanel() {
         }
     };
 
+    const fetchVMs = async () => {
+        try {
+            const res = await fetch('/api/vms', {
+                headers: getHeaders()
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setVms(data);
+            }
+        } catch (err) {
+            console.error('Ошибка при загрузке ВМ:', err);
+        }
+    };
+
+    const handleBindVM = async (e) => {
+        e.preventDefault();
+        if (!selectedDbId) return;
+        setSubmitting(true);
+        try {
+            const res = await fetch(`/api/databases/${selectedDbId}/bind`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify({
+                    vm_id: selectedVmId ? parseInt(selectedVmId) : null
+                })
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || 'Ошибка при привязке базы данных');
+            }
+            setShowBindModal(false);
+            setSelectedDbId(null);
+            setSelectedVmId('');
+            fetchDatabases();
+        } catch (err) {
+            alert(err.message || 'Ошибка при привязке базы данных');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleUnbindVM = async (dbId) => {
+        if (!confirm('Вы уверены, что хотите отвязать базу данных от виртуальной машины?')) return;
+        try {
+            const res = await fetch(`/api/databases/${dbId}/bind`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify({
+                    vm_id: null
+                })
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || 'Ошибка при отвязке базы данных');
+            }
+            fetchDatabases();
+        } catch (err) {
+            alert(err.message || 'Ошибка при отвязке базы данных');
+        }
+    };
+
     useEffect(() => {
         fetchDatabases();
+        fetchVMs();
     }, []);
 
     const handleCreateDatabase = async (e) => {
@@ -137,6 +205,7 @@ export default function DatabasesPanel() {
                                 <th>Порт</th>
                                 <th>Пользователь</th>
                                 <th>Пароль</th>
+                                <th>Связанная ВМ</th>
                                 <th>Владелец</th>
                                 <th>Действия</th>
                             </tr>
@@ -189,6 +258,34 @@ export default function DatabasesPanel() {
                                             </button>
                                         </div>
                                     </td>
+                                    <td>
+                                        {d.associated_vm_name ? (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--accent-primary)', background: 'var(--bg-surface-hover)', padding: '4px 8px', borderRadius: '4px' }}>
+                                                    {d.associated_vm_name}
+                                                </span>
+                                                <button 
+                                                    className="btn-icon" 
+                                                    onClick={() => handleUnbindVM(d.id)}
+                                                    title="Отвязать от ВМ"
+                                                    style={{ color: '#ef4444' }}
+                                                >
+                                                    <Unlink size={14} />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <button 
+                                                className="btn btn-secondary btn-sm" 
+                                                onClick={() => {
+                                                    setSelectedDbId(d.id);
+                                                    setShowBindModal(true);
+                                                }}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '4px 8px' }}
+                                            >
+                                                <Link2 size={12} /> Привязать
+                                            </button>
+                                        )}
+                                    </td>
                                     <td>{d.owner_username}</td>
                                     <td>
                                         <button 
@@ -203,7 +300,7 @@ export default function DatabasesPanel() {
                             ))}
                             {databases.length === 0 && (
                                 <tr>
-                                    <td colSpan="8" style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
+                                    <td colSpan="9" style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
                                         <Database size={32} style={{ marginBottom: '8px', opacity: 0.5 }} />
                                         <div>Нет активных баз данных. Создайте первую!</div>
                                     </td>
@@ -260,6 +357,50 @@ export default function DatabasesPanel() {
                                 </button>
                                 <button type="submit" className="btn btn-primary" disabled={submitting}>
                                     {submitting ? 'Создание...' : 'Создать'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {showBindModal && (
+                <div className="slide-over-overlay" onClick={() => setShowBindModal(false)}>
+                    <div className="slide-over-content" onClick={e => e.stopPropagation()}>
+                        <div className="slide-over-header">
+                            <h2>Привязка базы данных</h2>
+                            <button className="btn-close" onClick={() => setShowBindModal(false)} type="button">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleBindVM} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            <div className="slide-over-body">
+                                <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                                    Выберите виртуальную машину, к которой хотите привязать эту базу данных. Это поможет структурировать инфраструктуру вашего проекта.
+                                </p>
+                                <div className="input-group">
+                                    <label className="input-label">Виртуальная машина</label>
+                                    <select 
+                                        className="form-control" 
+                                        value={selectedVmId} 
+                                        onChange={e => setSelectedVmId(e.target.value)}
+                                        required
+                                    >
+                                        <option value="">-- Выберите ВМ --</option>
+                                        {vms.map(vm => (
+                                            <option key={vm.id} value={vm.id}>
+                                                {vm.name} ({vm.ip || 'Нет IP'})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="slide-over-actions">
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowBindModal(false)} disabled={submitting}>
+                                    Отмена
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                                    {submitting ? 'Привязка...' : 'Привязать'}
                                 </button>
                             </div>
                         </form>

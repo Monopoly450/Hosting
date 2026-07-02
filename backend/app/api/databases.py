@@ -8,9 +8,9 @@ from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 import pymysql
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 from app.db import SessionLocal
-from app.models.models import User, UserDatabase
+from app.models.models import User, UserDatabase, VMTask
 from app.core.auth import get_current_user
 
 router = APIRouter()
@@ -28,6 +28,8 @@ class DatabaseResponse(BaseModel):
     db_password: str
     status: str
     owner_username: str
+    associated_vm_id: Optional[int] = None
+    associated_vm_name: Optional[str] = None
 
 def generate_db_credentials(db_name: str):
     # Генерация случайного суффикса для логина
@@ -127,7 +129,9 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
             db_user=new_db.db_user,
             db_password=new_db.db_password,
             status=new_db.status,
-            owner_username=current_user.username
+            owner_username=current_user.username,
+            associated_vm_id=None,
+            associated_vm_name=None
         )
     except HTTPException:
         raise
@@ -150,6 +154,13 @@ def list_databases(current_user: User = Depends(get_current_user)):
         for d in databases:
             owner = db.query(User).filter(User.id == d.owner_id).first()
             owner_name = owner.username if owner else "Unknown"
+            
+            vm_name = None
+            if d.associated_vm_id:
+                vm = db.query(VMTask).filter(VMTask.id == d.associated_vm_id).first()
+                if vm:
+                    vm_name = vm.name
+                    
             res.append(DatabaseResponse(
                 id=d.id,
                 db_name=d.db_name,
@@ -157,7 +168,9 @@ def list_databases(current_user: User = Depends(get_current_user)):
                 db_user=d.db_user,
                 db_password=d.db_password,
                 status=d.status,
-                owner_username=owner_name
+                owner_username=owner_name,
+                associated_vm_id=d.associated_vm_id,
+                associated_vm_name=vm_name
             ))
         return res
     finally:
@@ -213,6 +226,41 @@ def delete_database(db_id: int, current_user: User = Depends(get_current_user)):
         db.delete(user_db)
         db.commit()
         return {"status": "Database deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+class DatabaseBindRequest(BaseModel):
+    vm_id: Optional[int] = None
+
+@router.post("/{db_id}/bind", status_code=status.HTTP_200_OK)
+def bind_database(db_id: int, req: DatabaseBindRequest, current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user_db = db.query(UserDatabase).filter(UserDatabase.id == db_id).first()
+        if not user_db:
+            raise HTTPException(status_code=404, detail="База данных не найдена")
+
+        if current_user.role != "admin" and user_db.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+
+        if req.vm_id is not None:
+            vm = db.query(VMTask).filter(VMTask.id == req.vm_id).first()
+            if not vm:
+                raise HTTPException(status_code=404, detail="Виртуальная машина не найдена")
+            if current_user.role != "admin" and vm.owner_id != current_user.id:
+                raise HTTPException(status_code=403, detail="Виртуальная машина вам не принадлежит")
+            
+            user_db.associated_vm_id = req.vm_id
+        else:
+            user_db.associated_vm_id = None
+
+        db.commit()
+        return {"status": "Database bound status updated successfully"}
     except HTTPException:
         raise
     except Exception as e:
