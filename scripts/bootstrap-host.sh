@@ -344,6 +344,13 @@ helm install prometheus prometheus-community/kube-prometheus-stack -n prometheus
   --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false || true
 log "Prometheus Stack успешно развернут в namespace prometheus!"
 
+# 12. Автоматическая настройка OpenEBS LVM для горячей замены
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${SCRIPT_DIR}/install-openebs-lvm.sh" ]; then
+    log "Запуск настройки OpenEBS LVM для поддержки горячей замены дисков..."
+    bash "${SCRIPT_DIR}/install-openebs-lvm.sh" || true
+fi
+
 log "=========================================================="
 log "Установка завершена! Kubernetes + KubeVirt + CDI + Prometheus + Nginx развернуты."
 log "Проверьте статус подов: kubectl get pods -A"
