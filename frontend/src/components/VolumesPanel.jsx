@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HardDrive, Plus, Trash2, Link2, Unlink, Info } from 'lucide-react';
+import { HardDrive, Plus, Trash2, Link2, Unlink, Info, X } from 'lucide-react';
 
 export default function VolumesPanel() {
     const [volumes, setVolumes] = useState([]);
@@ -247,7 +247,9 @@ export default function VolumesPanel() {
                     <div className="slide-over-content" onClick={e => e.stopPropagation()}>
                         <div className="slide-over-header">
                             <h2>Создание сетевого диска</h2>
-                            <button className="btn-close" onClick={() => setShowCreateModal(false)}>×</button>
+                            <button className="btn-close" onClick={() => setShowCreateModal(false)} type="button">
+                                <X size={18} />
+                            </button>
                         </div>
                         <form onSubmit={handleCreateVolume} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                             <div className="slide-over-body">
@@ -305,7 +307,9 @@ export default function VolumesPanel() {
                     <div className="slide-over-content" onClick={e => e.stopPropagation()}>
                         <div className="slide-over-header">
                             <h2>Подключение диска к ВМ</h2>
-                            <button className="btn-close" onClick={() => setShowAttachModal(false)}>×</button>
+                            <button className="btn-close" onClick={() => setShowAttachModal(false)} type="button">
+                                <X size={18} />
+                            </button>
                         </div>
                         <form onSubmit={handleAttachVolume} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                             <div className="slide-over-body">

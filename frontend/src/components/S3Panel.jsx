@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FolderOpen, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, Upload, ArrowLeft, File } from 'lucide-react';
+import { FolderOpen, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, Upload, ArrowLeft, File, X } from 'lucide-react';
 
 export default function S3Panel() {
     const [buckets, setBuckets] = useState([]);
@@ -381,7 +381,9 @@ export default function S3Panel() {
                     <div className="slide-over-content" onClick={e => e.stopPropagation()}>
                         <div className="slide-over-header">
                             <h2>Создание нового бакета S3</h2>
-                            <button className="btn-close" onClick={() => setShowCreateModal(false)}>×</button>
+                            <button className="btn-close" onClick={() => setShowCreateModal(false)} type="button">
+                                <X size={18} />
+                            </button>
                         </div>
                         <form onSubmit={handleCreateBucket} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                             <div className="slide-over-body">

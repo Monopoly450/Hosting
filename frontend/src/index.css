@@ -304,6 +304,25 @@ body {
   color: var(--text-primary);
 }
 
+.btn-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.btn-close:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
 /* Form Elements */
 .input-group {
   display: flex;

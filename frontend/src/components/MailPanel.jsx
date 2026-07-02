@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Plus, Trash2, Key, Info, Copy } from 'lucide-react';
+import { Mail, Plus, Trash2, Key, Info, Copy, X } from 'lucide-react';
 
 export default function MailPanel() {
     const [mailboxes, setMailboxes] = useState([]);
@@ -202,7 +202,9 @@ export default function MailPanel() {
                     <div className="slide-over-content" onClick={e => e.stopPropagation()}>
                         <div className="slide-over-header">
                             <h2>Создание почтового ящика</h2>
-                            <button className="btn-close" onClick={() => setShowCreateModal(false)}>×</button>
+                            <button className="btn-close" onClick={() => setShowCreateModal(false)} type="button">
+                                <X size={18} />
+                            </button>
                         </div>
                         <form onSubmit={handleCreateMailbox} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                             <div className="slide-over-body">

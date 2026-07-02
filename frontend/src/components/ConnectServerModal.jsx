@@ -52,7 +52,9 @@ const ConnectServerModal = ({ onClose, onSuccess }) => {
             <Server className="logo-icon" size={20} />
             <span>Подключить внешний Linux-сервер</span>
           </div>
-          <button className="btn-close" onClick={onClose} disabled={loading}>×</button>
+          <button className="btn-close" onClick={onClose} disabled={loading} type="button">
+            <X size={18} />
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

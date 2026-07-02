@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, Package, HardDrive, Square, Shuffle, Users, Database, Mail } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -559,7 +559,9 @@ const App = () => {
                   <div className="slide-over-content" onClick={e => e.stopPropagation()}>
                     <div className="slide-over-header">
                       <h2>Создать новую ВМ</h2>
-                      <button className="btn-close" onClick={() => setShowCreateVM(false)}>×</button>
+                      <button className="btn-close" onClick={() => setShowCreateVM(false)} type="button">
+                        <X size={18} />
+                      </button>
                     </div>
                     <form onSubmit={handleCreateVM} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                       <div className="slide-over-body" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

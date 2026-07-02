@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Plus, Trash2, Key, Info, Copy, Eye, EyeOff } from 'lucide-react';
+import { Database, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, X } from 'lucide-react';
 
 export default function DatabasesPanel() {
     const [databases, setDatabases] = useState([]);
@@ -219,7 +219,9 @@ export default function DatabasesPanel() {
                     <div className="slide-over-content" onClick={e => e.stopPropagation()}>
                         <div className="slide-over-header">
                             <h2>Создание новой базы данных</h2>
-                            <button className="btn-close" onClick={() => setShowCreateModal(false)}>×</button>
+                            <button className="btn-close" onClick={() => setShowCreateModal(false)} type="button">
+                                <X size={18} />
+                            </button>
                         </div>
                         <form onSubmit={handleCreateDatabase} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                             <div className="slide-over-body">
