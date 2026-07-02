@@ -32,7 +32,7 @@ export default function S3Panel() {
     const fetchBuckets = async () => {
         setLoading(true);
         try {
-            const res = await fetch('/api/v1/s3', {
+            const res = await fetch('/api/s3', {
                 headers: getHeaders()
             });
             if (!res.ok) {
@@ -52,7 +52,7 @@ export default function S3Panel() {
     const fetchBucketFiles = async (bucket) => {
         setFilesLoading(true);
         try {
-            const res = await fetch(`/api/v1/s3/${bucket.id}/files`, {
+            const res = await fetch(`/api/s3/${bucket.id}/files`, {
                 headers: getHeaders()
             });
             if (!res.ok) {
@@ -76,7 +76,7 @@ export default function S3Panel() {
         e.preventDefault();
         setSubmitting(true);
         try {
-            const res = await fetch('/api/v1/s3', {
+            const res = await fetch('/api/s3', {
                 method: 'POST',
                 headers: getHeaders(),
                 body: JSON.stringify({
@@ -101,7 +101,7 @@ export default function S3Panel() {
     const handleDeleteBucket = async (bucketId) => {
         if (!confirm('Вы уверены, что хотите удалить этот бакет? Все хранящиеся файлы будут стёрты навсегда!')) return;
         try {
-            const res = await fetch(`/api/v1/s3/${bucketId}`, {
+            const res = await fetch(`/api/s3/${bucketId}`, {
                 method: 'DELETE',
                 headers: getHeaders()
             });
@@ -124,7 +124,7 @@ export default function S3Panel() {
         formData.append('file', file);
 
         try {
-            const res = await fetch(`/api/v1/s3/${selectedBucket.id}/upload`, {
+            const res = await fetch(`/api/s3/${selectedBucket.id}/upload`, {
                 method: 'POST',
                 headers: getHeaders(true),
                 body: formData
@@ -144,7 +144,7 @@ export default function S3Panel() {
     const handleDeleteFile = async (fileName) => {
         if (!confirm(`Удалить файл "${fileName}"?`)) return;
         try {
-            const res = await fetch(`/api/v1/s3/${selectedBucket.id}/files/${encodeURIComponent(fileName)}`, {
+            const res = await fetch(`/api/s3/${selectedBucket.id}/files/${encodeURIComponent(fileName)}`, {
                 method: 'DELETE',
                 headers: getHeaders()
             });

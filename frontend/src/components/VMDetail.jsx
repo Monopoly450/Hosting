@@ -975,7 +975,7 @@ function VMSnapshotsList({ vmName, vmStatus }) {
     const fetchSnapshots = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`/api/v1/snapshots/${vmName}`, getHeaders());
+            const res = await fetch(`/api/snapshots/${vmName}`, getHeaders());
             if (res.ok) {
                 const data = await res.json();
                 setSnapshots(data);
@@ -996,7 +996,7 @@ function VMSnapshotsList({ vmName, vmStatus }) {
         if (!snapName.trim()) return;
         setCreating(true);
         try {
-            const res = await fetch(`/api/v1/snapshots/${vmName}`, {
+            const res = await fetch(`/api/snapshots/${vmName}`, {
                 method: 'POST',
                 headers: {
                     ...getHeaders().headers,
@@ -1021,7 +1021,7 @@ function VMSnapshotsList({ vmName, vmStatus }) {
     const handleDeleteSnapshot = async (snapshotName) => {
         if (!confirm(`Удалить снимок ${snapshotName}?`)) return;
         try {
-            const res = await fetch(`/api/v1/snapshots/${vmName}/${snapshotName}`, {
+            const res = await fetch(`/api/snapshots/${vmName}/${snapshotName}`, {
                 method: 'DELETE',
                 headers: getHeaders().headers
             });
@@ -1039,7 +1039,7 @@ function VMSnapshotsList({ vmName, vmStatus }) {
     const handleRestoreSnapshot = async (snapshotName) => {
         if (!confirm(`Восстановить виртуальную машину из снимка ${snapshotName}? Все текущие данные будут утеряны.`)) return;
         try {
-            const res = await fetch(`/api/v1/snapshots/${vmName}/${snapshotName}/restore`, {
+            const res = await fetch(`/api/snapshots/${vmName}/${snapshotName}/restore`, {
                 method: 'POST',
                 headers: getHeaders().headers
             });

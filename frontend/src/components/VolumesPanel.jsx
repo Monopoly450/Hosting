@@ -28,7 +28,7 @@ export default function VolumesPanel() {
         setLoading(true);
         try {
             // Fetch volumes
-            const volRes = await fetch('/api/v1/volumes', { headers: getHeaders() });
+            const volRes = await fetch('/api/volumes', { headers: getHeaders() });
             if (!volRes.ok) {
                 const data = await volRes.json();
                 throw new Error(data.detail || 'Ошибка при загрузке данных дисков');
@@ -65,7 +65,7 @@ export default function VolumesPanel() {
         e.preventDefault();
         setSubmitting(true);
         try {
-            const res = await fetch('/api/v1/volumes', {
+            const res = await fetch('/api/volumes', {
                 method: 'POST',
                 headers: getHeaders(),
                 body: JSON.stringify({
@@ -92,7 +92,7 @@ export default function VolumesPanel() {
     const handleDeleteVolume = async (volId) => {
         if (!confirm('Вы уверены, что хотите удалить этот сетевой диск? Все данные на нём будут стёрты!')) return;
         try {
-            const res = await fetch(`/api/v1/volumes/${volId}`, {
+            const res = await fetch(`/api/volumes/${volId}`, {
                 method: 'DELETE',
                 headers: getHeaders()
             });
@@ -114,7 +114,7 @@ export default function VolumesPanel() {
         }
         setSubmitting(true);
         try {
-            const res = await fetch(`/api/v1/volumes/${selectedVolId}/attach/${selectedVmName}`, {
+            const res = await fetch(`/api/volumes/${selectedVolId}/attach/${selectedVmName}`, {
                 method: 'POST',
                 headers: getHeaders()
             });
@@ -134,7 +134,7 @@ export default function VolumesPanel() {
     const handleDetachVolume = async (volId) => {
         if (!confirm('Отключить диск от виртуальной машины? Это безопасное извлечение.')) return;
         try {
-            const res = await fetch(`/api/v1/volumes/${volId}/detach`, {
+            const res = await fetch(`/api/volumes/${volId}/detach`, {
                 method: 'POST',
                 headers: getHeaders()
             });

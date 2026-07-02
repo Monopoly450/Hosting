@@ -26,7 +26,7 @@ export default function DatabasesPanel() {
     const fetchDatabases = async () => {
         setLoading(true);
         try {
-            const res = await fetch('/api/v1/databases', {
+            const res = await fetch('/api/databases', {
                 headers: getHeaders()
             });
             if (!res.ok) {
@@ -51,7 +51,7 @@ export default function DatabasesPanel() {
         e.preventDefault();
         setSubmitting(true);
         try {
-            const res = await fetch('/api/v1/databases', {
+            const res = await fetch('/api/databases', {
                 method: 'POST',
                 headers: getHeaders(),
                 body: JSON.stringify({
@@ -78,7 +78,7 @@ export default function DatabasesPanel() {
     const handleDeleteDatabase = async (dbId) => {
         if (!confirm('Вы уверены, что хотите удалить эту базу данных? Все данные будут стёрты навсегда!')) return;
         try {
-            const res = await fetch(`/api/v1/databases/${dbId}`, {
+            const res = await fetch(`/api/databases/${dbId}`, {
                 method: 'DELETE',
                 headers: getHeaders()
             });

@@ -23,7 +23,7 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
     const fetchUsers = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${apiUrl}/api/v1/auth/users`, {
+            const res = await fetch(`${apiUrl}/api/auth/users`, {
                 headers: { 'Authorization': `Bearer ${apiToken}` }
             });
             if (!res.ok) {
@@ -47,7 +47,7 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
     const handleCreateUser = async (e) => {
         e.preventDefault();
         try {
-            const res = await fetch(`${apiUrl}/api/v1/auth/register`, {
+            const res = await fetch(`${apiUrl}/api/auth/register`, {
                 method: 'POST',
                 headers: getHeaders(),
                 body: JSON.stringify({
@@ -84,7 +84,7 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
     const handleDeleteUser = async (userId) => {
         if (!confirm('Вы уверены, что хотите удалить этого пользователя и все его ресурсы?')) return;
         try {
-            const res = await fetch(`${apiUrl}/api/v1/auth/users/${userId}`, {
+            const res = await fetch(`${apiUrl}/api/auth/users/${userId}`, {
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${apiToken}` }
             });

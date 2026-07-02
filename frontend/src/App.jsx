@@ -115,7 +115,7 @@ const App = () => {
 
   const fetchQuotaUsage = async () => {
     try {
-      const response = await fetch('/api/v1/auth/me');
+      const response = await fetch('/api/auth/me');
       if (response.ok) {
         const data = await response.json();
         setQuotaUsage(data);
@@ -212,7 +212,7 @@ const App = () => {
     try {
       setFormLoading(true);
       // Сначала пробуем войти через новый API авторизации
-      const response = await fetch('/api/v1/auth/login', {
+      const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: usernameVal, password: passwordVal }),

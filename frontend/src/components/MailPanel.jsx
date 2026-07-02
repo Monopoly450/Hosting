@@ -23,7 +23,7 @@ export default function MailPanel() {
     const fetchMailboxes = async () => {
         setLoading(true);
         try {
-            const res = await fetch('/api/v1/mail', { headers: getHeaders() });
+            const res = await fetch('/api/mail', { headers: getHeaders() });
             if (!res.ok) {
                 const data = await res.json();
                 throw new Error(data.detail || 'Ошибка при загрузке списка почтовых ящиков');
@@ -46,7 +46,7 @@ export default function MailPanel() {
         e.preventDefault();
         setSubmitting(true);
         try {
-            const res = await fetch('/api/v1/mail', {
+            const res = await fetch('/api/mail', {
                 method: 'POST',
                 headers: getHeaders(),
                 body: JSON.stringify({
@@ -73,7 +73,7 @@ export default function MailPanel() {
     const handleDeleteMailbox = async (mailboxId) => {
         if (!confirm('Вы уверены, что хотите удалить этот почтовый ящик? Все письма будут безвозвратно стёрты.')) return;
         try {
-            const res = await fetch(`/api/v1/mail/${mailboxId}`, {
+            const res = await fetch(`/api/mail/${mailboxId}`, {
                 method: 'DELETE',
                 headers: getHeaders()
             });
