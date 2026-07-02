@@ -552,19 +552,28 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
 def list_vms(client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     try:
         all_vms = client.list_vms()
-        if current_user.role == "admin":
-            return all_vms
-        
         from app.db import SessionLocal
         from app.models.models import VMTask
         db = SessionLocal()
         try:
-            owned_vms = db.query(VMTask).filter(VMTask.owner_id == current_user.id).all()
-            owned_names = {vm.name for vm in owned_vms}
+            if current_user.role == "admin":
+                db_vms = db.query(VMTask).all()
+                db_vm_map = {vm.name: vm.id for vm in db_vms}
+                for vm in all_vms:
+                    vm["id"] = db_vm_map.get(vm.get("name"))
+                return all_vms
+            else:
+                db_vms = db.query(VMTask).filter(VMTask.owner_id == current_user.id).all()
+                db_vm_map = {vm.name: vm.id for vm in db_vms}
+                filtered_vms = []
+                for vm in all_vms:
+                    name = vm.get("name")
+                    if name in db_vm_map:
+                        vm["id"] = db_vm_map[name]
+                        filtered_vms.append(vm)
+                return filtered_vms
         finally:
             db.close()
-            
-        return [vm for vm in all_vms if vm.get("name") in owned_names]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
