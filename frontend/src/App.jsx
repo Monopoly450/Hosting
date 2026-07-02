@@ -121,7 +121,17 @@ const App = () => {
       const response = await fetch('/api/auth/me');
       if (response.ok) {
         const data = await response.json();
-        setQuotaUsage(data);
+        setQuotaUsage({
+          max_vms: data.quotas.max_vms,
+          used_vms: data.usage.vms,
+          max_vcpus: data.quotas.max_vcpus,
+          used_vcpus: data.usage.vcpus,
+          max_ram_mb: data.quotas.max_ram_mb,
+          used_ram_mb: data.usage.ram_mb,
+          max_storage_gb: data.quotas.max_storage_gb,
+          used_storage_gb: data.usage.storage_gb,
+          balance: data.balance || 0,
+        });
         setUserRole(data.role);
         localStorage.setItem('aegis_role', data.role);
         localStorage.setItem('aegis_username', data.username);
@@ -138,6 +148,8 @@ const App = () => {
       fetchCustomImages();
       if (userRole === 'admin') {
         fetchExternalServers();
+      } else {
+        setServersLoading(false);
       }
       
       const vmsInterval = setInterval(() => {
