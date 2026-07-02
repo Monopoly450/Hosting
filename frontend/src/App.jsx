@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -560,9 +560,20 @@ const App = () => {
       <div className="main-area">
         <header className="top-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button className="btn-menu" onClick={() => setSidebarOpen(true)}>
-              <Menu size={20} />
-            </button>
+            {selectedVMDetailName ? (
+              <button 
+                className="btn btn-secondary btn-icon" 
+                onClick={() => setSelectedVMDetailName(null)}
+                style={{ padding: '6px 10px', minWidth: 'auto', display: 'flex', alignItems: 'center', gap: '4px', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-primary)' }}
+              >
+                <ChevronLeft size={20} />
+                <span className="desktop-only" style={{ fontSize: '0.9rem', fontWeight: 500 }}>Назад</span>
+              </button>
+            ) : (
+              <button className="btn-menu" onClick={() => setSidebarOpen(true)}>
+                <Menu size={20} />
+              </button>
+            )}
             <div className="header-title">{getTabTitle()}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>

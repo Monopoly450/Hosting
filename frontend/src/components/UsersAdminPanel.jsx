@@ -283,7 +283,7 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
                                     />
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '15px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px', marginTop: '15px' }}>
                                     <div className="input-group">
                                         <label className="input-label">Лимит CPU (ядер)</label>
                                         <input 
@@ -367,7 +367,7 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
                                     />
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '15px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px', marginTop: '15px' }}>
                                     <div className="input-group">
                                         <label className="input-label">Лимит CPU (ядер)</label>
                                         <input 

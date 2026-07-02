@@ -450,7 +450,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {vm.status !== 'Running' ? (
               <button className="btn btn-primary" onClick={() => handlePowerAction('start')} disabled={actionLoading !== null}>
                 {actionLoading === 'start' ? <span className="spinner"/> : <><Play size={14} /> Start</>}
@@ -549,7 +549,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       )}
 
       {activeTab === 'overview' && (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '24px' }}>
         
         {/* LEFT COLUMN */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -808,7 +808,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       )}
 
       {activeTab === 'settings' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '24px' }}>
           {/* Left Panel: CPU/RAM/Disk limits */}
           <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <h3 className="section-title" style={{ margin: 0 }}><Settings size={18}/> Выделение ресурсов и лимиты диска</h3>
