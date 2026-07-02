@@ -197,33 +197,6 @@ const HostStats = ({ onMetricsLoaded }) => {
             <span>Занято ВМ (резерв): {metrics.disk ? metrics.disk.reserved_gb : 0} ГБ</span>
             <span>Доступно для новых ВМ: {metrics.disk ? metrics.disk.available_gb : 0} ГБ</span>
           </div>
-
-          {showResize && (
-            <form onSubmit={handleResizeLvm} style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>ИЗМЕНЕНИЕ РАЗМЕРА LVM (vg-aegis)</div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Введите новый размер в ГБ. Поддерживается расширение и безопасное сжатие (если новый размер больше объема дисков ВМ).</div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input 
-                  type="number" 
-                  className="form-control" 
-                  placeholder="Размер в ГБ (например: 60)" 
-                  value={newSizeGb}
-                  onChange={e => setNewSizeGb(e.target.value)}
-                  disabled={resizing}
-                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
-                  required
-                />
-                <button type="submit" className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '0.85rem', whiteSpace: 'nowrap' }} disabled={resizing}>
-                  {resizing ? <span className="spinner" /> : "Сохранить"}
-                </button>
-              </div>
-              {resizeStatus && (
-                <div style={{ fontSize: '0.75rem', color: resizeStatus.success ? 'var(--status-success)' : 'var(--status-danger)', marginTop: '4px', fontWeight: 500 }}>
-                  {resizeStatus.success ? "✓ " : "✗ "} {resizeStatus.message}
-                </div>
-              )}
-            </form>
-          )}
         </div>
       </div>
       
@@ -300,6 +273,72 @@ const HostStats = ({ onMetricsLoaded }) => {
           <div style={{ fontWeight: 600, color: 'var(--text-heading)', fontSize: '0.8rem' }}>{metrics.system_uuid}</div>
         </div>
       </div>
+
+      {/* LVM Pool Resize Slide-over Panel */}
+      {showResize && (
+        <div className="slide-over-overlay" onClick={() => setShowResize(false)}>
+          <div className="slide-over-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '450px' }}>
+            <div className="slide-over-header">
+              <h2>Настройки пула LVM</h2>
+              <button className="btn-close" onClick={() => setShowResize(false)}>&times;</button>
+            </div>
+            
+            <form onSubmit={handleResizeLvm} className="slide-over-body" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <label className="input-label">Текущий пул хранения (vg-aegis)</label>
+                <div style={{ padding: '12px', background: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', marginBottom: '6px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Выделено под пул LVM:</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.disk ? metrics.disk.total_gb : 0} ГБ</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Зарезервировано ВМ:</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.disk ? metrics.disk.reserved_gb : 0} ГБ</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="input-group">
+                <label className="input-label">Новый размер пула (в ГБ)</label>
+                <input 
+                  type="number" 
+                  className="form-control" 
+                  placeholder="Например: 60" 
+                  value={newSizeGb}
+                  onChange={e => setNewSizeGb(e.target.value)}
+                  disabled={resizing}
+                  required
+                />
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px', lineHeight: '1.4' }}>
+                  Вы можете расширить объем пула или безопасно уменьшить его. Уменьшение сработает только в том случае, если новый размер больше, чем суммарный объем дисков созданных ВМ ({metrics.disk ? metrics.disk.reserved_gb : 0} ГБ).
+                </span>
+              </div>
+
+              {resizeStatus && (
+                <div style={{ 
+                  padding: '12px', 
+                  borderRadius: 'var(--radius-md)', 
+                  fontSize: '0.85rem',
+                  background: resizeStatus.success ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', 
+                  color: resizeStatus.success ? 'var(--status-success)' : 'var(--status-danger)', 
+                  border: `1px solid ${resizeStatus.success ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}` 
+                }}>
+                  {resizeStatus.success ? "✓ " : "✗ "} {resizeStatus.message}
+                </div>
+              )}
+
+              <div style={{ marginTop: 'auto', display: 'flex', gap: '12px', paddingTop: '20px', borderTop: '1px solid var(--border-subtle)' }}>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowResize(false)} disabled={resizing}>
+                  Отмена
+                </button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }} disabled={resizing}>
+                  {resizing ? <span className="spinner" /> : "Сохранить"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
