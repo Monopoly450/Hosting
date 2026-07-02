@@ -133,7 +133,7 @@ app.include_router(snapshots.router, prefix=f"{settings.API_V1_STR}/snapshots", 
 app.include_router(mail.router, prefix=f"{settings.API_V1_STR}/mail", tags=["mail"])
 app.include_router(host.router, prefix=f"{settings.API_V1_STR}/host", tags=["host"], dependencies=[Depends(verify_admin_token)])
 app.include_router(vnc.router, prefix=f"{settings.API_V1_STR}/vnc", tags=["vnc"])
-app.include_router(images.router, prefix=f"{settings.API_V1_STR}/images", tags=["images"], dependencies=[Depends(verify_admin_token)])
+app.include_router(images.router, prefix=f"{settings.API_V1_STR}/images", tags=["images"])
 app.include_router(docker_admin.router, prefix=f"{settings.API_V1_STR}/docker", tags=["docker"], dependencies=[Depends(verify_admin_token)])
 app.include_router(external_servers.router, prefix=f"{settings.API_V1_STR}/external-servers", tags=["external-servers"], dependencies=[Depends(verify_admin_token)])
 app.include_router(infra.router, prefix=f"{settings.API_V1_STR}/infra", tags=["infra"], dependencies=[Depends(verify_admin_token)])

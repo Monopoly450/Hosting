@@ -1,8 +1,10 @@
 import os
 import shutil
 import logging
-from fastapi import APIRouter, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, HTTPException, UploadFile, File, status, Depends
 from typing import List
+from app.core.auth import get_current_user, verify_admin_token
+from app.models.models import User
 
 router = APIRouter()
 logger = logging.getLogger("app.images")
@@ -17,7 +19,7 @@ os.makedirs(IMAGES_DIR, exist_ok=True)
 ALLOWED_EXTENSIONS = {".qcow2", ".img", ".iso", ".raw"}
 
 @router.get("", response_model=List[dict])
-def list_images():
+def list_images(current_user: User = Depends(get_current_user)):
     """Получить список всех загруженных образов"""
     try:
         images = []
@@ -48,7 +50,7 @@ def list_images():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
-def upload_image(file: UploadFile = File(...)):
+def upload_image(file: UploadFile = File(...), admin: str = Depends(verify_admin_token)):
     """Загрузить файл образа на сервер (потоковая запись в файл)"""
     filename = file.filename
     _, ext = os.path.splitext(filename)
@@ -78,7 +80,7 @@ def upload_image(file: UploadFile = File(...)):
         file.file.close()
 
 @router.delete("/{filename}")
-def delete_image(filename: str):
+def delete_image(filename: str, admin: str = Depends(verify_admin_token)):
     """Удалить файл образа с сервера"""
     # Защита от Path Traversal
     filename_safe = os.path.basename(filename)

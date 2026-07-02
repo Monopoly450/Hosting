@@ -134,20 +134,26 @@ const App = () => {
       fetchQuotaUsage();
       fetchVMs();
       fetchCustomImages();
-      fetchExternalServers();
+      if (userRole === 'admin') {
+        fetchExternalServers();
+      }
       
       const vmsInterval = setInterval(() => {
         fetchVMs();
         fetchQuotaUsage();
       }, 5000);
-      const serversInterval = setInterval(fetchExternalServers, 10000);
+      
+      let serversInterval;
+      if (userRole === 'admin') {
+        serversInterval = setInterval(fetchExternalServers, 10000);
+      }
       
       return () => {
         clearInterval(vmsInterval);
-        clearInterval(serversInterval);
+        if (serversInterval) clearInterval(serversInterval);
       };
     }
-  }, [authenticated]);
+  }, [authenticated, userRole]);
 
   const handleCreateVM = async (e) => {
     e.preventDefault();
@@ -368,13 +374,15 @@ const App = () => {
             Балансировщик
           </button>
 
-          <button 
-            className={`nav-item ${activeTab === 'images' && !selectedVMDetailName ? 'active' : ''}`}
-            onClick={() => { setActiveTab('images'); setSelectedVMDetailName(null); }}
-          >
-            <FolderOpen size={18} />
-            Образы ОС
-          </button>
+          {userRole === 'admin' && (
+            <button 
+              className={`nav-item ${activeTab === 'images' && !selectedVMDetailName ? 'active' : ''}`}
+              onClick={() => { setActiveTab('images'); setSelectedVMDetailName(null); }}
+            >
+              <FolderOpen size={18} />
+              Образы ОС
+            </button>
+          )}
 
           <button 
             className={`nav-item ${activeTab === 'databases' && !selectedVMDetailName ? 'active' : ''}`}
