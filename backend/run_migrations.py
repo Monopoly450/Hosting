@@ -25,7 +25,9 @@ alter_statements = [
         IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_buckets' AND column_name='name') THEN
             ALTER TABLE user_buckets RENAME COLUMN name TO bucket_name;
         END IF;
-    END $$;"""
+    END $$;""",
+    "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS cloud_init_template VARCHAR(255);",
+    "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS custom_user_data TEXT;"
 ]
 
 with engine.connect() as conn:

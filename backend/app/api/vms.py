@@ -874,6 +874,8 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
             custom_image=req.custom_image,
             packages=req.packages,
             network_drives=req.network_drives,
+            cloud_init_template=req.cloud_init_template,
+            custom_user_data=req.custom_user_data,
             owner_id=current_user.id,
             status="Pending"
         )

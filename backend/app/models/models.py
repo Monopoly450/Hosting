@@ -169,6 +169,8 @@ class VMTask(Base):
     disk_write_iops = Column(Integer, default=0)
     ports_config = Column(String, nullable=True) # JSON array of ports and forwarding rules
     firewall_rules = Column(String, nullable=True) # JSON array of firewall whitelist rules
+    cloud_init_template = Column(String, nullable=True)
+    custom_user_data = Column(Text, nullable=True)
     
     # Queue / State
     status = Column(String, default="Pending") # Pending, Provisioning, Running, Error

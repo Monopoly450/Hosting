@@ -66,6 +66,8 @@ def process_vm_task(db: Session, task_id: int):
             custom_image = task.custom_image
             packages = task.packages
             network_drives = task.network_drives
+            cloud_init_template = task.cloud_init_template
+            custom_user_data = task.custom_user_data
         
         # Вызываем логику создания ВМ
         from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password
