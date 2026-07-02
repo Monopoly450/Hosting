@@ -110,7 +110,7 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
         # Сохранение записи в системной БД
         new_db = UserDatabase(
             db_name=req.name,
-            engine=req.engine,
+            db_type=req.engine,
             db_user=db_user,
             db_password=db_password,
             owner_id=current_user.id,
@@ -123,7 +123,7 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
         return DatabaseResponse(
             id=new_db.id,
             db_name=new_db.db_name,
-            engine=new_db.engine,
+            engine=new_db.db_type,
             db_user=new_db.db_user,
             db_password=new_db.db_password,
             status=new_db.status,
@@ -153,7 +153,7 @@ def list_databases(current_user: User = Depends(get_current_user)):
             res.append(DatabaseResponse(
                 id=d.id,
                 db_name=d.db_name,
-                engine=d.engine,
+                engine=d.db_type,
                 db_user=d.db_user,
                 db_password=d.db_password,
                 status=d.status,
@@ -175,7 +175,7 @@ def delete_database(db_id: int, current_user: User = Depends(get_current_user)):
             raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этой базы данных.")
 
         # Физическое удаление
-        if user_db.engine == "postgresql":
+        if user_db.db_type == "postgresql":
             try:
                 conn = psycopg2.connect(
                     dbname="postgres",
@@ -193,7 +193,7 @@ def delete_database(db_id: int, current_user: User = Depends(get_current_user)):
                 logger.error(f"Failed to drop Postgres DB: {e}")
                 # Продолжаем удаление записи из БД в случае сбоя коннекта
         
-        elif user_db.engine == "mysql":
+        elif user_db.db_type == "mysql":
             try:
                 conn = pymysql.connect(
                     host="127.0.0.1",
