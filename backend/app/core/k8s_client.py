@@ -759,23 +759,35 @@ class K8sClient:
         }
 
     def ensure_network_isolation(self):
-        """Гарантирует, что мосты Multus не могут общаться друг с другом на L3"""
+        """Гарантирует, что мосты Multus не могут общаться друг с другом на L3, но разрешает локальный бриджинг"""
         try:
             import subprocess
             nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
             
-            # Проверяем, существует ли уже правило
+            # Получаем текущие правила FORWARD
             check_cmd = "iptables -S FORWARD"
             res = subprocess.run(nsenter_prefix + [check_cmd], capture_output=True, text=True, timeout=5)
             
-            # Правило для изоляции br-+ от br-+
-            rule_pattern = "-i br-+ -o br-+ -j REJECT"
-            if res.returncode == 0 and "br-+" not in res.stdout:
-                logger.info("Добавляем правило iptables для L3 изоляции приватных мостов Multus")
-                add_cmd = "iptables -I FORWARD -i br-+ -o br-+ -j REJECT --reject-with icmp-port-unreachable"
-                subprocess.run(nsenter_prefix + [add_cmd], capture_output=True, text=True, timeout=5)
-                # Сохраняем правила
-                subprocess.run(nsenter_prefix + ["netfilter-persistent save"], capture_output=True, text=True, timeout=5)
+            if res.returncode == 0:
+                # Очищаем все старые правила с br-+ для предотвращения дубликатов и наложения
+                for line in res.stdout.splitlines():
+                    if "br-+" in line:
+                        del_rule = line.replace("-A ", "iptables -D ")
+                        subprocess.run(nsenter_prefix + [del_rule], capture_output=True, timeout=5)
+            
+            # Добавляем правила заново
+            logger.info("Настройка правил iptables для L3 изоляции мостов Multus с поддержкой локального бриджинга")
+            
+            # 1. Сначала добавляем запрещающее правило в начало FORWARD
+            add_reject = "iptables -I FORWARD -i br-+ -o br-+ -j REJECT --reject-with icmp-port-unreachable"
+            subprocess.run(nsenter_prefix + [add_reject], capture_output=True, text=True, timeout=5)
+            
+            # 2. Затем добавляем разрешающее правило для локального трафика внутри одного моста в самую первую позицию (сдвигая REJECT на вторую)
+            add_accept = "iptables -I FORWARD -i br-+ -o br-+ -m physdev --physdev-is-bridged -j ACCEPT"
+            subprocess.run(nsenter_prefix + [add_accept], capture_output=True, text=True, timeout=5)
+            
+            # Сохраняем правила
+            subprocess.run(nsenter_prefix + ["netfilter-persistent save"], capture_output=True, text=True, timeout=5)
         except Exception as e:
             logger.error(f"Ошибка при настройке L3 изоляции сетей: {e}")
 
