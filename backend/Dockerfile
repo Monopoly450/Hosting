@@ -8,7 +8,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     iptables \
     util-linux \
-    && curl https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc \
+    && ARCH=$(uname -m) \
+    && if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi \
+    && if [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi \
+    && curl -sSL "https://dl.min.io/client/mc/release/linux-${ARCH}/mc" -o /usr/local/bin/mc \
     && chmod +x /usr/local/bin/mc \
     && rm -rf /var/lib/apt/lists/*
 
