@@ -250,7 +250,8 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
                                 {
                                     "name": "datavolume",
                                     "disk": {
-                                        "bus": "virtio"
+                                        "bus": "virtio",
+                                        "cache": "writeback"
                                     }
                                 },
                                 {
@@ -430,7 +431,8 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                                     "name": "winhd",
                                     "bootOrder": 2,
                                     "disk": {
-                                        "bus": "virtio"
+                                        "bus": "virtio",
+                                        "cache": "writeback"
                                     }
                                 },
                                 {
