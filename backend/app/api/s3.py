@@ -136,8 +136,7 @@ def create_bucket(req: BucketCreateRequest, current_user: User = Depends(get_cur
             bucket_name=full_bucket_name,
             access_key=access_key,
             secret_key=secret_key,
-            owner_id=current_user.id,
-            status="Active"
+            owner_id=current_user.id
         )
         db.add(new_bucket)
         db.commit()
@@ -148,7 +147,7 @@ def create_bucket(req: BucketCreateRequest, current_user: User = Depends(get_cur
             bucket_name=new_bucket.bucket_name,
             access_key=new_bucket.access_key,
             secret_key=new_bucket.secret_key,
-            status=new_bucket.status,
+            status="Active",
             owner_username=current_user.username
         )
     except HTTPException:
@@ -177,7 +176,7 @@ def list_buckets(current_user: User = Depends(get_current_user)):
                 bucket_name=b.bucket_name,
                 access_key=b.access_key,
                 secret_key=b.secret_key,
-                status=b.status,
+                status="Active",
                 owner_username=owner_name
             ))
         return res
