@@ -8,6 +8,47 @@ const HostStats = ({ onMetricsLoaded }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
+  const [showResize, setShowResize] = useState(false);
+  const [newSizeGb, setNewSizeGb] = useState('');
+  const [resizing, setResizing] = useState(false);
+  const [resizeStatus, setResizeStatus] = useState(null);
+
+  const handleResizeLvm = async (e) => {
+    e.preventDefault();
+    const size = parseInt(newSizeGb);
+    if (isNaN(size) || size <= 0) {
+      alert("Пожалуйста, введите корректный размер в ГБ.");
+      return;
+    }
+    
+    setResizing(true);
+    setResizeStatus(null);
+    try {
+      const response = await fetch('/api/host/storage/resize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('aegis_admin_token')}`
+        },
+        body: JSON.stringify({ size_gb: size })
+      });
+      
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || "Не удалось расширить хранилище");
+      }
+      
+      setResizeStatus({ success: true, message: data.message });
+      setNewSizeGb('');
+      fetchMetrics();
+      setTimeout(() => setShowResize(false), 3000);
+    } catch (err) {
+      setResizeStatus({ success: false, message: err.message });
+    } finally {
+      setResizing(false);
+    }
+  };
+
   const fetchMetrics = async () => {
     try {
       const response = await fetch('/api/host/metrics');
@@ -122,7 +163,18 @@ const HostStats = ({ onMetricsLoaded }) => {
         <div className="stat-box">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> Дисковое пространство</span>
-            <span className="stat-box-value">{metrics.disk ? metrics.disk.used_percent : 0}%</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {localStorage.getItem('aegis_role') === 'admin' && (
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ padding: '2px 8px', fontSize: '0.75rem', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  onClick={() => { setShowResize(!showResize); setResizeStatus(null); }}
+                >
+                  {showResize ? "Отмена" : "⚙️ Расширить пул LVM"}
+                </button>
+              )}
+              <span className="stat-box-value">{metrics.disk ? metrics.disk.used_percent : 0}%</span>
+            </div>
           </div>
           <div className="progress-track">
             <div className={`progress-fill ${getProgressClass(metrics.disk ? metrics.disk.used_percent : 0)}`} style={{ width: `${metrics.disk ? metrics.disk.used_percent : 0}%` }} />
@@ -132,6 +184,33 @@ const HostStats = ({ onMetricsLoaded }) => {
             <span>Занято ВМ (резерв): {metrics.disk ? metrics.disk.reserved_gb : 0} ГБ</span>
             <span>Доступно для новых ВМ: {metrics.disk ? metrics.disk.available_gb : 0} ГБ</span>
           </div>
+
+          {showResize && (
+            <form onSubmit={handleResizeLvm} style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>РАСШИРЕНИЕ LVM ХРАНИЛИЩА (vg-aegis)</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Внимание: Уменьшение объема диска не поддерживается. Укажите новый желаемый размер пула в ГБ.</div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input 
+                  type="number" 
+                  className="form-control" 
+                  placeholder="Новый размер в ГБ (например: 100)" 
+                  value={newSizeGb}
+                  onChange={e => setNewSizeGb(e.target.value)}
+                  disabled={resizing}
+                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                  required
+                />
+                <button type="submit" className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '0.85rem' }} disabled={resizing}>
+                  {resizing ? <span className="spinner" /> : "Сохранить"}
+                </button>
+              </div>
+              {resizeStatus && (
+                <div style={{ fontSize: '0.75rem', color: resizeStatus.success ? 'var(--status-success)' : 'var(--status-danger)', marginTop: '4px', fontWeight: 500 }}>
+                  {resizeStatus.success ? "✓ " : "✗ "} {resizeStatus.message}
+                </div>
+              )}
+            </form>
+          )}
         </div>
       </div>
       

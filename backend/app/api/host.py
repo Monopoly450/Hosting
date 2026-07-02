@@ -1,10 +1,13 @@
 import os
 import shutil
+import subprocess
+from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Depends
 from app.core.k8s_client import K8sClient
 from kubernetes.client.rest import ApiException
 from app.db import SessionLocal
-from app.models.models import VMTask
+from app.models.models import VMTask, User
+from app.core.auth import get_current_user
 
 router = APIRouter()
 
@@ -246,3 +249,79 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class StorageResizeRequest(BaseModel):
+    size_gb: int
+
+@router.post("/storage/resize")
+def resize_lvm_storage(req: StorageResizeRequest, current_user: User = Depends(get_current_user)):
+    """Изменение размера блочного LVM хранилища на хосте (только для администраторов)"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Доступ запрещен. Требуются права администратора.")
+
+    if req.size_gb <= 0:
+        raise HTTPException(status_code=400, detail="Размер должен быть положительным числом.")
+
+    image_path = "/var/lib/aegis/lvm-storage.img"
+    
+    # 1. Проверяем существование файла-образа
+    if not os.path.exists(image_path):
+        raise HTTPException(status_code=404, detail=f"Файл-образ хранилища {image_path} не найден на хосте.")
+
+    # 2. Определяем текущий размер файла в ГБ
+    try:
+        current_bytes = os.path.getsize(image_path)
+        current_gb = round(current_bytes / (1024**3), 1)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Не удалось определить текущий размер файла-образа: {e}")
+
+    # 3. Разрешаем только расширение
+    if req.size_gb <= current_gb:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Уменьшение размера хранилища не поддерживается во избежание потери данных. Текущий размер: {current_gb} ГБ, запрошено: {req.size_gb} ГБ."
+        )
+
+    # 4. Выполняем изменение размера
+    try:
+        # Расширяем файл через truncate (это работает мгновенно и безопасно для разреженных файлов)
+        subprocess.run(["truncate", "-s", f"{req.size_gb}G", image_path], check=True)
+        
+        # Находим петлевое устройство (loopback device)
+        find_loop = subprocess.run(
+            ["losetup", "-j", image_path], 
+            capture_output=True, 
+            text=True, 
+            check=True
+        )
+        
+        if find_loop.stdout.strip():
+            # Парсим имя loop device (например, /dev/loop5)
+            loop_dev = find_loop.stdout.split(":")[0].strip()
+            
+            # Сообщаем ядру об изменении размера loop device
+            subprocess.run(["losetup", "-c", loop_dev], check=True)
+            
+            # Сообщаем LVM об изменении размера Physical Volume
+            subprocess.run(["pvresize", loop_dev], check=True)
+            
+            return {
+                "status": "success",
+                "message": f"Блочное хранилище успешно расширено с {current_gb} ГБ до {req.size_gb} ГБ.",
+                "current_size_gb": req.size_gb
+            }
+        else:
+            raise Exception("Устройство loop device для файла-образа не найдено в ОС.")
+            
+    except subprocess.CalledProcessError as sub_err:
+        err_msg = sub_err.stderr or str(sub_err)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Системная ошибка выполнения команды: {err_msg}"
+        )
+    except Exception as err:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Не удалось расширить блочный пул LVM: {err}"
+        )
