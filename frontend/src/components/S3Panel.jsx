@@ -377,34 +377,36 @@ export default function S3Panel() {
             )}
 
             {showCreateModal && (
-                <div className="modal-backdrop">
-                    <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
-                        <div className="modal-header">
-                            <h3 className="modal-title">Создание нового бакета S3</h3>
+                <div className="slide-over-overlay" onClick={() => setShowCreateModal(false)}>
+                    <div className="slide-over-content" onClick={e => e.stopPropagation()}>
+                        <div className="slide-over-header">
+                            <h2>Создание нового бакета S3</h2>
                             <button className="btn-close" onClick={() => setShowCreateModal(false)}>×</button>
                         </div>
-                        <form onSubmit={handleCreateBucket}>
-                            <div className="form-group" style={{ marginBottom: '15px' }}>
-                                <label className="form-label">Имя бакета (Bucket Name)</label>
-                                <input 
-                                    type="text" 
-                                    className="form-control" 
-                                    value={bucketName} 
-                                    onChange={e => setBucketName(e.target.value)} 
-                                    required 
-                                    placeholder="Например, storage-1"
-                                />
-                                <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
-                                    Только латинские строчные буквы, цифры и дефис. Название будет дополнено префиксом вашего логина.
-                                </span>
+                        <form onSubmit={handleCreateBucket} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            <div className="slide-over-body">
+                                <div className="input-group">
+                                    <label className="input-label">Имя бакета (Bucket Name)</label>
+                                    <input 
+                                        type="text" 
+                                        className="form-control" 
+                                        value={bucketName} 
+                                        onChange={e => setBucketName(e.target.value)} 
+                                        required 
+                                        placeholder="Например, storage-1"
+                                    />
+                                    <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
+                                        Только латинские строчные буквы, цифры и дефис. Название будет дополнено префиксом вашего логина.
+                                    </span>
+                                </div>
+
+                                <div style={{ background: 'var(--bg-surface-hover)', padding: '12px', borderRadius: '8px', marginTop: '20px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    <Info size={16} style={{ marginRight: '8px', verticalAlign: 'middle', color: 'var(--accent-primary)' }} />
+                                    Будет создан индивидуальный S3 Service Account с доступом только к этому бакету.
+                                </div>
                             </div>
 
-                            <div style={{ background: 'var(--bg-surface-hover)', padding: '12px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                <Info size={16} style={{ marginRight: '8px', verticalAlign: 'middle', color: 'var(--accent-primary)' }} />
-                                Будет создан индивидуальный S3 Service Account с доступом только к этому бакету.
-                            </div>
-
-                            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                            <div className="slide-over-actions">
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowCreateModal(false)} disabled={submitting}>
                                     Отмена
                                 </button>

@@ -215,42 +215,44 @@ export default function DatabasesPanel() {
             )}
 
             {showCreateModal && (
-                <div className="modal-backdrop">
-                    <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
-                        <div className="modal-header">
-                            <h3 className="modal-title">Создание новой базы данных</h3>
+                <div className="slide-over-overlay" onClick={() => setShowCreateModal(false)}>
+                    <div className="slide-over-content" onClick={e => e.stopPropagation()}>
+                        <div className="slide-over-header">
+                            <h2>Создание новой базы данных</h2>
                             <button className="btn-close" onClick={() => setShowCreateModal(false)}>×</button>
                         </div>
-                        <form onSubmit={handleCreateDatabase}>
-                            <div className="form-group" style={{ marginBottom: '15px' }}>
-                                <label className="form-label">Имя базы данных</label>
-                                <input 
-                                    type="text" 
-                                    className="form-control" 
-                                    value={dbName} 
-                                    onChange={e => setDbName(e.target.value)} 
-                                    required 
-                                    placeholder="Например, my_app_db"
-                                />
-                                <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
-                                    Только латинские строчные буквы, цифры и символ подчеркивания.
-                                </span>
+                        <form onSubmit={handleCreateDatabase} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            <div className="slide-over-body">
+                                <div className="input-group">
+                                    <label className="input-label">Имя базы данных</label>
+                                    <input 
+                                        type="text" 
+                                        className="form-control" 
+                                        value={dbName} 
+                                        onChange={e => setDbName(e.target.value)} 
+                                        required 
+                                        placeholder="Например, my_app_db"
+                                    />
+                                    <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
+                                        Только латинские строчные буквы, цифры и символ подчеркивания.
+                                    </span>
+                                </div>
+
+                                <div className="input-group">
+                                    <label className="input-label">Тип СУБД</label>
+                                    <select className="form-control" value={engine} onChange={e => setEngine(e.target.value)}>
+                                        <option value="postgresql">PostgreSQL (Порт 5432)</option>
+                                        <option value="mysql">MySQL/MariaDB (Порт 3306)</option>
+                                    </select>
+                                </div>
+
+                                <div style={{ background: 'var(--bg-surface-hover)', padding: '12px', borderRadius: '8px', marginTop: '20px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    <Info size={16} style={{ marginRight: '8px', verticalAlign: 'middle', color: 'var(--accent-primary)' }} />
+                                    Учетная запись с полными правами к созданной базе будет сгенерирована автоматически.
+                                </div>
                             </div>
 
-                            <div className="form-group" style={{ marginBottom: '20px' }}>
-                                <label className="form-label">Тип СУБД</label>
-                                <select className="form-control" value={engine} onChange={e => setEngine(e.target.value)}>
-                                    <option value="postgresql">PostgreSQL (Порт 5432)</option>
-                                    <option value="mysql">MySQL/MariaDB (Порт 3306)</option>
-                                </select>
-                            </div>
-
-                            <div style={{ background: 'var(--bg-surface-hover)', padding: '12px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                <Info size={16} style={{ marginRight: '8px', verticalAlign: 'middle', color: 'var(--accent-primary)' }} />
-                                Учетная запись с полными правами к созданной базе будет сгенерирована автоматически.
-                            </div>
-
-                            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                            <div className="slide-over-actions">
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowCreateModal(false)} disabled={submitting}>
                                     Отмена
                                 </button>

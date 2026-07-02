@@ -180,99 +180,101 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
             )}
 
             {showCreateModal && (
-                <div className="modal-backdrop">
-                    <div className="modal-content glass-card" style={{ maxWidth: '500px' }}>
-                        <div className="modal-header">
-                            <h3 className="modal-title">Создание нового пользователя</h3>
+                <div className="slide-over-overlay" onClick={() => setShowCreateModal(false)}>
+                    <div className="slide-over-content" onClick={e => e.stopPropagation()}>
+                        <div className="slide-over-header">
+                            <h2>Создание нового пользователя</h2>
                             <button className="btn-close" onClick={() => setShowCreateModal(false)}>×</button>
                         </div>
-                        <form onSubmit={handleCreateUser}>
-                            <div className="form-group" style={{ marginBottom: '15px' }}>
-                                <label className="form-label">Имя пользователя</label>
-                                <input 
-                                    type="text" 
-                                    className="form-control" 
-                                    value={username} 
-                                    onChange={e => setUsername(e.target.value)} 
-                                    required 
-                                    placeholder="Например, ivan_ivanov"
-                                />
-                            </div>
-
-                            <div className="form-group" style={{ marginBottom: '15px' }}>
-                                <label className="form-label">Пароль</label>
-                                <div style={{ display: 'flex', gap: '10px' }}>
+                        <form onSubmit={handleCreateUser} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            <div className="slide-over-body">
+                                <div className="input-group">
+                                    <label className="input-label">Имя пользователя</label>
                                     <input 
                                         type="text" 
                                         className="form-control" 
-                                        value={password} 
-                                        onChange={e => setPassword(e.target.value)} 
-                                        required
-                                        placeholder="Сложный пароль"
+                                        value={username} 
+                                        onChange={e => setUsername(e.target.value)} 
+                                        required 
+                                        placeholder="Например, ivan_ivanov"
                                     />
-                                    <button type="button" className="btn btn-secondary" onClick={generatePassword}>
-                                        Генер.
-                                    </button>
+                                </div>
+
+                                <div className="input-group">
+                                    <label className="input-label">Пароль</label>
+                                    <div style={{ display: 'flex', gap: '10px' }}>
+                                        <input 
+                                            type="text" 
+                                            className="form-control" 
+                                            value={password} 
+                                            onChange={e => setPassword(e.target.value)} 
+                                            required
+                                            placeholder="Сложный пароль"
+                                        />
+                                        <button type="button" className="btn btn-secondary" onClick={generatePassword}>
+                                            Генер.
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="input-group">
+                                    <label className="input-label">Роль</label>
+                                    <select className="form-control" value={role} onChange={e => setRole(e.target.value)}>
+                                        <option value="student">Студент</option>
+                                        <option value="admin">Преподаватель (Администратор)</option>
+                                    </select>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '15px' }}>
+                                    <div className="input-group">
+                                        <label className="input-label">Лимит CPU (ядер)</label>
+                                        <input 
+                                            type="number" 
+                                            className="form-control" 
+                                            value={maxVcpus} 
+                                            onChange={e => setMaxVcpus(e.target.value)} 
+                                            min="1" 
+                                            required
+                                        />
+                                    </div>
+                                    <div className="input-group">
+                                        <label className="input-label">Лимит RAM (МБ)</label>
+                                        <input 
+                                            type="number" 
+                                            className="form-control" 
+                                            value={maxRamMb} 
+                                            onChange={e => setMaxRamMb(e.target.value)} 
+                                            min="256" 
+                                            step="256"
+                                            required
+                                        />
+                                    </div>
+                                    <div className="input-group">
+                                        <label className="input-label">Лимит ВМ (шт)</label>
+                                        <input 
+                                            type="number" 
+                                            className="form-control" 
+                                            value={maxVms} 
+                                            onChange={e => setMaxVms(e.target.value)} 
+                                            min="1" 
+                                            required
+                                        />
+                                    </div>
+                                    <div className="input-group">
+                                        <label className="input-label">Лимит диска (ГБ)</label>
+                                        <input 
+                                            type="number" 
+                                            className="form-control" 
+                                            value={maxStorageGb} 
+                                            onChange={e => setMaxStorageGb(e.target.value)} 
+                                            min="5" 
+                                            required
+                                        />
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="form-group" style={{ marginBottom: '15px' }}>
-                                <label className="form-label">Роль</label>
-                                <select className="form-control" value={role} onChange={e => setRole(e.target.value)}>
-                                    <option value="student">Студент</option>
-                                    <option value="admin">Преподаватель (Администратор)</option>
-                                </select>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
-                                <div className="form-group">
-                                    <label className="form-label">Лимит CPU (ядер)</label>
-                                    <input 
-                                        type="number" 
-                                        className="form-control" 
-                                        value={maxVcpus} 
-                                        onChange={e => setMaxVcpus(e.target.value)} 
-                                        min="1" 
-                                        required
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Лимит RAM (МБ)</label>
-                                    <input 
-                                        type="number" 
-                                        className="form-control" 
-                                        value={maxRamMb} 
-                                        onChange={e => setMaxRamMb(e.target.value)} 
-                                        min="256" 
-                                        step="256"
-                                        required
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Лимит ВМ (шт)</label>
-                                    <input 
-                                        type="number" 
-                                        className="form-control" 
-                                        value={maxVms} 
-                                        onChange={e => setMaxVms(e.target.value)} 
-                                        min="1" 
-                                        required
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Лимит диска (ГБ)</label>
-                                    <input 
-                                        type="number" 
-                                        className="form-control" 
-                                        value={maxStorageGb} 
-                                        onChange={e => setMaxStorageGb(e.target.value)} 
-                                        min="5" 
-                                        required
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                            <div className="slide-over-actions">
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowCreateModal(false)}>
                                     Отмена
                                 </button>

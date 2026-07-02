@@ -198,41 +198,43 @@ export default function MailPanel() {
             </div>
 
             {showCreateModal && (
-                <div className="modal-backdrop">
-                    <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
-                        <div className="modal-header">
-                            <h3 className="modal-title">Создание почтового ящика</h3>
+                <div className="slide-over-overlay" onClick={() => setShowCreateModal(false)}>
+                    <div className="slide-over-content" onClick={e => e.stopPropagation()}>
+                        <div className="slide-over-header">
+                            <h2>Создание почтового ящика</h2>
                             <button className="btn-close" onClick={() => setShowCreateModal(false)}>×</button>
                         </div>
-                        <form onSubmit={handleCreateMailbox}>
-                            <div className="form-group" style={{ marginBottom: '15px' }}>
-                                <label className="form-label">Email адрес</label>
-                                <input 
-                                    type="email" 
-                                    className="form-control" 
-                                    value={email} 
-                                    onChange={e => setEmail(e.target.value)} 
-                                    required 
-                                    placeholder="Например, admin@local-project.ru"
-                                />
-                                <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
-                                    Полный адрес, включая домен (например, name@my-domain.ru).
-                                </span>
+                        <form onSubmit={handleCreateMailbox} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            <div className="slide-over-body">
+                                <div className="input-group">
+                                    <label className="input-label">Email адрес</label>
+                                    <input 
+                                        type="email" 
+                                        className="form-control" 
+                                        value={email} 
+                                        onChange={e => setEmail(e.target.value)} 
+                                        required 
+                                        placeholder="Например, admin@local-project.ru"
+                                    />
+                                    <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
+                                        Полный адрес, включая домен (например, name@my-domain.ru).
+                                    </span>
+                                </div>
+
+                                <div className="input-group">
+                                    <label className="input-label">Пароль ящика</label>
+                                    <input 
+                                        type="password" 
+                                        className="form-control" 
+                                        value={password} 
+                                        onChange={e => setPassword(e.target.value)} 
+                                        required 
+                                        placeholder="Сложный пароль"
+                                    />
+                                </div>
                             </div>
 
-                            <div className="form-group" style={{ marginBottom: '20px' }}>
-                                <label className="form-label">Пароль ящика</label>
-                                <input 
-                                    type="password" 
-                                    className="form-control" 
-                                    value={password} 
-                                    onChange={e => setPassword(e.target.value)} 
-                                    required 
-                                    placeholder="Сложный пароль"
-                                />
-                            </div>
-
-                            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                            <div className="slide-over-actions">
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowCreateModal(false)} disabled={submitting}>
                                     Отмена
                                 </button>

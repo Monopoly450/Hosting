@@ -243,49 +243,51 @@ export default function VolumesPanel() {
             )}
 
             {showCreateModal && (
-                <div className="modal-backdrop">
-                    <div className="modal-content glass-card" style={{ maxWidth: '450px' }}>
-                        <div className="modal-header">
-                            <h3 className="modal-title">Создание сетевого диска</h3>
+                <div className="slide-over-overlay" onClick={() => setShowCreateModal(false)}>
+                    <div className="slide-over-content" onClick={e => e.stopPropagation()}>
+                        <div className="slide-over-header">
+                            <h2>Создание сетевого диска</h2>
                             <button className="btn-close" onClick={() => setShowCreateModal(false)}>×</button>
                         </div>
-                        <form onSubmit={handleCreateVolume}>
-                            <div className="form-group" style={{ marginBottom: '15px' }}>
-                                <label className="form-label">Имя тома</label>
-                                <input 
-                                    type="text" 
-                                    className="form-control" 
-                                    value={volName} 
-                                    onChange={e => setVolName(e.target.value)} 
-                                    required 
-                                    placeholder="Например, shared-data"
-                                />
-                                <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
-                                    Только строчные латинские буквы, цифры и дефис.
-                                </span>
-                            </div>
-
-                            <div className="form-group" style={{ marginBottom: '20px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <label className="form-label">Размер диска (ГБ)</label>
-                                    <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{sizeGb} ГБ</span>
+                        <form onSubmit={handleCreateVolume} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            <div className="slide-over-body">
+                                <div className="input-group">
+                                    <label className="input-label">Имя тома</label>
+                                    <input 
+                                        type="text" 
+                                        className="form-control" 
+                                        value={volName} 
+                                        onChange={e => setVolName(e.target.value)} 
+                                        required 
+                                        placeholder="Например, shared-data"
+                                    />
+                                    <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
+                                        Только строчные латинские буквы, цифры и дефис.
+                                    </span>
                                 </div>
-                                <input 
-                                    type="range" 
-                                    min="1" 
-                                    max="200" 
-                                    value={sizeGb} 
-                                    onChange={e => setSizeGb(e.target.value)} 
-                                    style={{ width: '100%' }}
-                                />
+
+                                <div className="input-group">
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <label className="input-label">Размер диска (ГБ)</label>
+                                        <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{sizeGb} ГБ</span>
+                                    </div>
+                                    <input 
+                                        type="range" 
+                                        min="1" 
+                                        max="200" 
+                                        value={sizeGb} 
+                                        onChange={e => setSizeGb(e.target.value)} 
+                                        style={{ width: '100%' }}
+                                    />
+                                </div>
+
+                                <div style={{ background: 'var(--bg-surface-hover)', padding: '12px', borderRadius: '8px', marginTop: '20px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    <Info size={16} style={{ marginRight: '8px', verticalAlign: 'middle', color: 'var(--accent-primary)' }} />
+                                    Диски создаются мгновенно в СХД Kubernetes и могут монтироваться на лету (hotplug) без перезагрузки ВМ.
+                                </div>
                             </div>
 
-                            <div style={{ background: 'var(--bg-surface-hover)', padding: '12px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                <Info size={16} style={{ marginRight: '8px', verticalAlign: 'middle', color: 'var(--accent-primary)' }} />
-                                Диски создаются мгновенно в СХД Kubernetes и могут монтироваться на лету (hotplug) без перезагрузки ВМ.
-                            </div>
-
-                            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                            <div className="slide-over-actions">
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowCreateModal(false)} disabled={submitting}>
                                     Отмена
                                 </button>
@@ -299,29 +301,31 @@ export default function VolumesPanel() {
             )}
 
             {showAttachModal && (
-                <div className="modal-backdrop">
-                    <div className="modal-content glass-card" style={{ maxWidth: '400px' }}>
-                        <div className="modal-header">
-                            <h3 className="modal-title">Подключение диска к ВМ</h3>
+                <div className="slide-over-overlay" onClick={() => setShowAttachModal(false)}>
+                    <div className="slide-over-content" onClick={e => e.stopPropagation()}>
+                        <div className="slide-over-header">
+                            <h2>Подключение диска к ВМ</h2>
                             <button className="btn-close" onClick={() => setShowAttachModal(false)}>×</button>
                         </div>
-                        <form onSubmit={handleAttachVolume}>
-                            <div className="form-group" style={{ marginBottom: '20px' }}>
-                                <label className="form-label">Выберите виртуальную машину</label>
-                                <select className="form-control" value={selectedVmName} onChange={e => setSelectedVmName(e.target.value)} required>
-                                    {vms.map(vm => (
-                                        <option key={vm.name} value={vm.name}>{vm.name} ({vm.status})</option>
-                                    ))}
-                                    {vms.length === 0 && <option value="" disabled>У вас нет виртуальных машин</option>}
-                                </select>
+                        <form onSubmit={handleAttachVolume} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                            <div className="slide-over-body">
+                                <div className="input-group">
+                                    <label className="input-label">Выберите виртуальную машину</label>
+                                    <select className="form-control" value={selectedVmName} onChange={e => setSelectedVmName(e.target.value)} required>
+                                        {vms.map(vm => (
+                                            <option key={vm.name} value={vm.name}>{vm.name} ({vm.status})</option>
+                                        ))}
+                                        {vms.length === 0 && <option value="" disabled>У вас нет виртуальных машин</option>}
+                                    </select>
+                                </div>
+
+                                <div style={{ background: 'var(--bg-surface-hover)', padding: '12px', borderRadius: '8px', marginTop: '20px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    <Info size={16} style={{ marginRight: '8px', verticalAlign: 'middle', color: 'var(--accent-primary)' }} />
+                                    После подключения диск отобразится внутри ВМ как новое блочное устройство `/dev/vd*`.
+                                </div>
                             </div>
 
-                            <div style={{ background: 'var(--bg-surface-hover)', padding: '12px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                <Info size={16} style={{ marginRight: '8px', verticalAlign: 'middle', color: 'var(--accent-primary)' }} />
-                                После подключения диск отобразится внутри ВМ как новое блочное устройство `/dev/vd*`.
-                            </div>
-
-                            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                            <div className="slide-over-actions">
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowAttachModal(false)} disabled={submitting}>
                                     Отмена
                                 </button>

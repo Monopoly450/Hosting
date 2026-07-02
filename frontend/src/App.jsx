@@ -555,168 +555,171 @@ const App = () => {
               </div>
 
               {showCreateVM && (
-              <div className="glass-card interactive">
-                <h3 className="section-title"><Plus size={18} /> Создать новую ВМ</h3>
-                <form onSubmit={handleCreateVM} style={{ display: 'flex', flexDirection: 'column', gap: '24px', marginTop: '20px' }}>
-                  
-                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                    <div style={{ flex: '1 1 300px' }} className="input-group">
-                      <label className="input-label">Имя виртуалки (a-z, 0-9, -)</label>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        placeholder="Например: web-server-01"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        required
-                      />
+                <div className="slide-over-overlay" onClick={() => setShowCreateVM(false)}>
+                  <div className="slide-over-content" onClick={e => e.stopPropagation()}>
+                    <div className="slide-over-header">
+                      <h2>Создать новую ВМ</h2>
+                      <button className="btn-close" onClick={() => setShowCreateVM(false)}>×</button>
                     </div>
+                    <form onSubmit={handleCreateVM} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                      <div className="slide-over-body" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        
+                        <div className="input-group">
+                          <label className="input-label">Имя виртуалки (a-z, 0-9, -)</label>
+                          <input 
+                            type="text" 
+                            className="form-control" 
+                            placeholder="Например: web-server-01"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            required
+                          />
+                        </div>
 
+                        <div className="input-group">
+                          <label className="input-label">Операционная система</label>
+                          <div className="os-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '10px' }}>
+                            <div className={`os-card ${osType === 'none' ? 'selected' : ''}`} onClick={() => setOsType('none')}>
+                              <div className="os-card-icon" style={{ color: '#94a3b8' }}><Info size={24} /></div>
+                              <div className="os-card-title">Без ОС</div>
+                              <div className="os-card-version">Отдадим быстрее</div>
+                            </div>
+                            
+                            <div className={`os-card ${osType === 'ubuntu' ? 'selected' : ''}`} onClick={() => setOsType('ubuntu')}>
+                              <div className="os-card-icon" style={{ color: '#f97316' }}><Server size={24} /></div>
+                              <div className="os-card-title">Ubuntu</div>
+                              <div className="os-card-version">Ubuntu 24.04 <ChevronDown size={14} /></div>
+                            </div>
+                            
+                            <div className={`os-card ${osType === 'centos' ? 'selected' : ''}`} onClick={() => setOsType('centos')}>
+                              <div className="os-card-icon" style={{ color: '#84cc16' }}><Server size={24} /></div>
+                              <div className="os-card-title">CentOS</div>
+                              <div className="os-card-version">CentOS 10 <ChevronDown size={14} /></div>
+                            </div>
+                            
+                            <div className={`os-card ${osType === 'debian' ? 'selected' : ''}`} onClick={() => setOsType('debian')}>
+                              <div className="os-card-icon" style={{ color: '#ef4444' }}><Server size={24} /></div>
+                              <div className="os-card-title">Debian</div>
+                              <div className="os-card-version">Debian 13 <ChevronDown size={14} /></div>
+                            </div>
+                            
+                            <div className={`os-card ${osType === 'bitrix' ? 'selected' : ''}`} onClick={() => setOsType('bitrix')}>
+                              <div className="os-card-icon" style={{ color: '#ef4444' }}><Activity size={24} /></div>
+                              <div className="os-card-title">BitrixVM</div>
+                              <div className="os-card-version">CentOS 9</div>
+                            </div>
+                            
+                            <div className={`os-card ${osType === 'custom' ? 'selected' : ''}`} style={{ borderColor: osType === 'custom' ? '#6366f1' : 'transparent', backgroundColor: osType === 'custom' ? 'var(--bg-surface-hover)' : 'var(--bg-surface)' }} onClick={() => setOsType('custom')}>
+                              <div className="os-card-icon" style={{ color: '#6366f1' }}><Info size={24} /></div>
+                              <div className="os-card-title">Свой образ</div>
+                              <div className="os-card-version" style={{ opacity: 0 }}>...</div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {osType === 'custom' && (
+                          <div className="input-group">
+                            <label className="input-label">Выберите загруженный образ</label>
+                            <select 
+                              className="form-control"
+                              value={selectedCustomImage}
+                              onChange={(e) => setSelectedCustomImage(e.target.value)}
+                            >
+                              {customImages.length === 0 && <option disabled value="">Нет образов. Загрузите в соседней вкладке.</option>}
+                              {customImages.map(img => (
+                                <option key={img.filename} value={img.filename}>{img.filename} ({img.size_gb > 1 ? `${img.size_gb} GB` : `${img.size_mb} MB`})</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        <div className="input-group">
+                          <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Package size={16}/> Пакеты для установки (через запятую)</label>
+                          <input 
+                            type="text" 
+                            className="form-control" 
+                            placeholder="Например: nginx, docker.io, mc, htop"
+                            value={packages}
+                            onChange={(e) => setPackages(e.target.value)}
+                          />
+                          <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Установятся автоматически при первом запуске (только для Linux).</span>
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><HardDrive size={16}/> Сетевые диски (NFS / PVC)</label>
+                          <input 
+                            type="text" 
+                            className="form-control" 
+                            placeholder="Например: 192.168.1.10:/shared или pvc-name"
+                            value={networkDrives}
+                            onChange={(e) => setNetworkDrives(e.target.value)}
+                          />
+                          <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Сетевая шара будет смонтирована в /mnt/network_drive.</span>
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label">Шаблон окружения (Cloud-Init)</label>
+                          <select 
+                            className="form-control" 
+                            value={cloudInitTemplate} 
+                            onChange={e => setCloudInitTemplate(e.target.value)}
+                          >
+                            <option value="">Без шаблона (Чистая ОС)</option>
+                            <option value="lamp">LAMP (Nginx, PHP, MariaDB)</option>
+                            <option value="docker">Docker Environment (Engine + CLI)</option>
+                            <option value="nodejs">Node.js Environment (Node.js LTS)</option>
+                            <option value="wordpress">WordPress (Apache + MySQL + PHP + WP)</option>
+                          </select>
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label">Кастомный скрипт Cloud-Init (userData)</label>
+                          <textarea 
+                            className="form-control" 
+                            placeholder="#cloud-config..."
+                            value={customUserData}
+                            onChange={e => setCustomUserData(e.target.value)}
+                            style={{ height: '80px', minHeight: '60px', resize: 'vertical' }}
+                          />
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '8px' }}>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                              <span className="input-label">CPU Cores</span>
+                              <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{cpuCores}</span>
+                            </div>
+                            <input type="range" min="1" max="16" value={cpuCores} onChange={(e) => setCpuCores(parseInt(e.target.value))} style={{ width: '100%' }} />
+                          </div>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                              <span className="input-label">Memory</span>
+                              <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{memoryGb} GB</span>
+                            </div>
+                            <input type="range" min="1" max="64" value={memoryGb} onChange={(e) => setMemoryGb(parseInt(e.target.value))} style={{ width: '100%' }} />
+                          </div>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                              <span className="input-label">Storage</span>
+                              <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{diskGb} GB</span>
+                            </div>
+                            <input type="range" min="10" max="500" step="10" value={diskGb} onChange={(e) => setDiskGb(parseInt(e.target.value))} style={{ width: '100%' }} />
+                          </div>
+                        </div>
+
+                      </div>
+                      <div className="slide-over-actions">
+                        <button type="button" className="btn btn-secondary" onClick={() => setShowCreateVM(false)}>
+                          Отмена
+                        </button>
+                        <button type="submit" className="btn btn-primary" disabled={formLoading || (osType === 'custom' && customImages.length === 0)}>
+                          {formLoading ? <span className="spinner" /> : 'Создать'}
+                        </button>
+                      </div>
+                    </form>
                   </div>
-
-                  <div className="input-group" style={{ marginTop: '16px' }}>
-                    <label className="input-label">3. Операционная система</label>
-                    <div className="os-grid">
-                      <div className={`os-card ${osType === 'none' ? 'selected' : ''}`} onClick={() => setOsType('none')}>
-                        <div className="os-card-icon" style={{ color: '#94a3b8' }}><Info size={24} /></div>
-                        <div className="os-card-title">Без ОС</div>
-                        <div className="os-card-version">Отдадим быстрее</div>
-                      </div>
-                      
-                      <div className={`os-card ${osType === 'ubuntu' ? 'selected' : ''}`} onClick={() => setOsType('ubuntu')}>
-                        <div className="os-card-icon" style={{ color: '#f97316' }}><Server size={24} /></div>
-                        <div className="os-card-title">Ubuntu</div>
-                        <div className="os-card-version">Ubuntu 24.04 <ChevronDown size={14} /></div>
-                      </div>
-                      
-                      <div className={`os-card ${osType === 'centos' ? 'selected' : ''}`} onClick={() => setOsType('centos')}>
-                        <div className="os-card-icon" style={{ color: '#84cc16' }}><Server size={24} /></div>
-                        <div className="os-card-title">CentOS</div>
-                        <div className="os-card-version">CentOS 10 <ChevronDown size={14} /></div>
-                      </div>
-                      
-                      <div className={`os-card ${osType === 'debian' ? 'selected' : ''}`} onClick={() => setOsType('debian')}>
-                        <div className="os-card-icon" style={{ color: '#ef4444' }}><Server size={24} /></div>
-                        <div className="os-card-title">Debian</div>
-                        <div className="os-card-version">Debian 13 <ChevronDown size={14} /></div>
-                      </div>
-                      
-                      <div className={`os-card ${osType === 'bitrix' ? 'selected' : ''}`} onClick={() => setOsType('bitrix')}>
-                        <div className="os-card-icon" style={{ color: '#ef4444' }}><Activity size={24} /></div>
-                        <div className="os-card-title">BitrixVM</div>
-                        <div className="os-card-version">CentOS 9</div>
-                      </div>
-                      
-                      
-                      <div className={`os-card ${osType === 'custom' ? 'selected' : ''}`} style={{ borderColor: osType === 'custom' ? '#6366f1' : 'transparent', backgroundColor: osType === 'custom' ? 'var(--bg-surface-hover)' : 'var(--bg-surface)' }} onClick={() => setOsType('custom')}>
-                        <div className="os-card-icon" style={{ color: '#6366f1' }}><Info size={24} /></div>
-                        <div className="os-card-title">Свой образ</div>
-                        <div className="os-card-version" style={{ opacity: 0 }}>...</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {osType === 'custom' && (
-                    <div className="input-group">
-                      <label className="input-label">Выберите загруженный образ</label>
-                      <select 
-                        className="form-control"
-                        value={selectedCustomImage}
-                        onChange={(e) => setSelectedCustomImage(e.target.value)}
-                      >
-                        {customImages.length === 0 && <option disabled value="">Нет образов. Загрузите в соседней вкладке.</option>}
-                        {customImages.map(img => (
-                          <option key={img.filename} value={img.filename}>{img.filename} ({img.size_gb > 1 ? `${img.size_gb} GB` : `${img.size_mb} MB`})</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '8px' }}>
-                    <div style={{ flex: '1 1 300px' }} className="input-group">
-                      <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Package size={16}/> Пакеты для установки (через запятую)</label>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        placeholder="Например: nginx, docker.io, mc, htop"
-                        value={packages}
-                        onChange={(e) => setPackages(e.target.value)}
-                      />
-                      <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Установятся автоматически при первом запуске (только для Linux).</span>
-                    </div>
-                    <div style={{ flex: '1 1 300px' }} className="input-group">
-                      <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><HardDrive size={16}/> Сетевые диски (NFS / PVC)</label>
-                      <input 
-                        type="text" 
-                        className="form-control" 
-                        placeholder="Например: 192.168.1.10:/shared или pvc-name"
-                        value={networkDrives}
-                        onChange={(e) => setNetworkDrives(e.target.value)}
-                      />
-                      <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Сетевая шара будет смонтирована в /mnt/network_drive.</span>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '8px' }}>
-                    <div style={{ flex: '1 1 300px' }} className="input-group">
-                      <label className="input-label">Шаблон окружения (Cloud-Init)</label>
-                      <select 
-                        className="form-control" 
-                        value={cloudInitTemplate} 
-                        onChange={e => setCloudInitTemplate(e.target.value)}
-                      >
-                        <option value="">Без шаблона (Чистая ОС)</option>
-                        <option value="lamp">LAMP (Nginx, PHP, MariaDB)</option>
-                        <option value="docker">Docker Environment (Engine + CLI)</option>
-                        <option value="nodejs">Node.js Environment (Node.js LTS)</option>
-                        <option value="wordpress">WordPress (Apache + MySQL + PHP + WP)</option>
-                      </select>
-                    </div>
-                    <div style={{ flex: '1 1 300px' }} className="input-group">
-                      <label className="input-label">Кастомный скрипт Cloud-Init (userData)</label>
-                      <textarea 
-                        className="form-control" 
-                        placeholder="#cloud-config..."
-                        value={customUserData}
-                        onChange={e => setCustomUserData(e.target.value)}
-                        style={{ height: '42px', minHeight: '42px', resize: 'vertical' }}
-                      />
-                    </div>
-                  </div>
-
-
-                  <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
-                    <div style={{ flex: '1 1 200px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                        <span className="input-label">CPU Cores</span>
-                        <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{cpuCores}</span>
-                      </div>
-                      <input type="range" min="1" max="16" value={cpuCores} onChange={(e) => setCpuCores(parseInt(e.target.value))} style={{ width: '100%' }} />
-                    </div>
-                    <div style={{ flex: '1 1 200px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                        <span className="input-label">Memory</span>
-                        <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{memoryGb} GB</span>
-                      </div>
-                      <input type="range" min="1" max="64" value={memoryGb} onChange={(e) => setMemoryGb(parseInt(e.target.value))} style={{ width: '100%' }} />
-                    </div>
-                    <div style={{ flex: '1 1 200px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                        <span className="input-label">Storage</span>
-                        <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{diskGb} GB</span>
-                      </div>
-                      <input type="range" min="10" max="500" step="10" value={diskGb} onChange={(e) => setDiskGb(parseInt(e.target.value))} style={{ width: '100%' }} />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
-                    <button type="submit" className="btn btn-primary" disabled={formLoading || (osType === 'custom' && customImages.length === 0)}>
-                      {formLoading ? <span className="spinner" /> : <><Plus size={16} /> Создать ресурс</>}
-                    </button>
-                  </div>
-                </form>
-              </div>
-)}
+                </div>
+              )}
 
 
               {(loading && vms.length === 0) || (serversLoading && externalServers.length === 0) ? (
