@@ -303,7 +303,7 @@ def resize_lvm_storage(req: StorageResizeRequest, current_user: User = Depends(g
             # Сначала уменьшаем размер физического тома LVM.
             # Если на диске есть распределенные тома ВМ, выходящие за новые рамки, LVM вернет ошибку и прервет операцию.
             pv_resize = subprocess.run(
-                ["pvresize", "--setphysicalvolumesize", f"{req.size_gb}G", loop_dev],
+                ["pvresize", "--yes", "--setphysicalvolumesize", f"{req.size_gb}G", loop_dev],
                 capture_output=True,
                 text=True
             )
