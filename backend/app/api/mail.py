@@ -72,10 +72,10 @@ def create_mailbox(req: MailboxCreateRequest, current_user: User = Depends(get_c
             raise HTTPException(status_code=500, detail="Не удалось настроить почтовый ящик на почтовом сервере.")
 
         # Сохраняем в БД
-        from app.core.auth import get_password_hash # или хэшируем
+        from app.core.auth import hash_password
         new_mail = UserMailbox(
             email=req.email,
-            password_hash=get_password_hash(req.password),
+            password_hash=hash_password(req.password),
             quota_mb=500,
             owner_id=current_user.id
         )
