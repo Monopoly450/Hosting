@@ -470,7 +470,7 @@ const App = () => {
             <div style={{ marginBottom: '6px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
                 <span>Инстансы</span>
-                <span>{quotaUsage.used_vms} / {quotaUsage.max_vms}</span>
+                <span>{quotaUsage.used_vms} / {quotaUsage.max_vms} (ост. {Math.max(0, quotaUsage.max_vms - quotaUsage.used_vms)})</span>
               </div>
               <div style={{ height: '3px', background: 'var(--bg-surface-hover)', borderRadius: '2px', marginTop: '2px', overflow: 'hidden' }}>
                 <div style={{ height: '100%', background: 'var(--accent-primary)', width: `${Math.min(100, (quotaUsage.used_vms / quotaUsage.max_vms) * 100)}%` }}></div>
@@ -480,7 +480,7 @@ const App = () => {
             <div style={{ marginBottom: '6px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
                 <span>Ядра vCPU</span>
-                <span>{quotaUsage.used_vcpus} / {quotaUsage.max_vcpus}</span>
+                <span>{quotaUsage.used_vcpus} / {quotaUsage.max_vcpus} (ост. {Math.max(0, quotaUsage.max_vcpus - quotaUsage.used_vcpus)})</span>
               </div>
               <div style={{ height: '3px', background: 'var(--bg-surface-hover)', borderRadius: '2px', marginTop: '2px', overflow: 'hidden' }}>
                 <div style={{ height: '100%', background: 'var(--accent-primary)', width: `${Math.min(100, (quotaUsage.used_vcpus / quotaUsage.max_vcpus) * 100)}%` }}></div>
@@ -490,7 +490,7 @@ const App = () => {
             <div style={{ marginBottom: '6px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
                 <span>ОЗУ (RAM)</span>
-                <span>{quotaUsage.used_ram_mb} / {quotaUsage.max_ram_mb} MB</span>
+                <span>{quotaUsage.used_ram_mb} / {quotaUsage.max_ram_mb} MB (ост. {Math.max(0, quotaUsage.max_ram_mb - quotaUsage.used_ram_mb)} MB)</span>
               </div>
               <div style={{ height: '3px', background: 'var(--bg-surface-hover)', borderRadius: '2px', marginTop: '2px', overflow: 'hidden' }}>
                 <div style={{ height: '100%', background: 'var(--accent-primary)', width: `${Math.min(100, (quotaUsage.used_ram_mb / quotaUsage.max_ram_mb) * 100)}%` }}></div>
@@ -500,7 +500,7 @@ const App = () => {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
                 <span>Диски (HDD)</span>
-                <span>{quotaUsage.used_storage_gb} / {quotaUsage.max_storage_gb} GB</span>
+                <span>{quotaUsage.used_storage_gb} / {quotaUsage.max_storage_gb} GB (ост. {Math.max(0, quotaUsage.max_storage_gb - quotaUsage.used_storage_gb)} GB)</span>
               </div>
               <div style={{ height: '3px', background: 'var(--bg-surface-hover)', borderRadius: '2px', marginTop: '2px', overflow: 'hidden' }}>
                 <div style={{ height: '100%', background: 'var(--accent-primary)', width: `${Math.min(100, (quotaUsage.used_storage_gb / quotaUsage.max_storage_gb) * 100)}%` }}></div>

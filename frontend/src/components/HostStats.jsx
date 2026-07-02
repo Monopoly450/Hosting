@@ -90,19 +90,40 @@ const HostStats = ({ onMetricsLoaded }) => {
           <div className="progress-track">
             <div className={`progress-fill ${getProgressClass(cpuPercent)}`} style={{ width: `${cpuPercent}%` }} />
           </div>
-          <span className="text-muted">{metrics.cpu.usage_cores} / {metrics.cpu.total_cores} Ядер активно</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            <span>Текущая: {metrics.cpu.usage_cores} / {metrics.cpu.total_cores} ядер</span>
+            <span>Занято ВМ: {metrics.cpu.reserved_cores} (своб. {metrics.cpu.available_cores})</span>
+          </div>
         </div>
 
         {/* RAM */}
         <div className="stat-box">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> Memory</span>
+            <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> ОЗУ (Memory)</span>
             <span className="stat-box-value">{memoryPercent}%</span>
           </div>
           <div className="progress-track">
             <div className={`progress-fill ${getProgressClass(memoryPercent)}`} style={{ width: `${memoryPercent}%` }} />
           </div>
-          <span className="text-muted">{metrics.memory.usage_gb} / {metrics.memory.total_gb} ГБ занято</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            <span>Текущая: {metrics.memory.usage_gb} / {metrics.memory.total_gb} ГБ</span>
+            <span>Занято ВМ: {metrics.memory.reserved_gb} ГБ (своб. {metrics.memory.available_gb} ГБ)</span>
+          </div>
+        </div>
+
+        {/* Disk */}
+        <div className="stat-box">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> Дисковое пространство</span>
+            <span className="stat-box-value">{metrics.disk ? metrics.disk.used_percent : 0}%</span>
+          </div>
+          <div className="progress-track">
+            <div className={`progress-fill ${getProgressClass(metrics.disk ? metrics.disk.used_percent : 0)}`} style={{ width: `${metrics.disk ? metrics.disk.used_percent : 0}%` }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            <span>Свободно на хосте: {metrics.disk ? metrics.disk.free_gb : 0} из {metrics.disk ? metrics.disk.total_gb : 0} ГБ</span>
+            <span>Занято ВМ: {metrics.disk ? metrics.disk.reserved_gb : 0} ГБ (своб. {metrics.disk ? metrics.disk.available_gb : 0} ГБ)</span>
+          </div>
         </div>
       </div>
       

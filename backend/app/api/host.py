@@ -1,6 +1,10 @@
+import os
+import shutil
 from fastapi import APIRouter, HTTPException, Depends
 from app.core.k8s_client import K8sClient
 from kubernetes.client.rest import ApiException
+from app.db import SessionLocal
+from app.models.models import VMTask
 
 router = APIRouter()
 
@@ -9,7 +13,7 @@ def get_k8s_client():
 
 @router.get("/metrics")
 def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
-    """Возвращает общую емкость сервера и текущую нагрузку (CPU, RAM) из K8s Node API"""
+    """Возвращает общую емкость сервера и текущую нагрузку (CPU, RAM) из K8s Node API, а также резервирование ВМ и диски"""
     try:
         nodes = client.core_api.list_node()
         if not nodes.items:
@@ -67,22 +71,60 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
             mem_usage_str = node_metrics.get("usage", {}).get("memory", "0Ki")
             mem_usage_bytes = parse_k8s_mem(mem_usage_str)
             
-        except ApiException as e:
+        except ApiException:
             # Если метрики временно недоступны
             pass
+
+        # Дисковое пространство на хосте
+        total, used, free = shutil.disk_usage("/")
+        disk_total_gb = round(total / (1024**3), 1)
+        disk_used_gb = round(used / (1024**3), 1)
+        disk_free_gb = round(free / (1024**3), 1)
+        disk_used_percent = round(used / total * 100, 1)
+
+        # Вычисляем зарезервированные ресурсы ВМ в базе данных
+        reserved_cpu_cores = 0
+        reserved_ram_gb = 0
+        reserved_disk_gb = 0
+
+        db = SessionLocal()
+        try:
+            db_vms = db.query(VMTask).all()
+            reserved_cpu_cores = sum(vm.cpu_cores for vm in db_vms)
+            reserved_ram_gb = sum(vm.memory_gb for vm in db_vms)
+            reserved_disk_gb = sum(vm.disk_gb for vm in db_vms)
+        except Exception as db_err:
+            # Логируем ошибку, но не прерываем работу API
+            pass
+        finally:
+            db.close()
             
+        total_ram_gb = round(mem_capacity_bytes / (1024 * 1024 * 1024), 2)
+
         return {
             "node_name": node_name,
             "cpu": {
                 "total_cores": cpu_capacity,
                 "usage_cores": round(cpu_usage_milli / 1000, 2),
-                "usage_percent": round((cpu_usage_milli / 1000) / cpu_capacity * 100, 1) if cpu_capacity else 0
+                "usage_percent": round((cpu_usage_milli / 1000) / cpu_capacity * 100, 1) if cpu_capacity else 0,
+                "reserved_cores": reserved_cpu_cores,
+                "available_cores": max(0, cpu_capacity - reserved_cpu_cores)
             },
             "memory": {
-                "total_gb": round(mem_capacity_bytes / (1024 * 1024 * 1024), 2),
+                "total_gb": total_ram_gb,
                 "allocatable_gb": round(mem_allocatable_bytes / (1024 * 1024 * 1024), 2),
                 "usage_gb": round(mem_usage_bytes / (1024 * 1024 * 1024), 2),
-                "usage_percent": round(mem_usage_bytes / mem_capacity_bytes * 100, 1) if mem_capacity_bytes else 0
+                "usage_percent": round(mem_usage_bytes / mem_capacity_bytes * 100, 1) if mem_capacity_bytes else 0,
+                "reserved_gb": reserved_ram_gb,
+                "available_gb": max(0, round(total_ram_gb - reserved_ram_gb, 2))
+            },
+            "disk": {
+                "total_gb": disk_total_gb,
+                "used_gb": disk_used_gb,
+                "free_gb": disk_free_gb,
+                "used_percent": disk_used_percent,
+                "reserved_gb": reserved_disk_gb,
+                "available_gb": max(0, round(disk_total_gb - reserved_disk_gb, 1))
             },
             "os_info": node.status.node_info.os_image,
             "kernel_version": node.status.node_info.kernel_version,
