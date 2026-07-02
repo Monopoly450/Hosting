@@ -103,9 +103,20 @@ export default function MailPanel() {
                     <h2 className="panel-title">Почтовый хостинг (docker-mailserver)</h2>
                     <p className="panel-subtitle">Создание почтовых ящиков на собственных или локальных доменах</p>
                 </div>
-                <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-                    <Plus size={16} /> Создать ящик
-                </button>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                    <a 
+                        href={`http://${getMailServerIP()}:8082`} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="btn btn-secondary"
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}
+                    >
+                        <Mail size={16} /> Войти в Webmail
+                    </a>
+                    <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+                        <Plus size={16} /> Создать ящик
+                    </button>
+                </div>
             </div>
 
             {error && <div className="alert alert-danger">{error}</div>}
@@ -140,13 +151,24 @@ export default function MailPanel() {
                                         </span>
                                     </td>
                                     <td>
-                                        <button 
-                                            className="btn btn-danger btn-sm" 
-                                            onClick={() => handleDeleteMailbox(m.id)}
-                                            style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                                        >
-                                            <Trash2 size={12} /> Удалить
-                                        </button>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <a 
+                                                href={`http://${getMailServerIP()}:8082/?_user=${m.email}`} 
+                                                target="_blank" 
+                                                rel="noopener noreferrer" 
+                                                className="btn btn-secondary btn-sm"
+                                                style={{ display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none', fontSize: '0.75rem' }}
+                                            >
+                                                <Mail size={12} /> Войти
+                                            </a>
+                                            <button 
+                                                className="btn btn-danger btn-sm" 
+                                                onClick={() => handleDeleteMailbox(m.id)}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem' }}
+                                            >
+                                                <Trash2 size={12} /> Удалить
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
