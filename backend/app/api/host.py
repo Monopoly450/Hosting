@@ -195,7 +195,9 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                 reserved_cpu_cores = sum(vm.cpu_cores for vm in db_vms)
                 reserved_ram_gb = sum(vm.memory_gb for vm in db_vms)
                 reserved_disk_gb = sum(vm.disk_gb for vm in db_vms)
+                reserved_stopped_ram_gb = sum(vm.memory_gb for vm in db_vms if vm.status != "Running")
             except Exception as calc_err:
+                reserved_stopped_ram_gb = 0
                 import logging
                 logging.getLogger("app.host").error(f"Error calculating VMTask resource stats: {calc_err}")
                 
@@ -224,7 +226,7 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                 "usage_gb": round(mem_usage_bytes / (1024 * 1024 * 1024), 2),
                 "usage_percent": round(mem_usage_bytes / mem_capacity_bytes * 100, 1) if mem_capacity_bytes else 0,
                 "reserved_gb": reserved_ram_gb,
-                "available_gb": max(0, round(total_ram_gb - reserved_ram_gb, 2))
+                "available_gb": max(0.0, round(total_ram_gb - (mem_usage_bytes / (1024**3)) - reserved_stopped_ram_gb, 2))
             },
             "disk": {
                 "total_gb": disk_total_gb,
@@ -232,7 +234,7 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                 "free_gb": disk_free_gb,
                 "used_percent": disk_used_percent,
                 "reserved_gb": reserved_disk_gb,
-                "available_gb": max(0, round(disk_total_gb - reserved_disk_gb, 1))
+                "available_gb": max(0.0, disk_free_gb)
             },
             "os_info": node.status.node_info.os_image,
             "kernel_version": node.status.node_info.kernel_version,

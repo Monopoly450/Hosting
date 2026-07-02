@@ -885,15 +885,40 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
             db.close()
             raise HTTPException(status_code=400, detail=f"Запрошен размер диска ({req.disk_gb} ГБ), которого физически нет на хосте (всего памяти: {host_disk_gb} ГБ).")
 
+        # Получаем реальное использование памяти хостом в данный момент
+        current_ram_usage_gb = 0.0
+        try:
+            with open('/proc/meminfo', 'r') as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        meminfo[parts[0].rstrip(':')] = int(parts[1])
+                total_mem = meminfo.get('MemTotal', 0) * 1024
+                free_mem = meminfo.get('MemFree', 0) * 1024
+                buffers = meminfo.get('Buffers', 0) * 1024
+                cached = meminfo.get('Cached', 0) * 1024
+                used_mem = total_mem - (free_mem + buffers + cached)
+                current_ram_usage_gb = round(used_mem / (1024**3), 2)
+        except Exception:
+            pass
+
+        # Получаем реальное свободное место на диске хоста
+        host_disk_free_gb = 0.0
+        try:
+            total, used, free = shutil.disk_usage("/")
+            host_disk_free_gb = round(free / (1024**3), 1)
+        except Exception:
+            pass
+
         # 2. Проверяем остаток ресурсов хоста с учетом резервирования другими ВМ
         db_vms = db.query(VMTask).all()
         reserved_cpu = sum(vm.cpu_cores for vm in db_vms)
-        reserved_ram = sum(vm.memory_gb for vm in db_vms)
-        reserved_disk = sum(vm.disk_gb for vm in db_vms)
+        reserved_stopped_ram = sum(vm.memory_gb for vm in db_vms if vm.status != "Running")
 
         available_cpu = max(0, host_cpu - reserved_cpu)
-        available_ram = max(0.0, round(host_ram_gb - reserved_ram, 2))
-        available_disk = max(0.0, round(host_disk_gb - reserved_disk, 2))
+        available_ram = max(0.0, round(host_ram_gb - current_ram_usage_gb - reserved_stopped_ram, 2))
+        available_disk = max(0.0, host_disk_free_gb)
 
         if req.cpu_cores > available_cpu:
             db.close()
