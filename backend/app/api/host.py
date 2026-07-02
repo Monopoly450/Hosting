@@ -106,16 +106,77 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
         try:
             # Получаем реальный список виртуальных машин из Kubernetes для синхронизации
             try:
-                all_k8s_vms = {v["name"] for v in client.list_vms()}
+                all_k8s_vms = client.list_vms()
+                k8s_vm_map = {v["name"]: v for v in all_k8s_vms}
             except Exception:
-                all_k8s_vms = None
+                k8s_vm_map = None
 
-            # Если успешно получили список из K8s, удаляем осиротевшие записи из БД
-            if all_k8s_vms is not None:
+            # Если успешно получили список из K8s, производим синхронизацию
+            if k8s_vm_map is not None:
                 db_vms = db.query(VMTask).all()
+                
+                # 1. Удаляем только не создающиеся (не Pending/Provisioning) записи, которых нет в K8s
                 for vm in db_vms:
-                    if vm.name not in all_k8s_vms:
+                    if vm.status not in ["Pending", "Provisioning"] and vm.name not in k8s_vm_map:
                         db.delete(vm)
+                db.commit()
+
+                # 2. Воссоздаем записи для ВМ, которые есть в K8s, но отсутствуют в БД (после случайного удаления)
+                from app.models.models import User
+                users = db.query(User).all()
+                student_users = [u for u in users if u.role != "admin"]
+                admin_user = next((u for u in users if u.role == "admin"), None)
+                default_owner_id = student_users[0].id if student_users else (admin_user.id if admin_user else 1)
+
+                db_vms = db.query(VMTask).all()
+                db_vm_names = {vm.name for vm in db_vms}
+
+                for name, k8s_vm in k8s_vm_map.items():
+                    if name not in db_vm_names:
+                        # Воссоздаем CPU
+                        cpu_cores = k8s_vm.get("cpu_cores", 1)
+                        
+                        # Воссоздаем RAM
+                        mem_str = k8s_vm.get("memory", "1Gi")
+                        memory_gb = 1
+                        try:
+                            if mem_str.endswith("Gi"):
+                                memory_gb = int(mem_str[:-2])
+                            elif mem_str.endswith("Mi"):
+                                memory_gb = int(mem_str[:-2]) // 1024
+                        except Exception:
+                            pass
+                        
+                        # Воссоздаем Disk
+                        disk_gb = 10
+                        disks = k8s_vm.get("disks", [])
+                        if disks:
+                            size_str = disks[0].get("size", "10Gi")
+                            try:
+                                if size_str.endswith("Gi"):
+                                    disk_gb = int(size_str[:-2])
+                                elif size_str.endswith("Mi"):
+                                    disk_gb = int(size_str[:-2]) // 1024
+                            except Exception:
+                                pass
+
+                        # Угадываем владельца по вхождению его имени в название ВМ
+                        owner_id = default_owner_id
+                        for u in users:
+                            if u.username.lower() in name.lower():
+                                owner_id = u.id
+                                break
+
+                        new_task = VMTask(
+                            name=name,
+                            os_type=k8s_vm.get("os_type", "ubuntu"),
+                            cpu_cores=cpu_cores,
+                            memory_gb=memory_gb,
+                            disk_gb=disk_gb,
+                            status="Running",
+                            owner_id=owner_id
+                        )
+                        db.add(new_task)
                 db.commit()
 
             db_vms = db.query(VMTask).all()
