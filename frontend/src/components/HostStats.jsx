@@ -91,8 +91,9 @@ const HostStats = ({ onMetricsLoaded }) => {
             <div className={`progress-fill ${getProgressClass(cpuPercent)}`} style={{ width: `${cpuPercent}%` }} />
           </div>
           <div className="stat-box-meta">
-            <span>Текущая: {metrics.cpu.usage_cores} / {metrics.cpu.total_cores} ядер</span>
-            <span>Занято ВМ: {metrics.cpu.reserved_cores} (своб. {metrics.cpu.available_cores})</span>
+            <span>Использовано хостом: {metrics.cpu.usage_cores} из {metrics.cpu.total_cores} ядер</span>
+            <span>Занято ВМ (резерв): {metrics.cpu.reserved_cores} ядер</span>
+            <span>Доступно для новых ВМ: {metrics.cpu.available_cores} ядер</span>
           </div>
           {metrics.cpu.model && (
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={metrics.cpu.model}>
@@ -111,8 +112,9 @@ const HostStats = ({ onMetricsLoaded }) => {
             <div className={`progress-fill ${getProgressClass(memoryPercent)}`} style={{ width: `${memoryPercent}%` }} />
           </div>
           <div className="stat-box-meta">
-            <span>Текущая: {metrics.memory.usage_gb} / {metrics.memory.total_gb} ГБ</span>
-            <span>Занято ВМ: {metrics.memory.reserved_gb} ГБ (своб. {metrics.memory.available_gb} ГБ)</span>
+            <span>Использовано хостом: {metrics.memory.usage_gb} из {metrics.memory.total_gb} ГБ</span>
+            <span>Занято ВМ (резерв): {metrics.memory.reserved_gb} ГБ</span>
+            <span>Доступно для новых ВМ: {metrics.memory.available_gb} ГБ</span>
           </div>
         </div>
 
@@ -126,8 +128,9 @@ const HostStats = ({ onMetricsLoaded }) => {
             <div className={`progress-fill ${getProgressClass(metrics.disk ? metrics.disk.used_percent : 0)}`} style={{ width: `${metrics.disk ? metrics.disk.used_percent : 0}%` }} />
           </div>
           <div className="stat-box-meta">
-            <span>Свободно на хосте: {metrics.disk ? metrics.disk.free_gb : 0} из {metrics.disk ? metrics.disk.total_gb : 0} ГБ</span>
-            <span>Занято ВМ: {metrics.disk ? metrics.disk.reserved_gb : 0} ГБ (своб. {metrics.disk ? metrics.disk.available_gb : 0} ГБ)</span>
+            <span>Использовано хостом: {metrics.disk ? metrics.disk.used_gb : 0} из {metrics.disk ? metrics.disk.total_gb : 0} ГБ</span>
+            <span>Занято ВМ (резерв): {metrics.disk ? metrics.disk.reserved_gb : 0} ГБ</span>
+            <span>Доступно для новых ВМ: {metrics.disk ? metrics.disk.available_gb : 0} ГБ</span>
           </div>
         </div>
       </div>
