@@ -4,6 +4,83 @@ import datetime
 from sqlalchemy.dialects.postgresql import JSONB
 from app.core.database import Base
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    role = Column(String, default="student")  # "admin" or "student"
+    balance = Column(Float, default=100.0)
+    
+    # Quotas
+    max_vcpus = Column(Integer, default=4)
+    max_ram_mb = Column(Integer, default=4096)
+    max_vms = Column(Integer, default=2)
+    max_storage_gb = Column(Integer, default=40)
+    
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    # Relationships
+    vms = relationship("VMTask", back_populates="owner")
+    clusters = relationship("Cluster", back_populates="owner")
+    databases = relationship("UserDatabase", back_populates="owner")
+    buckets = relationship("UserBucket", back_populates="owner")
+    volumes = relationship("UserVolume", back_populates="owner")
+    mailboxes = relationship("UserMailbox", back_populates="owner")
+
+class UserDatabase(Base):
+    __tablename__ = "user_databases"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    db_type = Column(String, default="postgres")  # "postgres" or "mysql"
+    db_user = Column(String, nullable=False)
+    db_password = Column(String, nullable=False)
+    associated_vm_id = Column(Integer, ForeignKey("vm_tasks.id"), nullable=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    status = Column(String, default="Active")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    owner = relationship("User", back_populates="databases")
+
+class UserBucket(Base):
+    __tablename__ = "user_buckets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    access_key = Column(String, nullable=False)
+    secret_key = Column(String, nullable=False)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    owner = relationship("User", back_populates="buckets")
+
+class UserVolume(Base):
+    __tablename__ = "user_volumes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    size_gb = Column(Integer, nullable=False)
+    attached_vm_id = Column(Integer, ForeignKey("vm_tasks.id"), nullable=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    status = Column(String, default="Available")  # "Available" or "Attached"
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    owner = relationship("User", back_populates="volumes")
+
+class UserMailbox(Base):
+    __tablename__ = "user_mailboxes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    quota_mb = Column(Integer, default=500)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    owner = relationship("User", back_populates="mailboxes")
+
 class ExternalServer(Base):
     __tablename__ = "external_servers"
 
@@ -62,9 +139,11 @@ class Cluster(Base):
     network_name = Column(String)  # Multus NetworkAttachmentDefinition name
     status = Column(String, default="Creating") # Creating, Active, Error
     
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
     vms = relationship("VMTask", back_populates="cluster")
+    owner = relationship("User", back_populates="clusters")
 
 class VMTask(Base):
     __tablename__ = "vm_tasks"
@@ -72,6 +151,7 @@ class VMTask(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
     cluster_id = Column(Integer, ForeignKey("clusters.id"), nullable=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     
     # VM Spec
     os_type = Column(String)
@@ -96,3 +176,4 @@ class VMTask(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     
     cluster = relationship("Cluster", back_populates="vms")
+    owner = relationship("User", back_populates="vms")

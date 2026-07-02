@@ -9,13 +9,21 @@ window.fetch = async (url, options = {}) => {
   const token = localStorage.getItem('aegis_admin_token') || '';
   if (token) {
     options.headers = {
-      ...options.headers,
-      'X-Admin-Token': token
+      ...options.headers
     };
+    if (token.includes('.')) {
+      // Это JWT-подобный токен сессии
+      options.headers['Authorization'] = `Bearer ${token}`;
+    } else {
+      // Это обратная совместимость со старым X-Admin-Token
+      options.headers['X-Admin-Token'] = token;
+    }
   }
   const response = await originalFetch(url, options);
   if (response.status === 401 && !options._skipAuthRedirect && localStorage.getItem('aegis_admin_token')) {
     localStorage.removeItem('aegis_admin_token');
+    localStorage.removeItem('aegis_role');
+    localStorage.removeItem('aegis_username');
     window.location.reload();
   }
   return response;

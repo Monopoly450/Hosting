@@ -134,5 +134,68 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  mariadb:
+    image: mariadb:10.11-jammy
+    container_name: aegis-mariadb
+    ports:
+      - "3306:3306"
+    environment:
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD:-mariadb-root-secret-2026}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2024-03-07T09-43-48Z
+    container_name: aegis-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin-secret-2026}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  mailserver:
+    image: mailserver/docker-mailserver:12.1.0
+    container_name: aegis-mailserver
+    ports:
+      - "25:25"
+      - "143:143"
+      - "587:587"
+      - "993:993"
+    environment:
+      - OVERRIDE_HOSTNAME=mail.aegis.local
+      - DOMAINNAME=aegis.local
+      - ENABLE_SPAMASSASSIN=0
+      - ENABLE_CLAMAV=0
+      - ENABLE_FAIL2BAN=0
+      - ENABLE_POSTGREY=0
+      - ONE_DIR=1
+      - SSL_TYPE=none
+    volumes:
+      - mail_data:/var/mail
+      - mail_state:/var/mail-state
+      - mail_config:/tmp/docker-mailserver
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  mariadb_data:
+  minio_data:
+  mail_data:
+  mail_state:
+  mail_config:

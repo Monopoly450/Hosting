@@ -19,9 +19,28 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from app.core.k8s_client import K8sClient
 from app.services.ssh_inspector import SSHInspector
+from app.core.auth import get_current_user
+from app.models.models import User
 
 router = APIRouter()
 logger = logging.getLogger("app.api.vms")
+
+def check_vm_ownership(vm_name: str, current_user: User):
+    """Проверяет права доступа текущего пользователя к виртуальной машине"""
+    if current_user.role == "admin":
+        return
+    from app.db import SessionLocal
+    from app.models.models import VMTask
+    db = SessionLocal()
+    try:
+        vm = db.query(VMTask).filter(VMTask.name == vm_name).first()
+        if not vm or vm.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Доступ запрещен: Вы не являетесь владельцем этой виртуальной машины."
+            )
+    finally:
+        db.close()
 
 def get_host_ip() -> str:
     """Определяет IP хоста, доступный для подов K3s"""
@@ -54,6 +73,8 @@ class VMCreationRequest(BaseModel):
     iso_url: Optional[str] = Field(None, description="Ссылка на собственный ISO-образ (для Windows)")
     packages: Optional[str] = Field(None, description="Пакеты для установки (через запятую)")
     network_drives: Optional[str] = Field(None, description="Сетевые диски (NFS/PVC через запятую)")
+    cloud_init_template: Optional[str] = Field(None, description="Предустановленный шаблон (lamp, docker, nodejs, wordpress)")
+    custom_user_data: Optional[str] = Field(None, description="Собственный cloud-init userdata")
 
 class VMResizeRequest(BaseModel):
     cpu_cores: int = Field(..., ge=1, le=16)
@@ -109,12 +130,43 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
         image_url = f"http://{host_ip}:8000/static/images/{req.custom_image}"
         
 
+    # Обработка шаблонов cloud-init
+    template_packages = []
+    template_commands = []
+    if req.cloud_init_template == "lamp":
+        template_packages.extend(["apache2", "mariadb-server", "php", "libapache2-mod-php", "php-mysql"])
+        template_commands.extend([
+            "systemctl enable --now apache2",
+            "systemctl enable --now mariadb"
+        ])
+    elif req.cloud_init_template == "docker":
+        template_commands.extend([
+            "curl -fsSL https://get.docker.com -o get-docker.sh",
+            "sh get-docker.sh",
+            "systemctl enable --now docker"
+        ])
+    elif req.cloud_init_template == "nodejs":
+        template_commands.extend([
+            "curl -fsSL https://deb.nodesource.com/setup_18.x | bash -",
+            "apt-get install -y nodejs"
+        ])
+    elif req.cloud_init_template == "wordpress":
+        template_packages.extend(["apache2", "mariadb-server", "php", "php-mysql", "php-gd", "php-xml", "php-mbstring"])
+        template_commands.extend([
+            "systemctl enable --now apache2 mariadb",
+            "wget https://wordpress.org/latest.tar.gz -O /tmp/wp.tar.gz",
+            "tar -xzf /tmp/wp.tar.gz -C /var/www/html/ --strip-components=1",
+            "chown -R www-data:www-data /var/www/html/"
+        ])
+
     # Обработка пакетов
     packages_yaml = ""
+    all_packages = []
     if req.packages:
-        pkgs = [p.strip() for p in req.packages.split(",") if p.strip()]
-        if pkgs:
-            packages_yaml = "\npackages:\n" + "\n".join([f"  - {p}" for p in pkgs])
+        all_packages.extend([p.strip() for p in req.packages.split(",") if p.strip()])
+    all_packages.extend(template_packages)
+    if all_packages:
+        packages_yaml = "\npackages:\n" + "\n".join([f"  - {p}" for p in all_packages])
             
     # Обработка сетевых дисков
     mounts_yaml = ""
@@ -159,6 +211,10 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
             else:
                 packages_yaml = "\npackages:\n  - wget"
         runcmd_yaml = "\n  - wget http://repos.1c-bitrix.ru/yum/bitrix-env.sh\n  - chmod +x bitrix-env.sh\n  - ./bitrix-env.sh -s -p -H " + req.name + "\n"
+
+    # Дополнительные команды шаблона
+    if template_commands:
+        runcmd_yaml += "\n" + "\n".join([f"  - {cmd}" for cmd in template_commands])
 
     manifest = {
         "apiVersion": "kubevirt.io/v1",
@@ -235,7 +291,7 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
                         {
                             "name": "cloudinit",
                             "cloudInitNoCloud": {
-                                "userData": f"""#cloud-config
+                                "userData": req.custom_user_data if req.custom_user_data else f"""#cloud-config
 ssh_pwauth: True
 disable_root: false
 chpasswd:
@@ -493,9 +549,22 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
 
 
 @router.get("", response_model=List[dict])
-def list_vms(client: K8sClient = Depends(get_k8s_client)):
+def list_vms(client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     try:
-        return client.list_vms()
+        all_vms = client.list_vms()
+        if current_user.role == "admin":
+            return all_vms
+        
+        from app.db import SessionLocal
+        from app.models.models import VMTask
+        db = SessionLocal()
+        try:
+            owned_vms = db.query(VMTask).filter(VMTask.owner_id == current_user.id).all()
+            owned_names = {vm.name for vm in owned_vms}
+        finally:
+            db.close()
+            
+        return [vm for vm in all_vms if vm.get("name") in owned_names]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -761,7 +830,7 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client)):
         raise HTTPException(status_code=404, detail=f"Виртуальная машина {name} не найдена: {e}")
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client)):
+def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     try:
         from app.db import SessionLocal
         from app.models.models import VMTask
@@ -769,6 +838,27 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         
         db = SessionLocal()
         
+        # Проверяем лимиты квот для обычных пользователей (студентов)
+        if current_user.role != "admin":
+            owned_vms = db.query(VMTask).filter(VMTask.owner_id == current_user.id).all()
+            total_vms = len(owned_vms)
+            total_cpus = sum(vm.cpu_cores for vm in owned_vms)
+            total_ram = sum(vm.memory_gb * 1024 for vm in owned_vms)
+            total_storage = sum(vm.disk_gb for vm in owned_vms)
+            
+            if total_vms + 1 > current_user.max_vms:
+                db.close()
+                raise HTTPException(status_code=400, detail=f"Превышена квота на количество виртуальных машин ({current_user.max_vms}).")
+            if total_cpus + req.cpu_cores > current_user.max_vcpus:
+                db.close()
+                raise HTTPException(status_code=400, detail=f"Превышена квота на ядра процессора (Ваш лимит: {current_user.max_vcpus}, будет занято: {total_cpus + req.cpu_cores}).")
+            if total_ram + (req.memory_gb * 1024) > current_user.max_ram_mb:
+                db.close()
+                raise HTTPException(status_code=400, detail=f"Превышена квота на объем оперативной памяти (Ваш лимит: {current_user.max_ram_mb} МБ, будет занято: {total_ram + req.memory_gb * 1024} МБ).")
+            if total_storage + req.disk_gb > current_user.max_storage_gb:
+                db.close()
+                raise HTTPException(status_code=400, detail=f"Превышена квота на дисковое пространство (Ваш лимит: {current_user.max_storage_gb} ГБ, будет занято: {total_storage + req.disk_gb} ГБ).")
+
         # Проверяем, нет ли уже такой ВМ
         existing = db.query(VMTask).filter(VMTask.name == req.name).first()
         if existing:
@@ -784,6 +874,7 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
             custom_image=req.custom_image,
             packages=req.packages,
             network_drives=req.network_drives,
+            owner_id=current_user.id,
             status="Pending"
         )
         db.add(task)
@@ -797,10 +888,6 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         })
         
         db.close()
-        
-        # Временно возвращаем те же ключи, чтобы фронт не сломался (пароль будет сгенерирован воркером, 
-        # но чтобы не ломать текущий UX фронта, пароль можно будет запрашивать из секрета. 
-        # Пока возвращаем статус).
         return {"status": "creating", "name": req.name, "task_id": task.id}
     except HTTPException:
         raise
@@ -808,35 +895,40 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{name}")
-def delete_vm(name: str, client: K8sClient = Depends(get_k8s_client)):
+def delete_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
+    check_vm_ownership(name, current_user)
     try:
         return client.delete_vm(name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{name}/start")
-def start_vm(name: str, client: K8sClient = Depends(get_k8s_client)):
+def start_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
+    check_vm_ownership(name, current_user)
     try:
         return client.start_vm(name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{name}/stop")
-def stop_vm(name: str, client: K8sClient = Depends(get_k8s_client)):
+def stop_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
+    check_vm_ownership(name, current_user)
     try:
         return client.stop_vm(name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{name}/restart")
-def restart_vm(name: str, client: K8sClient = Depends(get_k8s_client)):
+def restart_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
+    check_vm_ownership(name, current_user)
     try:
         return client.restart_vm(name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{name}/metrics")
-def get_vm_metrics(name: str, client: K8sClient = Depends(get_k8s_client)):
+def get_vm_metrics(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
+    check_vm_ownership(name, current_user)
     try:
         return client.get_vm_metrics(name)
     except Exception as e:
@@ -845,20 +937,49 @@ def get_vm_metrics(name: str, client: K8sClient = Depends(get_k8s_client)):
 # --- НОВЫЕ МАРШРУТЫ ИЗМЕНЕНИЯ РЕСУРСОВ И БЭКАПОВ ---
 
 @router.post("/{name}/resize")
-def resize_vm(name: str, req: VMResizeRequest, client: K8sClient = Depends(get_k8s_client)):
+def resize_vm(name: str, req: VMResizeRequest, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Изменение лимитов CPU, RAM и расширение HDD"""
+    check_vm_ownership(name, current_user)
+    from app.db import SessionLocal
+    from app.models.models import VMTask
+    
+    db = SessionLocal()
     try:
+        if current_user.role != "admin":
+            # Проверяем квоты
+            other_vms = db.query(VMTask).filter(VMTask.owner_id == current_user.id, VMTask.name != name).all()
+            total_cpus = sum(vm.cpu_cores for vm in other_vms)
+            total_ram = sum(vm.memory_gb * 1024 for vm in other_vms)
+            total_storage = sum(vm.disk_gb for vm in other_vms)
+            
+            if total_cpus + req.cpu_cores > current_user.max_vcpus:
+                raise HTTPException(status_code=400, detail=f"Превышена квота на ядра процессора (Лимит: {current_user.max_vcpus}).")
+            if total_ram + (req.memory_gb * 1024) > current_user.max_ram_mb:
+                raise HTTPException(status_code=400, detail=f"Превышена квота на оперативную память (Лимит: {current_user.max_ram_mb} МБ).")
+            if total_storage + req.disk_gb > current_user.max_storage_gb:
+                raise HTTPException(status_code=400, detail=f"Превышена квота на дисковое пространство (Лимит: {current_user.max_storage_gb} ГБ).")
+
         # Изменяем CPU/RAM
         client.resize_vm_resources(name, req.cpu_cores, req.memory_gb)
         # Расширяем диск
         client.resize_vm_disk(name, req.disk_gb)
+        
+        # Обновляем в БД
+        db_vm = db.query(VMTask).filter(VMTask.name == name).first()
+        if db_vm:
+            db_vm.cpu_cores = req.cpu_cores
+            db_vm.memory_gb = req.memory_gb
+            db_vm.disk_gb = req.disk_gb
+            db.commit()
+            
         return {"status": "resized", "name": name, "cpu_cores": req.cpu_cores, "memory_gb": req.memory_gb, "disk_gb": req.disk_gb}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 @router.post("/{name}/settings")
-def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClient = Depends(get_k8s_client)):
+def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Обновление настроек ВМ (ресурсы, лимиты диска, проброс портов, фаервол)"""
+    check_vm_ownership(name, current_user)
     from app.db import SessionLocal
     from app.models.models import VMTask
     import json
@@ -869,6 +990,20 @@ def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClien
             db_vm = db.query(VMTask).filter(VMTask.name == name).first()
             if not db_vm:
                 raise HTTPException(status_code=404, detail="ВМ не найдена в БД")
+                
+            # Проверяем квоты при изменении параметров CPU/RAM/HDD
+            if current_user.role != "admin":
+                other_vms = db.query(VMTask).filter(VMTask.owner_id == current_user.id, VMTask.name != name).all()
+                total_cpus = sum(vm.cpu_cores for vm in other_vms)
+                total_ram = sum(vm.memory_gb * 1024 for vm in other_vms)
+                total_storage = sum(vm.disk_gb for vm in other_vms)
+                
+                if total_cpus + req.cpu_cores > current_user.max_vcpus:
+                    raise HTTPException(status_code=400, detail=f"Превышена квота на ядра процессора (Лимит: {current_user.max_vcpus}).")
+                if total_ram + (req.memory_gb * 1024) > current_user.max_ram_mb:
+                    raise HTTPException(status_code=400, detail=f"Превышена квота на оперативную память (Лимит: {current_user.max_ram_mb} МБ).")
+                if total_storage + req.disk_gb > current_user.max_storage_gb:
+                    raise HTTPException(status_code=400, detail=f"Превышена квота на дисковое пространство (Лимит: {current_user.max_storage_gb} ГБ).")
                 
             # 1. Изменение CPU, RAM и диска в K8s
             if db_vm.cpu_cores != req.cpu_cores or db_vm.memory_gb != req.memory_gb:
@@ -903,13 +1038,16 @@ def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClien
             return {"status": "success", "message": "Настройки ВМ сохранены"}
         finally:
             db.close()
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error updating VM settings for {name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{name}/metrics/history")
-def get_vm_metrics_history(name: str, range_hours: int = Query(1, ge=1, le=24), client: K8sClient = Depends(get_k8s_client)):
+def get_vm_metrics_history(name: str, range_hours: int = Query(1, ge=1, le=24), client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Получение истории метрик CPU/RAM из Prometheus за указанный период (в часах)"""
+    check_vm_ownership(name, current_user)
     import time
     
     end_time = int(time.time())
@@ -957,31 +1095,35 @@ def get_vm_metrics_history(name: str, range_hours: int = Query(1, ge=1, le=24), 
     return history_list
 
 @router.post("/{name}/backup")
-def create_backup(name: str, client: K8sClient = Depends(get_k8s_client)):
+def create_backup(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Создать резервную копию VM"""
+    check_vm_ownership(name, current_user)
     try:
         return client.create_vm_backup(name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{name}/backups")
-def list_backups(name: str, client: K8sClient = Depends(get_k8s_client)):
+def list_backups(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Получить список резервных копий VM"""
+    check_vm_ownership(name, current_user)
     try:
         return client.list_vm_backups(name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{name}/backups/{backup_name}")
-def delete_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k8s_client)):
+def delete_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Удалить резервную копию"""
+    check_vm_ownership(name, current_user)
     try:
         return client.delete_vm_backup(backup_name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{name}/restore/{backup_name}")
-def restore_vm_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k8s_client)):
+def restore_vm_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
+    check_vm_ownership(name, current_user)
     try:
         return client.restore_vm_backup(name, backup_name)
     except Exception as e:

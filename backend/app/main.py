@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api import vms, host, vnc, images, docker_admin, external_servers, infra, clusters
+from app.api import vms, host, vnc, images, docker_admin, external_servers, infra, clusters, auth, databases, s3, volumes, snapshots, mail
 from app.core.auth import verify_admin_token
 
 # Настройка логирования
@@ -93,6 +93,22 @@ async def startup_event():
             ))
             logger.info("Сид: Добавлены стандартные IAM-пользователи.")
         
+        # 5. Проверяем многопользовательского администратора
+        from app.models.models import User
+        from app.core.auth import hash_password, ADMIN_TOKEN
+        res = await db.execute(select(User).filter_by(username="admin"))
+        if not res.scalars().first():
+            db.add(User(
+                username="admin",
+                password_hash=hash_password(ADMIN_TOKEN),
+                role="admin",
+                max_vcpus=999,
+                max_ram_mb=999999,
+                max_vms=999,
+                max_storage_gb=999999
+            ))
+            logger.info("Сид: Добавлен дефолтный администратор 'admin'.")
+        
         await db.commit()
 
 
@@ -107,15 +123,20 @@ if settings.BACKEND_CORS_ORIGINS:
     )
 
 # Подключение роутеров с валидацией токена
-app.include_router(vms.router, prefix=f"{settings.API_V1_STR}/vms", tags=["vms"], dependencies=[Depends(verify_admin_token)])
-app.include_router(clusters.router, prefix=f"{settings.API_V1_STR}/clusters", tags=["clusters"], dependencies=[Depends(verify_admin_token)])
+app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
+app.include_router(vms.router, prefix=f"{settings.API_V1_STR}/vms", tags=["vms"])
+app.include_router(clusters.router, prefix=f"{settings.API_V1_STR}/clusters", tags=["clusters"])
+app.include_router(databases.router, prefix=f"{settings.API_V1_STR}/databases", tags=["databases"])
+app.include_router(s3.router, prefix=f"{settings.API_V1_STR}/s3", tags=["s3"])
+app.include_router(volumes.router, prefix=f"{settings.API_V1_STR}/volumes", tags=["volumes"])
+app.include_router(snapshots.router, prefix=f"{settings.API_V1_STR}/snapshots", tags=["snapshots"])
+app.include_router(mail.router, prefix=f"{settings.API_V1_STR}/mail", tags=["mail"])
 app.include_router(host.router, prefix=f"{settings.API_V1_STR}/host", tags=["host"], dependencies=[Depends(verify_admin_token)])
 app.include_router(vnc.router, prefix=f"{settings.API_V1_STR}/vnc", tags=["vnc"])
 app.include_router(images.router, prefix=f"{settings.API_V1_STR}/images", tags=["images"], dependencies=[Depends(verify_admin_token)])
 app.include_router(docker_admin.router, prefix=f"{settings.API_V1_STR}/docker", tags=["docker"], dependencies=[Depends(verify_admin_token)])
 app.include_router(external_servers.router, prefix=f"{settings.API_V1_STR}/external-servers", tags=["external-servers"], dependencies=[Depends(verify_admin_token)])
 app.include_router(infra.router, prefix=f"{settings.API_V1_STR}/infra", tags=["infra"], dependencies=[Depends(verify_admin_token)])
-app.include_router(clusters.router, prefix=f"{settings.API_V1_STR}/clusters", tags=["clusters"], dependencies=[Depends(verify_admin_token)])
 
 @app.get("/")
 def read_root():

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, Package, HardDrive, Square, Shuffle } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, Package, HardDrive, Square, Shuffle, Users, Database, Mail } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -13,12 +13,21 @@ import ExternalServerDetail from './components/ExternalServerDetail';
 import ConnectServerModal from './components/ConnectServerModal';
 import ClusterPanel from './components/ClusterPanel';
 import BalancerPanel from './components/BalancerPanel';
+import UsersAdminPanel from './components/UsersAdminPanel';
+import DatabasesPanel from './components/DatabasesPanel';
+import S3Panel from './components/S3Panel';
+import VolumesPanel from './components/VolumesPanel';
+import MailPanel from './components/MailPanel';
 
 const App = () => {
   const [authenticated, setAuthenticated] = useState(!!localStorage.getItem('aegis_admin_token'));
-  const [tokenInput, setTokenInput] = useState('');
+  const [usernameInput, setUsernameInput] = useState('admin');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [userRole, setUserRole] = useState(localStorage.getItem('aegis_role') || 'student');
+  const [username, setUsername] = useState(localStorage.getItem('aegis_username') || '');
+  const [quotaUsage, setQuotaUsage] = useState(null);
   
-  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'vms' | 'clusters' | 'balancer' | 'images' | 'docker' | 'infra' | 'external'
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'vms' | 'clusters' | 'balancer' | 'images' | 'docker' | 'infra' | 'users'
   const [vms, setVms] = useState([]);
   const [customImages, setCustomImages] = useState([]);
   const [externalServers, setExternalServers] = useState([]);
@@ -38,12 +47,14 @@ const App = () => {
   const [name, setName] = useState('');
   const [osType, setOsType] = useState('ubuntu'); // 'ubuntu' | 'windows' | 'custom'
   const [selectedCustomImage, setSelectedCustomImage] = useState('');
-    const [packages, setPackages] = useState("");
+  const [packages, setPackages] = useState("");
   const [networkDrives, setNetworkDrives] = useState("");
   const [cpuCores, setCpuCores] = useState(2);
   const [memoryGb, setMemoryGb] = useState(2);
   const [diskGb, setDiskGb] = useState(20);
   const [isoUrl, setIsoUrl] = useState('');
+  const [cloudInitTemplate, setCloudInitTemplate] = useState('');
+  const [customUserData, setCustomUserData] = useState('');
 
   // Default values based on OS
   useEffect(() => {
@@ -102,19 +113,40 @@ const App = () => {
     }
   };
 
+  const fetchQuotaUsage = async () => {
+    try {
+      const response = await fetch('/api/v1/auth/me');
+      if (response.ok) {
+        const data = await response.json();
+        setQuotaUsage(data);
+        setUserRole(data.role);
+        localStorage.setItem('aegis_role', data.role);
+        localStorage.setItem('aegis_username', data.username);
+      }
+    } catch (err) {
+      console.error('Error fetching quota usage:', err);
+    }
+  };
+
   useEffect(() => {
-    fetchVMs();
-    fetchCustomImages();
-    fetchExternalServers();
-    
-    const vmsInterval = setInterval(fetchVMs, 5000);
-    const serversInterval = setInterval(fetchExternalServers, 10000);
-    
-    return () => {
-      clearInterval(vmsInterval);
-      clearInterval(serversInterval);
-    };
-  }, []);
+    if (authenticated) {
+      fetchQuotaUsage();
+      fetchVMs();
+      fetchCustomImages();
+      fetchExternalServers();
+      
+      const vmsInterval = setInterval(() => {
+        fetchVMs();
+        fetchQuotaUsage();
+      }, 5000);
+      const serversInterval = setInterval(fetchExternalServers, 10000);
+      
+      return () => {
+        clearInterval(vmsInterval);
+        clearInterval(serversInterval);
+      };
+    }
+  }, [authenticated]);
 
   const handleCreateVM = async (e) => {
     e.preventDefault();
@@ -134,7 +166,9 @@ const App = () => {
         cpu_cores: parseInt(cpuCores),
         memory_gb: parseInt(memoryGb),
         disk_gb: parseInt(diskGb),
-        iso_url: osType === 'windows' && isoUrl.trim() ? isoUrl.trim() : undefined
+        iso_url: osType === 'windows' && isoUrl.trim() ? isoUrl.trim() : undefined,
+        cloud_init_template: cloudInitTemplate || undefined,
+        custom_user_data: customUserData.trim() || undefined
       };
 
       const response = await fetch('/api/vms', {
@@ -157,6 +191,8 @@ const App = () => {
       const resData = await response.json();
       setName('');
       setIsoUrl('');
+      setCloudInitTemplate('');
+      setCustomUserData('');
       fetchVMs();
       
       setSelectedVMDetailName(payload.name);
@@ -169,26 +205,47 @@ const App = () => {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    const token = tokenInput.trim();
-    if (!token) return;
+    const usernameVal = usernameInput.trim();
+    const passwordVal = passwordInput.trim();
+    if (!passwordVal) return;
 
     try {
       setFormLoading(true);
-      const response = await fetch('/api/host/metrics', {
-        headers: { 'X-Admin-Token': token },
+      // Сначала пробуем войти через новый API авторизации
+      const response = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: usernameVal, password: passwordVal }),
         _skipAuthRedirect: true
       });
       
-      if (response.status === 401) {
-        alert('Неверный ключ доступа.');
-      } else if (!response.ok) {
-        throw new Error('Ошибка связи с сервером');
-      } else {
-        localStorage.setItem('aegis_admin_token', token);
+      if (response.ok) {
+        const data = await response.json();
+        localStorage.setItem('aegis_admin_token', data.access_token);
+        localStorage.setItem('aegis_role', data.role);
+        localStorage.setItem('aegis_username', data.username);
         setAuthenticated(true);
+        window.location.reload();
+      } else {
+        // Если API авторизации вернул ошибку, пробуем старый способ (проверка X-Admin-Token напрямую)
+        // Это полезно для обратной совместимости или входа по прямому токену
+        const legacyResponse = await fetch('/api/host/metrics', {
+          headers: { 'X-Admin-Token': passwordVal },
+          _skipAuthRedirect: true
+        });
+        
+        if (legacyResponse.ok) {
+          localStorage.setItem('aegis_admin_token', passwordVal);
+          localStorage.setItem('aegis_role', 'admin');
+          localStorage.setItem('aegis_username', 'admin');
+          setAuthenticated(true);
+          window.location.reload();
+        } else {
+          alert('Неверные учетные данные или ключ доступа.');
+        }
       }
     } catch (err) {
-      alert(`Ошибка: ${err.message}`);
+      alert(`Ошибка связи с сервером: ${err.message}`);
     } finally {
       setFormLoading(false);
     }
@@ -196,7 +253,10 @@ const App = () => {
 
   const handleLogout = () => {
     localStorage.removeItem('aegis_admin_token');
+    localStorage.removeItem('aegis_role');
+    localStorage.removeItem('aegis_username');
     setAuthenticated(false);
+    window.location.reload();
   };
 
   const getTabTitle = () => {
@@ -207,8 +267,13 @@ const App = () => {
       case 'clusters': return 'Кластеры';
       case 'balancer': return 'Балансировщик ресурсов';
       case 'images': return 'Образы дисков';
+      case 'databases': return 'Управляемые базы данных';
+      case 's3': return 'S3 Объектное хранилище';
+      case 'volumes': return 'Сетевые диски';
+      case 'mail': return 'Почтовый хостинг';
       case 'docker': return 'Docker Управление';
       case 'infra': return 'Инфраструктура';
+      case 'users': return 'Управление пользователями';
     }
   };
 
@@ -228,19 +293,31 @@ const App = () => {
 
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div className="input-group">
-              <label className="input-label">Ключ администратора (API Key)</label>
+              <label className="input-label">Имя пользователя / Username</label>
+              <input 
+                type="text"
+                className="form-control"
+                value={usernameInput}
+                onChange={(e) => setUsernameInput(e.target.value)}
+                placeholder="admin"
+                required
+              />
+            </div>
+
+            <div className="input-group">
+              <label className="input-label">Пароль или Ключ доступа</label>
               <input 
                 type="password"
                 className="form-control"
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                placeholder="Введите ключ доступа..."
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                placeholder="Введите пароль или API ключ..."
                 required
               />
             </div>
 
             <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: '1rem', marginTop: '8px' }}>
-              {formLoading ? <span className="spinner" /> : 'Авторизоваться'}
+              {formLoading ? <span className="spinner" /> : 'Войти'}
             </button>
           </form>
         </div>
@@ -299,26 +376,123 @@ const App = () => {
           </button>
 
           <button 
-            className={`nav-item ${activeTab === 'docker' && !selectedVMDetailName ? 'active' : ''}`}
-            onClick={() => { setActiveTab('docker'); setSelectedVMDetailName(null); }}
+            className={`nav-item ${activeTab === 'databases' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => { setActiveTab('databases'); setSelectedVMDetailName(null); }}
           >
-            <Shield size={18} />
-            Docker Управление
+            <Database size={18} />
+            Базы данных
           </button>
 
           <button 
-            className={`nav-item ${activeTab === 'infra' && !selectedVMDetailName ? 'active' : ''}`}
-            onClick={() => { setActiveTab('infra'); setSelectedVMDetailName(null); }}
+            className={`nav-item ${activeTab === 's3' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => { setActiveTab('s3'); setSelectedVMDetailName(null); }}
           >
-            <Terminal size={18} />
-            Инфраструктура
+            <FolderOpen size={18} />
+            S3 Хранилище
           </button>
+
+          <button 
+            className={`nav-item ${activeTab === 'volumes' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => { setActiveTab('volumes'); setSelectedVMDetailName(null); }}
+          >
+            <HardDrive size={18} />
+            Сетевые диски
+          </button>
+
+          <button 
+            className={`nav-item ${activeTab === 'mail' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => { setActiveTab('mail'); setSelectedVMDetailName(null); }}
+          >
+            <Mail size={18} />
+            Почтовый хостинг
+          </button>
+
+          {userRole === 'admin' && (
+            <>
+              <button 
+                className={`nav-item ${activeTab === 'docker' && !selectedVMDetailName ? 'active' : ''}`}
+                onClick={() => { setActiveTab('docker'); setSelectedVMDetailName(null); }}
+              >
+                <Shield size={18} />
+                Docker Управление
+              </button>
+
+              <button 
+                className={`nav-item ${activeTab === 'infra' && !selectedVMDetailName ? 'active' : ''}`}
+                onClick={() => { setActiveTab('infra'); setSelectedVMDetailName(null); }}
+              >
+                <Terminal size={18} />
+                Инфраструктура
+              </button>
+
+              <button 
+                className={`nav-item ${activeTab === 'users' && !selectedVMDetailName ? 'active' : ''}`}
+                onClick={() => { setActiveTab('users'); setSelectedVMDetailName(null); }}
+              >
+                <Users size={18} />
+                Пользователи
+              </button>
+            </>
+          )}
         </div>
 
-        <div style={{ marginTop: 'auto', paddingTop: '24px', borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', padding: '0 8px' }}>
-            <span className="status-dot" style={{ backgroundColor: 'var(--status-success)', width: '8px', height: '8px' }}></span>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>System Online</span>
+        {quotaUsage && userRole !== 'admin' && (
+          <div style={{ padding: '12px 8px', margin: '12px 0', borderTop: '1px solid var(--border-subtle)', borderBottom: '1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '8px' }}>
+              Квоты студента
+            </div>
+            {/* VMs */}
+            <div style={{ marginBottom: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                <span>Инстансы</span>
+                <span>{quotaUsage.used_vms} / {quotaUsage.max_vms}</span>
+              </div>
+              <div style={{ height: '3px', background: 'var(--bg-surface-hover)', borderRadius: '2px', marginTop: '2px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: 'var(--accent-primary)', width: `${Math.min(100, (quotaUsage.used_vms / quotaUsage.max_vms) * 100)}%` }}></div>
+              </div>
+            </div>
+            {/* CPU */}
+            <div style={{ marginBottom: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                <span>Ядра vCPU</span>
+                <span>{quotaUsage.used_vcpus} / {quotaUsage.max_vcpus}</span>
+              </div>
+              <div style={{ height: '3px', background: 'var(--bg-surface-hover)', borderRadius: '2px', marginTop: '2px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: 'var(--accent-primary)', width: `${Math.min(100, (quotaUsage.used_vcpus / quotaUsage.max_vcpus) * 100)}%` }}></div>
+              </div>
+            </div>
+            {/* RAM */}
+            <div style={{ marginBottom: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                <span>ОЗУ (RAM)</span>
+                <span>{quotaUsage.used_ram_mb} / {quotaUsage.max_ram_mb} MB</span>
+              </div>
+              <div style={{ height: '3px', background: 'var(--bg-surface-hover)', borderRadius: '2px', marginTop: '2px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: 'var(--accent-primary)', width: `${Math.min(100, (quotaUsage.used_ram_mb / quotaUsage.max_ram_mb) * 100)}%` }}></div>
+              </div>
+            </div>
+            {/* Storage */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                <span>Диски (HDD)</span>
+                <span>{quotaUsage.used_storage_gb} / {quotaUsage.max_storage_gb} GB</span>
+              </div>
+              <div style={{ height: '3px', background: 'var(--bg-surface-hover)', borderRadius: '2px', marginTop: '2px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: 'var(--accent-primary)', width: `${Math.min(100, (quotaUsage.used_storage_gb / quotaUsage.max_storage_gb) * 100)}%` }}></div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '16px', padding: '0 8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="status-dot" style={{ backgroundColor: 'var(--status-success)', width: '8px', height: '8px' }}></span>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>{username || 'Администратор'}</span>
+            </div>
+            {quotaUsage && userRole !== 'admin' && (
+              <span style={{ fontSize: '0.75rem', color: 'var(--accent-primary)' }}>Баланс: {quotaUsage.balance.toFixed(2)} ₽</span>
+            )}
           </div>
           <button 
             className="nav-item" 
@@ -483,6 +657,33 @@ const App = () => {
                     </div>
                   </div>
 
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '8px' }}>
+                    <div style={{ flex: '1 1 300px' }} className="input-group">
+                      <label className="input-label">Шаблон окружения (Cloud-Init)</label>
+                      <select 
+                        className="form-control" 
+                        value={cloudInitTemplate} 
+                        onChange={e => setCloudInitTemplate(e.target.value)}
+                      >
+                        <option value="">Без шаблона (Чистая ОС)</option>
+                        <option value="lamp">LAMP (Nginx, PHP, MariaDB)</option>
+                        <option value="docker">Docker Environment (Engine + CLI)</option>
+                        <option value="nodejs">Node.js Environment (Node.js LTS)</option>
+                        <option value="wordpress">WordPress (Apache + MySQL + PHP + WP)</option>
+                      </select>
+                    </div>
+                    <div style={{ flex: '1 1 300px' }} className="input-group">
+                      <label className="input-label">Кастомный скрипт Cloud-Init (userData)</label>
+                      <textarea 
+                        className="form-control" 
+                        placeholder="#cloud-config..."
+                        value={customUserData}
+                        onChange={e => setCustomUserData(e.target.value)}
+                        style={{ height: '42px', minHeight: '42px', resize: 'vertical' }}
+                      />
+                    </div>
+                  </div>
+
 
                   <div style={{ display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
                     <div style={{ flex: '1 1 200px' }}>
@@ -553,10 +754,20 @@ const App = () => {
             <BalancerPanel />
           ) : activeTab === 'images' ? (
             <ImageManager onImagesChanged={setCustomImages} />
+          ) : activeTab === 'databases' ? (
+            <DatabasesPanel />
+          ) : activeTab === 's3' ? (
+            <S3Panel />
+          ) : activeTab === 'volumes' ? (
+            <VolumesPanel />
+          ) : activeTab === 'mail' ? (
+            <MailPanel />
           ) : activeTab === 'docker' ? (
             <DockerPanel />
           ) : activeTab === 'infra' ? (
             <InfraPanel />
+          ) : activeTab === 'users' ? (
+            <UsersAdminPanel apiToken={localStorage.getItem('aegis_admin_token')} apiUrl={window.location.origin} />
           ) : null}
 
         </main>

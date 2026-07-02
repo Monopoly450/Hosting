@@ -883,3 +883,142 @@ class K8sClient:
         except Exception as e:
             logger.error(f"Error querying Prometheus: {e}")
             return None
+
+    def create_pvc(self, name: str, size_gb: int, namespace: str = "default"):
+        """Создает PersistentVolumeClaim в Kubernetes"""
+        body = {
+            "apiVersion": "v1",
+            "kind": "PersistentVolumeClaim",
+            "metadata": {
+                "name": name
+            },
+            "spec": {
+                "accessModes": ["ReadWriteOnce"],
+                "resources": {
+                    "requests": {
+                        "storage": f"{size_gb}Gi"
+                    }
+                }
+            }
+        }
+        return self.core_api.create_namespaced_persistent_volume_claim(namespace, body)
+
+    def delete_pvc(self, name: str, namespace: str = "default"):
+        """Удаляет PersistentVolumeClaim из Kubernetes"""
+        return self.core_api.delete_namespaced_persistent_volume_claim(name, namespace)
+
+    def add_vm_volume(self, vm_name: str, pvc_name: str, volume_name: str, namespace: str = "default"):
+        """Горячее подключение (hotplug) тома PVC к виртуальной машине KubeVirt"""
+        path = f"/apis/subresources.kubevirt.io/v1/namespaces/{namespace}/virtualmachines/{vm_name}/addvolume"
+        headers = {}
+        conf = self.api_client.configuration
+        if conf.api_key:
+            for k, v in conf.api_key.items():
+                headers[k] = v
+        headers['Content-Type'] = 'application/json'
+        body = {
+            "volumeSource": {
+                "persistentVolumeClaim": {
+                    "claimName": pvc_name
+                }
+            },
+            "name": volume_name
+        }
+        return self.api_client.call_api(
+            resource_path=path,
+            method="PUT",
+            header_params=headers,
+            body=body,
+            auth_settings=["BearerToken"],
+            _return_http_data_only=True
+        )
+
+    def remove_vm_volume(self, vm_name: str, volume_name: str, namespace: str = "default"):
+        """Горячее отключение (hotplug) тома от виртуальной машины KubeVirt"""
+        path = f"/apis/subresources.kubevirt.io/v1/namespaces/{namespace}/virtualmachines/{vm_name}/removevolume"
+        headers = {}
+        conf = self.api_client.configuration
+        if conf.api_key:
+            for k, v in conf.api_key.items():
+                headers[k] = v
+        headers['Content-Type'] = 'application/json'
+        body = {
+            "name": volume_name
+        }
+        return self.api_client.call_api(
+            resource_path=path,
+            method="PUT",
+            header_params=headers,
+            body=body,
+            auth_settings=["BearerToken"],
+            _return_http_data_only=True
+        )
+
+    def create_vm_snapshot(self, vm_name: str, snapshot_name: str, namespace: str = "default"):
+        """Создает снимок (snapshot) виртуальной машины KubeVirt"""
+        body = {
+            "apiVersion": "snapshot.kubevirt.io/v1alpha3",
+            "kind": "VirtualMachineSnapshot",
+            "metadata": {
+                "name": snapshot_name
+            },
+            "spec": {
+                "source": {
+                    "apiGroup": "kubevirt.io",
+                    "kind": "VirtualMachine",
+                    "name": vm_name
+                }
+            }
+        }
+        return self.custom_api.create_namespaced_custom_object(
+            "snapshot.kubevirt.io", "v1alpha3", namespace, "virtualmachinesnapshots", body
+        )
+
+    def list_vm_snapshots(self, vm_name: str, namespace: str = "default"):
+        """Возвращает список снимков для определенной виртуальной машины"""
+        res = self.custom_api.list_namespaced_custom_object(
+            "snapshot.kubevirt.io", "v1alpha3", namespace, "virtualmachinesnapshots"
+        )
+        items = res.get("items", [])
+        # Фильтруем те, у которых source.name == vm_name
+        filtered = []
+        for item in items:
+            source_name = item.get("spec", {}).get("source", {}).get("name")
+            if source_name == vm_name:
+                filtered.append({
+                    "name": item.get("metadata", {}).get("name"),
+                    "creation_time": item.get("metadata", {}).get("creationTimestamp"),
+                    "phase": item.get("status", {}).get("phase", "Unknown"),
+                    "ready_to_use": item.get("status", {}).get("readyToUse", False)
+                })
+        return filtered
+
+    def delete_vm_snapshot(self, snapshot_name: str, namespace: str = "default"):
+        """Удаляет снимок виртуальной машины"""
+        return self.custom_api.delete_namespaced_custom_object(
+            "snapshot.kubevirt.io", "v1alpha3", namespace, "virtualmachinesnapshots", snapshot_name
+        )
+
+    def restore_vm_snapshot(self, vm_name: str, snapshot_name: str, namespace: str = "default"):
+        """Восстанавливает виртуальную машину из снимка (ВМ должна быть выключена)"""
+        # Имя ретора должно быть уникальным
+        import time
+        restore_name = f"restore-{snapshot_name}-{int(time.time())}"
+        body = {
+            "apiVersion": "snapshot.kubevirt.io/v1alpha3",
+            "kind": "VirtualMachineRestore",
+            "metadata": {
+                "name": restore_name
+            },
+            "spec": {
+                "target": {
+                    "apiGroup": "kubevirt.io",
+                    "kind": "VirtualMachine",
+                    "name": vm_name
+                },
+                "virtualMachineSnapshotName": snapshot_name
+            }
+        }
+        return self.custom_api.create_namespaced_custom_object(
+            "snapshot.kubevirt.io", "v1alpha3", namespace, "virtualmachinerestores", body
+        )

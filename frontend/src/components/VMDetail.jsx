@@ -476,6 +476,9 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             <button className={`btn ${activeTab === 'backups' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('backups')}>
               💾 Бэкапы
             </button>
+            <button className={`btn ${activeTab === 'snapshots' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('snapshots')}>
+              📸 Снимки
+            </button>
             <button className={`btn ${activeTab === 'settings' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('settings')}>
               <Settings size={14} /> Настройки
             </button>
@@ -496,6 +499,12 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       {activeTab === 'backups' && (
         <div className="glass-card">
           <BackupList vmName={vmName} vmStatus={vm.status} onRestoreStarted={fetchVmDetails} />
+        </div>
+      )}
+
+      {activeTab === 'snapshots' && (
+        <div className="glass-card">
+          <VMSnapshotsList vmName={vmName} vmStatus={vm.status} />
         </div>
       )}
 
@@ -949,5 +958,183 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
     </div>
   );
 };
+
+function VMSnapshotsList({ vmName, vmStatus }) {
+    const [snapshots, setSnapshots] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [snapName, setSnapName] = useState('');
+    const [creating, setCreating] = useState(false);
+
+    const getHeaders = () => {
+        const token = localStorage.getItem('aegis_admin_token') || '';
+        return {
+            headers: { 'Authorization': `Bearer ${token}` }
+        };
+    };
+
+    const fetchSnapshots = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch(`/api/v1/snapshots/${vmName}`, getHeaders());
+            if (res.ok) {
+                const data = await res.json();
+                setSnapshots(data);
+            }
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchSnapshots();
+    }, [vmName]);
+
+    const handleCreateSnapshot = async (e) => {
+        e.preventDefault();
+        if (!snapName.trim()) return;
+        setCreating(true);
+        try {
+            const res = await fetch(`/api/v1/snapshots/${vmName}`, {
+                method: 'POST',
+                headers: {
+                    ...getHeaders().headers,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ name: snapName })
+            });
+            if (res.ok) {
+                setSnapName('');
+                fetchSnapshots();
+            } else {
+                const errData = await res.json();
+                alert(errData.detail || 'Ошибка создания снимка');
+            }
+        } catch (err) {
+            alert(`Ошибка: ${err.message}`);
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    const handleDeleteSnapshot = async (snapshotName) => {
+        if (!confirm(`Удалить снимок ${snapshotName}?`)) return;
+        try {
+            const res = await fetch(`/api/v1/snapshots/${vmName}/${snapshotName}`, {
+                method: 'DELETE',
+                headers: getHeaders().headers
+            });
+            if (res.ok) {
+                fetchSnapshots();
+            } else {
+                const errData = await res.json();
+                alert(errData.detail || 'Ошибка удаления снимка');
+            }
+        } catch (err) {
+            alert(`Ошибка: ${err.message}`);
+        }
+    };
+
+    const handleRestoreSnapshot = async (snapshotName) => {
+        if (!confirm(`Восстановить виртуальную машину из снимка ${snapshotName}? Все текущие данные будут утеряны.`)) return;
+        try {
+            const res = await fetch(`/api/v1/snapshots/${vmName}/${snapshotName}/restore`, {
+                method: 'POST',
+                headers: getHeaders().headers
+            });
+            if (res.ok) {
+                alert('Запрос на восстановление отправлен.');
+                fetchSnapshots();
+            } else {
+                const errData = await res.json();
+                alert(errData.detail || 'Ошибка восстановления снимка');
+            }
+        } catch (err) {
+            alert(`Ошибка: ${err.message}`);
+        }
+    };
+
+    return (
+        <div style={{ padding: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div>
+                    <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-heading)' }}>Снимки виртуалки (Snapshots)</h3>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Слепки диска для быстрого отката состояния ВМ</p>
+                </div>
+            </div>
+
+            <form onSubmit={handleCreateSnapshot} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                <input 
+                    type="text" 
+                    className="form-control" 
+                    placeholder="Название снимка (например, pre-install)" 
+                    value={snapName}
+                    onChange={e => setSnapName(e.target.value)}
+                    required
+                    style={{ flex: 1 }}
+                />
+                <button type="submit" className="btn btn-primary" disabled={creating}>
+                    {creating ? 'Создание...' : 'Создать снимок'}
+                </button>
+            </form>
+
+            {loading ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}><span className="spinner"></span></div>
+            ) : (
+                <div className="table-responsive">
+                    <table className="table">
+                        <thead>
+                            <tr>
+                                <th>Имя снимка</th>
+                                <th>Дата создания</th>
+                                <th>Статус</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {snapshots.map((s, idx) => (
+                                <tr key={idx}>
+                                    <td style={{ fontWeight: 'bold' }}>{s.name}</td>
+                                    <td>{s.creation_time}</td>
+                                    <td>
+                                        <span className={`status-badge ${s.phase === 'Succeeded' ? 'status-active' : s.phase === 'Failed' ? 'status-danger' : 'status-pending'}`}>
+                                            {s.phase === 'Succeeded' ? 'Готов' : s.phase === 'InProgress' ? 'Создается' : s.phase}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button 
+                                                className="btn btn-secondary btn-sm" 
+                                                onClick={() => handleRestoreSnapshot(s.name)}
+                                                disabled={vmStatus === 'Running' || s.phase !== 'Succeeded'}
+                                                title={vmStatus === 'Running' ? 'Остановите ВМ перед восстановлением' : 'Откатить состояние ВМ'}
+                                            >
+                                                Откатить
+                                            </button>
+                                            <button 
+                                                className="btn btn-danger btn-sm" 
+                                                onClick={() => handleDeleteSnapshot(s.name)}
+                                            >
+                                                Удалить
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                            {snapshots.length === 0 && (
+                                <tr>
+                                    <td colSpan="4" style={{ textAlign: 'center', padding: '20px', color: '#888' }}>
+                                        Снимков пока нет
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default VMDetail;

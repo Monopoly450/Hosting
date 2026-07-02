@@ -1,10 +1,12 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
 from typing import List, Optional
+from sqlalchemy import select
 from app.db import SessionLocal
-from app.models.models import Cluster, VMTask
+from app.models.models import Cluster, VMTask, User
 from app.queue_client import publish_task
 from app.api.vms import VMCreationRequest
+from app.core.auth import get_current_user
 
 router = APIRouter()
 
@@ -16,7 +18,7 @@ class AttachVMRequest(BaseModel):
     vm_names: List[str] = Field(..., description="Список имен существующих ВМ для добавления в кластер")
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create_cluster(req: ClusterCreateRequest):
+def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_current_user)):
     db = SessionLocal()
     try:
         # Проверка существования кластера
@@ -24,22 +26,43 @@ def create_cluster(req: ClusterCreateRequest):
         if existing_cluster:
             raise HTTPException(status_code=400, detail="Кластер с таким именем уже существует.")
             
-        cluster = Cluster(name=req.name, network_name=f"{req.name}-net")
+        # Проверяем лимиты квот для обычных пользователей (студентов)
+        if current_user.role != "admin":
+            owned_vms = db.query(VMTask).filter(VMTask.owner_id == current_user.id).all()
+            total_vms = len(owned_vms)
+            total_cpus = sum(vm.cpu_cores for vm in owned_vms)
+            total_ram = sum(vm.memory_gb * 1024 for vm in owned_vms)
+            total_storage = sum(vm.disk_gb for vm in owned_vms)
+            
+            req_vms = len(req.vms)
+            req_cpus = sum(vm.cpu_cores for vm in req.vms)
+            req_ram = sum(vm.memory_gb * 1024 for vm in req.vms)
+            req_storage = sum(vm.disk_gb for vm in req.vms)
+            
+            if total_vms + req_vms > current_user.max_vms:
+                raise HTTPException(status_code=400, detail=f"Создание кластера превысит лимит ВМ (Лимит: {current_user.max_vms}, будет занято: {total_vms + req_vms}).")
+            if total_cpus + req_cpus > current_user.max_vcpus:
+                raise HTTPException(status_code=400, detail=f"Создание кластера превысит лимит CPU (Лимит: {current_user.max_vcpus}, будет занято: {total_cpus + req_cpus}).")
+            if total_ram + req_ram > current_user.max_ram_mb:
+                raise HTTPException(status_code=400, detail=f"Создание кластера превысит лимит RAM (Лимит: {current_user.max_ram_mb} МБ, будет занято: {total_ram + req_ram} МБ).")
+            if total_storage + req_storage > current_user.max_storage_gb:
+                raise HTTPException(status_code=400, detail=f"Создание кластера превысит лимит диска (Лимит: {current_user.max_storage_gb} ГБ, будет занято: {total_storage + req_storage} ГБ).")
+
+        cluster = Cluster(name=req.name, network_name=f"{req.name}-net", owner_id=current_user.id)
         db.add(cluster)
         db.commit()
         db.refresh(cluster)
         
-        # Отправляем задачи на создание сетевого свитча кластера (Multus) можно сделать через воркер,
-        # но для начала воркер будет проверять наличие сети. 
         # Добавляем задачи для каждой ВМ:
         for vm_req in req.vms:
             # Проверка имени ВМ
             if db.query(VMTask).filter(VMTask.name == vm_req.name).first():
-                continue # Пропускаем, или можно выбросить ошибку
+                continue
                 
             task = VMTask(
                 name=vm_req.name,
                 cluster_id=cluster.id,
+                owner_id=current_user.id,
                 os_type=vm_req.os_type,
                 cpu_cores=vm_req.cpu_cores,
                 memory_gb=vm_req.memory_gb,
@@ -59,6 +82,8 @@ def create_cluster(req: ClusterCreateRequest):
             })
             
         return {"status": "creating", "cluster_id": cluster.id}
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -66,24 +91,28 @@ def create_cluster(req: ClusterCreateRequest):
         db.close()
 
 @router.post("/{cluster_id}/attach")
-def attach_vms_to_cluster(cluster_id: int, req: AttachVMRequest):
+def attach_vms_to_cluster(cluster_id: int, req: AttachVMRequest, current_user: User = Depends(get_current_user)):
     db = SessionLocal()
     try:
         cluster = db.query(Cluster).filter(Cluster.id == cluster_id).first()
         if not cluster:
             raise HTTPException(status_code=404, detail="Кластер не найден")
             
+        if current_user.role != "admin" and cluster.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этого кластера.")
+            
         # Для существующих ВМ нам нужно обновить манифест в k8s, добавив multus интерфейс.
-        # Это мы делегируем воркеру.
         for vm_name in req.vm_names:
             task = db.query(VMTask).filter(VMTask.name == vm_name).first()
             if not task:
                 # Если ВМ была создана до внедрения БД, создадим для нее запись
-                task = VMTask(name=vm_name, status="Running", cluster_id=cluster.id)
+                task = VMTask(name=vm_name, status="Running", cluster_id=cluster.id, owner_id=current_user.id)
                 db.add(task)
                 db.commit()
                 db.refresh(task)
             else:
+                if current_user.role != "admin" and task.owner_id != current_user.id:
+                    continue  # Пропускаем чужие ВМ
                 task.cluster_id = cluster.id
                 db.commit()
                 
@@ -94,6 +123,8 @@ def attach_vms_to_cluster(cluster_id: int, req: AttachVMRequest):
             })
             
         return {"status": "attaching"}
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
@@ -101,10 +132,14 @@ def attach_vms_to_cluster(cluster_id: int, req: AttachVMRequest):
         db.close()
 
 @router.get("")
-def list_clusters():
+def list_clusters(current_user: User = Depends(get_current_user)):
     db = SessionLocal()
     try:
-        clusters = db.query(Cluster).all()
+        if current_user.role == "admin":
+            clusters = db.query(Cluster).all()
+        else:
+            clusters = db.query(Cluster).filter(Cluster.owner_id == current_user.id).all()
+            
         return [
             {
                 "id": c.id,
@@ -126,12 +161,15 @@ def list_clusters():
         db.close()
 
 @router.delete("/{cluster_id}", status_code=status.HTTP_200_OK)
-def delete_cluster(cluster_id: int):
+def delete_cluster(cluster_id: int, current_user: User = Depends(get_current_user)):
     db = SessionLocal()
     try:
         cluster = db.query(Cluster).filter(Cluster.id == cluster_id).first()
         if not cluster:
             raise HTTPException(status_code=404, detail="Кластер не найден")
+            
+        if current_user.role != "admin" and cluster.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этого кластера.")
         
         # Получаем все ВМ в кластере
         vms = db.query(VMTask).filter(VMTask.cluster_id == cluster_id).all()
@@ -152,5 +190,10 @@ def delete_cluster(cluster_id: int):
         db.delete(cluster)
         db.commit()
         return {"status": "Deleting cluster and its VMs"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
