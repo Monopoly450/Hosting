@@ -39,6 +39,9 @@ if [ ! -e /dev/kvm ]; then
     KVM_SUPPORTED=false
 else
     log "Аппаратная виртуализация KVM поддерживается и доступна."
+    chmod 666 /dev/kvm
+    echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' > /etc/udev/rules.d/99-kvm.rules
+    udevadm control --reload-rules && udevadm trigger || true
 fi
 
 # 3. Определение активного сетевого интерфейса
