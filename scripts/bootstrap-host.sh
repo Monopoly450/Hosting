@@ -64,6 +64,19 @@ else
     log "Docker уже установлен в системе."
 fi
 
+# Установка MinIO Client (mc) для администрирования S3 хранилища
+log "Проверка и установка MinIO Client (mc)..."
+if ! command -v mc &> /dev/null; then
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; fi
+    if [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi
+    curl -sSL "https://dl.min.io/client/mc/release/linux-${ARCH}/mc" -o /usr/local/bin/mc
+    chmod +x /usr/local/bin/mc
+    log "MinIO Client (mc) успешно установлен!"
+else
+    log "MinIO Client (mc) уже установлен в системе."
+fi
+
 # 5. Установка K3s (Kubernetes)
 log "Установка K3s (легковесный Kubernetes)..."
 if ! command -v k3s &> /dev/null; then
