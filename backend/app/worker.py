@@ -104,7 +104,7 @@ def process_vm_task(db: Session, task_id: int):
         manifest["spec"]["template"]["spec"]["domain"]["ioThreadsPolicy"] = "shared"
         for disk in manifest["spec"]["template"]["spec"]["domain"]["devices"]["disks"]:
             if "disk" in disk:
-                if disk["disk"].get("cache") != "writeback":
+                if disk.get("cache") != "writeback":
                     disk["disk"]["io"] = "native"
             
         k8s.create_vm_from_manifest(manifest)
