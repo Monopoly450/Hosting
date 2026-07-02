@@ -188,6 +188,7 @@ services:
       - ENABLE_POSTGREY=0
       - ONE_DIR=1
       - SSL_TYPE=
+      - PERMIT_DOCKER=network
     volumes:
       - mail_data:/var/mail
       - mail_state:/var/mail-state
@@ -203,6 +204,8 @@ services:
       - ROUNDCUBEMAIL_DEFAULT_HOST=mailserver
       - ROUNDCUBEMAIL_SMTP_SERVER=mailserver
       - ROUNDCUBEMAIL_SMTP_PORT=25
+      - ROUNDCUBEMAIL_SMTP_USER=
+      - ROUNDCUBEMAIL_SMTP_PASS=
     depends_on:
       - mailserver
     restart: unless-stopped
