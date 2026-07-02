@@ -61,6 +61,7 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5432/aegis}
       - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@localhost:5672/}
       - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     logging:
       driver: "json-file"
       options:
@@ -91,6 +92,7 @@ services:
       - IMAGES_DIR=/app/data/images
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5432/aegis}
       - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@localhost:5672/}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     logging:
       driver: "json-file"
       options:
