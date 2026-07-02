@@ -97,7 +97,12 @@ kvm-ok
    sudo ./scripts/bootstrap-host.sh
    ```
    *Скрипт автоматически настроит сетевой мост, dnsmasq, установит K3s, KubeVirt, Multus, Helm, Prometheus и Nginx.*
-4. Запустите панели управления:
+4. Создайте файл конфигурации окружения `.env` из шаблона:
+   ```bash
+   cp .env.example .env
+   ```
+   *(При необходимости отредактируйте `ADMIN_TOKEN` в файле `.env` для изменения пароля админки).*
+5. Запустите панели управления:
    ```bash
    docker compose up -d --build
    ```
@@ -127,6 +132,7 @@ kvm-ok
    git clone https://github.com/Monopoly450/Hosting.git ~/Hosting
    cd ~/Hosting
    sudo ./scripts/bootstrap-host.sh
+   cp .env.example .env
    docker compose up -d --build
    ```
 
@@ -140,7 +146,11 @@ kvm-ok
    sudo ./scripts/bootstrap-host.sh
    ```
 2. Скрипт автоматически определит ваш основной внешний сетевой интерфейс (на котором висит белый IP) и настроит правила NAT Masquerade через `iptables`.
-3. Запустите Docker Compose:
+3. Создайте файл конфигурации окружения `.env` из шаблона:
+   ```bash
+   cp .env.example .env
+   ```
+4. Запустите Docker Compose:
    ```bash
    docker compose up -d --build
    ```
