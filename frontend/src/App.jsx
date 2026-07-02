@@ -28,7 +28,9 @@ const App = () => {
   const [username, setUsername] = useState(localStorage.getItem('aegis_username') || '');
   const [quotaUsage, setQuotaUsage] = useState(null);
   
-  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'vms' | 'clusters' | 'balancer' | 'images' | 'docker' | 'infra' | 'users'
+  const [activeTab, setActiveTab] = useState(
+    localStorage.getItem('aegis_role') === 'admin' ? 'dashboard' : 'vms'
+  ); // 'dashboard' | 'vms' | 'clusters' | 'balancer' | 'images' | 'docker' | 'infra' | 'users'
   const [vms, setVms] = useState([]);
   const [customImages, setCustomImages] = useState([]);
   const [externalServers, setExternalServers] = useState([]);
@@ -342,13 +344,15 @@ const App = () => {
         </div>
 
         <div className="sidebar-nav">
-          <button 
-            className={`nav-item ${activeTab === 'dashboard' && !selectedVMDetailName ? 'active' : ''}`}
-            onClick={() => { setActiveTab('dashboard'); setSelectedVMDetailName(null); }}
-          >
-            <LayoutDashboard size={18} />
-            Дашборд
-          </button>
+          {userRole === 'admin' && (
+            <button 
+              className={`nav-item ${activeTab === 'dashboard' && !selectedVMDetailName ? 'active' : ''}`}
+              onClick={() => { setActiveTab('dashboard'); setSelectedVMDetailName(null); }}
+            >
+              <LayoutDashboard size={18} />
+              Дашборд
+            </button>
+          )}
 
           <button 
             className={`nav-item ${(activeTab === 'vms' || selectedVMDetailName) ? 'active' : ''}`}
