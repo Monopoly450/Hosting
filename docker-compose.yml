@@ -192,7 +192,7 @@ services:
     volumes:
       - mail_data:/var/mail
       - mail_state:/var/mail-state
-      - mail_config:/tmp/docker-mailserver
+      - ./mail-config:/tmp/docker-mailserver
     restart: unless-stopped
 
   webmail:
@@ -216,4 +216,3 @@ volumes:
   minio_data:
   mail_data:
   mail_state:
-  mail_config:

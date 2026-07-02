@@ -23,3 +23,8 @@ Thumbs.db
 
 # Runtime data
 data/
+
+# Mailserver dynamic configs
+mail-config/*
+!mail-config/postfix-main.cf
+!mail-config/dovecot.cf
