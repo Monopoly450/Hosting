@@ -104,7 +104,8 @@ def process_vm_task(db: Session, task_id: int):
         manifest["spec"]["template"]["spec"]["domain"]["ioThreadsPolicy"] = "shared"
         for disk in manifest["spec"]["template"]["spec"]["domain"]["devices"]["disks"]:
             if "disk" in disk:
-                disk["disk"]["io"] = "native"
+                if disk["disk"].get("cache") != "writeback":
+                    disk["disk"]["io"] = "native"
             
         k8s.create_vm_from_manifest(manifest)
         k8s.create_credentials_secret(task.name, username, generated_password)
