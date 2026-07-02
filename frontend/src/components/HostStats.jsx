@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Cpu, HardDrive, Server, RefreshCw, Activity } from 'lucide-react';
+import { Cpu, HardDrive, Server, RefreshCw, Activity, Settings } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 
 const HostStats = ({ onMetricsLoaded }) => {
@@ -166,11 +166,24 @@ const HostStats = ({ onMetricsLoaded }) => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {localStorage.getItem('aegis_role') === 'admin' && (
                 <button 
-                  className="btn btn-secondary" 
-                  style={{ padding: '2px 8px', fontSize: '0.75rem', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  className="btn btn-secondary btn-icon-only" 
+                  style={{ 
+                    width: '28px', 
+                    height: '28px', 
+                    padding: 0, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    borderRadius: '50%',
+                    border: '1px solid var(--border-subtle)',
+                    background: 'var(--bg-surface-hover)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
                   onClick={() => { setShowResize(!showResize); setResizeStatus(null); }}
+                  title="Управление пулом LVM"
                 >
-                  {showResize ? "Отмена" : "⚙️ Расширить пул LVM"}
+                  <Settings size={14} style={{ color: showResize ? 'var(--accent-primary)' : 'var(--text-secondary)' }} />
                 </button>
               )}
               <span className="stat-box-value">{metrics.disk ? metrics.disk.used_percent : 0}%</span>
@@ -187,20 +200,20 @@ const HostStats = ({ onMetricsLoaded }) => {
 
           {showResize && (
             <form onSubmit={handleResizeLvm} style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>РАСШИРЕНИЕ LVM ХРАНИЛИЩА (vg-aegis)</div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Внимание: Уменьшение объема диска не поддерживается. Укажите новый желаемый размер пула в ГБ.</div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>ИЗМЕНЕНИЕ РАЗМЕРА LVM (vg-aegis)</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Введите новый размер в ГБ. Поддерживается расширение и безопасное сжатие (если новый размер больше объема дисков ВМ).</div>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <input 
                   type="number" 
                   className="form-control" 
-                  placeholder="Новый размер в ГБ (например: 100)" 
+                  placeholder="Размер в ГБ (например: 60)" 
                   value={newSizeGb}
                   onChange={e => setNewSizeGb(e.target.value)}
                   disabled={resizing}
                   style={{ padding: '6px 10px', fontSize: '0.85rem' }}
                   required
                 />
-                <button type="submit" className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '0.85rem' }} disabled={resizing}>
+                <button type="submit" className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '0.85rem', whiteSpace: 'nowrap' }} disabled={resizing}>
                   {resizing ? <span className="spinner" /> : "Сохранить"}
                 </button>
               </div>

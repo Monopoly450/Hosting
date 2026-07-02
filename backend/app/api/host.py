@@ -276,18 +276,15 @@ def resize_lvm_storage(req: StorageResizeRequest, current_user: User = Depends(g
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Не удалось определить текущий размер файла-образа: {e}")
 
-    # 3. Разрешаем только расширение
-    if req.size_gb <= current_gb:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Уменьшение размера хранилища не поддерживается во избежание потери данных. Текущий размер: {current_gb} ГБ, запрошено: {req.size_gb} ГБ."
-        )
+    if req.size_gb == current_gb:
+        return {
+            "status": "success",
+            "message": f"Размер хранилища уже равен {req.size_gb} ГБ.",
+            "current_size_gb": req.size_gb
+        }
 
-    # 4. Выполняем изменение размера
+    # 3. Выполняем изменение размера
     try:
-        # Расширяем файл через truncate (это работает мгновенно и безопасно для разреженных файлов)
-        subprocess.run(["truncate", "-s", f"{req.size_gb}G", image_path], check=True)
-        
         # Находим петлевое устройство (loopback device)
         find_loop = subprocess.run(
             ["losetup", "-j", image_path], 
@@ -296,23 +293,47 @@ def resize_lvm_storage(req: StorageResizeRequest, current_user: User = Depends(g
             check=True
         )
         
-        if find_loop.stdout.strip():
-            # Парсим имя loop device (например, /dev/loop5)
-            loop_dev = find_loop.stdout.split(":")[0].strip()
+        if not find_loop.stdout.strip():
+            raise Exception("Устройство loop device для файла-образа не найдено в ОС.")
             
-            # Сообщаем ядру об изменении размера loop device
+        loop_dev = find_loop.stdout.split(":")[0].strip()
+
+        if req.size_gb < current_gb:
+            # СЖАТИЕ ХРАНИЛИЩА (Shrink)
+            # Сначала уменьшаем размер физического тома LVM.
+            # Если на диске есть распределенные тома ВМ, выходящие за новые рамки, LVM вернет ошибку и прервет операцию.
+            pv_resize = subprocess.run(
+                ["pvresize", "--setphysicalvolumesize", f"{req.size_gb}G", loop_dev],
+                capture_output=True,
+                text=True
+            )
+            if pv_resize.returncode != 0:
+                error_msg = pv_resize.stderr or pv_resize.stdout
+                raise Exception(f"LVM отказался сжимать диск (возможно, занятые блоки выходят за указанный размер): {error_msg.strip()}")
+                
+            # Сообщаем ядру об изменении размера loop-устройства
             subprocess.run(["losetup", "-c", loop_dev], check=True)
             
-            # Сообщаем LVM об изменении размера Physical Volume
+            # Урезаем сам файл-образ на хосте до нового размера
+            subprocess.run(["truncate", "-s", f"{req.size_gb}G", image_path], check=True)
+            
+            action_name = "уменьшено"
+        else:
+            # РАСШИРЕНИЕ ХРАНИЛИЩА (Expand)
+            # Сначала расширяем файл-образ
+            subprocess.run(["truncate", "-s", f"{req.size_gb}G", image_path], check=True)
+            # Сообщаем ядру об изменении размера loop-устройства
+            subprocess.run(["losetup", "-c", loop_dev], check=True)
+            # Расширяем физический том LVM
             subprocess.run(["pvresize", loop_dev], check=True)
             
-            return {
-                "status": "success",
-                "message": f"Блочное хранилище успешно расширено с {current_gb} ГБ до {req.size_gb} ГБ.",
-                "current_size_gb": req.size_gb
-            }
-        else:
-            raise Exception("Устройство loop device для файла-образа не найдено в ОС.")
+            action_name = "расширено"
+            
+        return {
+            "status": "success",
+            "message": f"Блочное хранилище успешно {action_name} с {current_gb} ГБ до {req.size_gb} ГБ.",
+            "current_size_gb": req.size_gb
+        }
             
     except subprocess.CalledProcessError as sub_err:
         err_msg = sub_err.stderr or str(sub_err)
@@ -323,5 +344,5 @@ def resize_lvm_storage(req: StorageResizeRequest, current_user: User = Depends(g
     except Exception as err:
         raise HTTPException(
             status_code=500, 
-            detail=f"Не удалось расширить блочный пул LVM: {err}"
+            detail=f"Не удалось изменить размер блочного пула: {err}"
         )
