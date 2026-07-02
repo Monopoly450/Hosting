@@ -303,6 +303,10 @@ for i in {1..30}; do
         # Настройка StorageProfile 'local-path' для поддержки импорта дисков
         log "Настройка StorageProfile 'local-path'..."
         kubectl patch storageprofile local-path --type=merge -p '{"spec": {"claimPropertySets": [{"accessModes": ["ReadWriteOnce"], "volumeMode": "Filesystem"}]}}' || true
+        
+        # Включение расширения дисков для local-path
+        log "Включение allowVolumeExpansion для StorageClass 'local-path'..."
+        kubectl patch storageclass local-path -p '{"allowVolumeExpansion": true}' || true
         break
     fi
     log "Текущий статус CDI: $STATUS. Ожидание..."
