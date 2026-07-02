@@ -854,6 +854,57 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         
         db = SessionLocal()
         
+        # Проверяем наличие свободных физических ресурсов на самом хостинге
+        import os
+        import shutil
+        
+        host_cpu = os.cpu_count() or 1
+        
+        host_ram_gb = 8.0
+        try:
+            mem_bytes = os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')
+            host_ram_gb = round(mem_bytes / (1024 * 1024 * 1024), 2)
+        except Exception:
+            pass
+            
+        host_disk_gb = 80.0
+        try:
+            total, used, free = shutil.disk_usage("/")
+            host_disk_gb = round(total / (1024 * 1024 * 1024), 2)
+        except Exception:
+            pass
+            
+        # 1. Проверяем абсолютное физическое превышение параметров
+        if req.cpu_cores > host_cpu:
+            db.close()
+            raise HTTPException(status_code=400, detail=f"Запрошено ядер CPU ({req.cpu_cores}), которых физически нет на хосте (всего ядер: {host_cpu}).")
+        if req.memory_gb > host_ram_gb:
+            db.close()
+            raise HTTPException(status_code=400, detail=f"Запрошено ОЗУ ({req.memory_gb} ГБ), которого физически нет на хосте (всего ОЗУ: {host_ram_gb} ГБ).")
+        if req.disk_gb > host_disk_gb:
+            db.close()
+            raise HTTPException(status_code=400, detail=f"Запрошен размер диска ({req.disk_gb} ГБ), которого физически нет на хосте (всего памяти: {host_disk_gb} ГБ).")
+
+        # 2. Проверяем остаток ресурсов хоста с учетом резервирования другими ВМ
+        db_vms = db.query(VMTask).all()
+        reserved_cpu = sum(vm.cpu_cores for vm in db_vms)
+        reserved_ram = sum(vm.memory_gb for vm in db_vms)
+        reserved_disk = sum(vm.disk_gb for vm in db_vms)
+
+        available_cpu = max(0, host_cpu - reserved_cpu)
+        available_ram = max(0.0, round(host_ram_gb - reserved_ram, 2))
+        available_disk = max(0.0, round(host_disk_gb - reserved_disk, 2))
+
+        if req.cpu_cores > available_cpu:
+            db.close()
+            raise HTTPException(status_code=400, detail=f"Недостаточно свободных ядер CPU на хосте. Запрошено: {req.cpu_cores}, доступно для выделения: {available_cpu} (всего на хосте: {host_cpu}).")
+        if req.memory_gb > available_ram:
+            db.close()
+            raise HTTPException(status_code=400, detail=f"Недостаточно свободной оперативной памяти на хосте. Запрошено: {req.memory_gb} ГБ, доступно для выделения: {available_ram} ГБ (всего на хосте: {host_ram_gb} ГБ).")
+        if req.disk_gb > available_disk:
+            db.close()
+            raise HTTPException(status_code=400, detail=f"Недостаточно свободного дискового пространства на хосте. Запрошено: {req.disk_gb} ГБ, доступно для выделения: {available_disk} ГБ (всего на хосте: {host_disk_gb} ГБ).")
+
         # Проверяем лимиты квот для обычных пользователей (студентов)
         if current_user.role != "admin":
             owned_vms = db.query(VMTask).filter(VMTask.owner_id == current_user.id).all()
@@ -915,8 +966,21 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
 @router.delete("/{name}")
 def delete_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(name, current_user)
+    from app.db import SessionLocal
+    from app.models.models import VMTask
     try:
-        return client.delete_vm(name)
+        res = client.delete_vm(name)
+        
+        db = SessionLocal()
+        try:
+            db_vm = db.query(VMTask).filter(VMTask.name == name).first()
+            if db_vm:
+                db.delete(db_vm)
+                db.commit()
+        finally:
+            db.close()
+            
+        return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
