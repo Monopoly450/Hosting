@@ -92,10 +92,21 @@ fi
 
 # Настройка kubeconfig для пользователя
 log "Настройка прав доступа к Kubernetes API (kubeconfig)..."
-mkdir -p $HOME/.kube
-cp /etc/rancher/k3s/k3s.yaml $HOME/.kube/config
-chown -R $SUDO_USER:$SUDO_USER $HOME/.kube || true
+mkdir -p /root/.kube
+cp /etc/rancher/k3s/k3s.yaml /root/.kube/config
+chmod 600 /root/.kube/config
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+    SUDO_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    if [ -d "$SUDO_HOME" ]; then
+        mkdir -p "$SUDO_HOME/.kube"
+        cp /etc/rancher/k3s/k3s.yaml "$SUDO_HOME/.kube/config"
+        chown -R "$SUDO_USER:$SUDO_USER" "$SUDO_HOME/.kube"
+        chmod 600 "$SUDO_HOME/.kube/config"
+        log "kubeconfig успешно скопирован в домашнюю директорию пользователя $SUDO_USER ($SUDO_HOME/.kube/config)"
+    fi
+fi
 
 # Ждем запуска node
 log "Ожидание готовности ноды Kubernetes..."
@@ -133,7 +144,18 @@ chmod +x /var/lib/rancher/k3s/data/cni/* /var/lib/rancher/k3s/data/current/bin/*
 rm -rf /tmp/cni-plugins
 
 log "Скачивание и патчинг манифеста Multus CNI..."
-curl -sL https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml | \
+MULTUS_URL="https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml"
+MULTUS_FALLBACK_URL="https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/v4.0.2/deployments/multus-daemonset-thick.yml"
+
+# Попытка скачать манифест
+if ! curl -sSfL "$MULTUS_URL" > /tmp/multus-raw.yml; then
+    warn "Не удалось скачать свежий манифест Multus с master ветки. Попытка скачать стабильную версию v4.0.2..."
+    if ! curl -sSfL "$MULTUS_FALLBACK_URL" > /tmp/multus-raw.yml; then
+        error "Не удалось загрузить манифест Multus CNI. Проверьте интернет-соединение с raw.githubusercontent.com."
+    fi
+fi
+
+cat /tmp/multus-raw.yml | \
 sed "s|/etc/cni/net.d|${CNI_CONF_DIR}|g" | \
 sed "s|/opt/cni/bin|${CNI_BIN_DIR}|g" | \
 sed "s|mountPath: ${CNI_CONF_DIR}/multus.d|mountPath: /etc/cni/net.d/multus.d|g" | \
@@ -142,8 +164,12 @@ sed "s|path: ${CNI_BIN_DIR}|path: /var/lib/rancher/k3s/data|g" | \
 sed "s|mountPath: ${CNI_BIN_DIR}|mountPath: /var/lib/rancher/k3s/data|g" | \
 sed "s|mountPath: /host${CNI_BIN_DIR}|mountPath: /host/var/lib/rancher/k3s/data|g" > /tmp/multus-k3s.yml
 
+if [ ! -s /tmp/multus-k3s.yml ]; then
+    error "Созданный манифест Multus CNI пуст. Сбой патчинга."
+fi
+
 kubectl apply -f /tmp/multus-k3s.yml
-rm -f /tmp/multus-k3s.yml
+rm -f /tmp/multus-raw.yml /tmp/multus-k3s.yml
 
 log "Патчинг лимитов ресурсов для Multus CNI (увеличиваем memory limit до 500Mi)..."
 kubectl patch daemonset kube-multus-ds -n kube-system --type='strategic' -p='{"spec":{"template":{"spec":{"containers":[{"name":"kube-multus","resources":{"limits":{"memory":"500Mi"},"requests":{"memory":"100Mi"}}}]}}}}' || true

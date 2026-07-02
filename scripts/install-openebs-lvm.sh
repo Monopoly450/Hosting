@@ -27,9 +27,9 @@ fi
 if vgs vg-aegis &>/dev/null; then
     log "Группа томов LVM 'vg-aegis' уже существует."
 else
-    log "Создание файла-образа на 40 ГБ для блочного хранилища..."
+    log "Создание разреженного файла-образа на 40 ГБ для блочного хранилища (мгновенно)..."
     mkdir -p /var/lib/aegis
-    dd if=/dev/zero of=/var/lib/aegis/lvm-storage.img bs=1M count=40000
+    truncate -s 40G /var/lib/aegis/lvm-storage.img
 
     log "Создание службы автоподключения петлевого устройства (loop device)..."
     cat <<EOF > /etc/systemd/system/aegis-lvm-loop.service
@@ -42,7 +42,7 @@ After=local-fs.target
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/sbin/losetup -fP /var/lib/aegis/lvm-storage.img
-ExecStop=/sbin/losetup -D
+ExecStop=/bin/bash -c "LOOP_DEV=\\\$(/sbin/losetup -j /var/lib/aegis/lvm-storage.img | awk -F: '{print \\\$1}'); if [ -n \\\"\\\$LOOP_DEV\\\" ]; then /sbin/losetup -d \\\$LOOP_DEV; fi"
 
 [Install]
 WantedBy=multi-user.target
