@@ -78,7 +78,13 @@ helm upgrade --install openebs-lvm openebs-lvm/lvm-localpv \
   --create-namespace
 
 log "Ожидание готовности подов OpenEBS LVM..."
-kubectl rollout status deployment/openebs-lvm-localpv-controller -n openebs-lvm --timeout=120s
+sleep 5
+DEPLOYMENT_NAME=$(kubectl get deployments -n openebs-lvm -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+if [ -n "$DEPLOYMENT_NAME" ]; then
+    kubectl rollout status "deployment/$DEPLOYMENT_NAME" -n openebs-lvm --timeout=120s
+else
+    log "Деплоймент в namespace openebs-lvm не обнаружен. Пропускаем ожидание..."
+fi
 
 # 3. Создание StorageClass для блочных томов
 log "Создание StorageClass 'openebs-lvm'..."
