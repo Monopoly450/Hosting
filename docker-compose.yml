@@ -203,9 +203,7 @@ services:
     environment:
       - ROUNDCUBEMAIL_DEFAULT_HOST=mailserver
       - ROUNDCUBEMAIL_SMTP_SERVER=mailserver
-      - ROUNDCUBEMAIL_SMTP_PORT=25
-      - ROUNDCUBEMAIL_SMTP_USER=
-      - ROUNDCUBEMAIL_SMTP_PASS=
+      - ROUNDCUBEMAIL_SMTP_PORT=587
     depends_on:
       - mailserver
     restart: unless-stopped
