@@ -564,8 +564,8 @@ const App = () => {
                         <X size={18} />
                       </button>
                     </div>
-                    <form onSubmit={handleCreateVM} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                      <div className="slide-over-body" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <form onSubmit={handleCreateVM} style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+                      <div className="slide-over-body" style={{ display: 'flex', flexDirection: 'column', gap: '20px', flex: 1, overflowY: 'auto' }}>
                         
                         <div className="input-group">
                           <label className="input-label">Имя виртуалки (a-z, 0-9, -)</label>
