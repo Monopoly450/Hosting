@@ -917,12 +917,17 @@ class K8sClient:
                 headers[k] = v
         headers['Content-Type'] = 'application/json'
         body = {
+            "name": volume_name,
+            "disk": {
+                "disk": {
+                    "bus": "virtio"
+                }
+            },
             "volumeSource": {
                 "persistentVolumeClaim": {
                     "claimName": pvc_name
                 }
-            },
-            "name": volume_name
+            }
         }
         return self.api_client.call_api(
             resource_path=path,
