@@ -220,6 +220,7 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
         global _lvm_cache
         now = time.time()
         if now - _lvm_cache["last_updated"] >= 15.0:
+            lvm_info = {"total_gb": 0.0, "free_gb": 0.0, "used_gb": 0.0}
             try:
                 res = subprocess.run(
                     ["vgs", "--units", "g", "--nosuffix", "--noheadings", "-o", "vg_size,vg_free", "vg-aegis"],
@@ -232,15 +233,32 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                     if len(parts) >= 2:
                         vg_size = float(parts[0].replace(",", "."))
                         vg_free = float(parts[1].replace(",", "."))
-                        _lvm_cache["data"] = {
+                        lvm_info = {
                             "total_gb": round(vg_size, 1),
                             "free_gb": round(vg_free, 1),
                             "used_gb": round(vg_size - vg_free, 1)
                         }
-                        _lvm_cache["last_updated"] = now
             except Exception as lvm_err:
                 import logging
                 logging.getLogger("app.host").error(f"Failed to query LVM vg-aegis info: {lvm_err}")
+
+            # Резервный вариант: если LVM пуст (равен 0), проверяем смонтированную СХД в /mnt/shared-pvc
+            if lvm_info["total_gb"] == 0.0:
+                try:
+                    if os.path.exists("/mnt/shared-pvc"):
+                        total, used, free = shutil.disk_usage("/mnt/shared-pvc")
+                        if total > 0:
+                            lvm_info = {
+                                "total_gb": round(total / (1024 * 1024 * 1024), 1),
+                                "free_gb": round(free / (1024 * 1024 * 1024), 1),
+                                "used_gb": round(used / (1024 * 1024 * 1024), 1)
+                            }
+                except Exception as nfs_err:
+                    import logging
+                    logging.getLogger("app.host").error(f"Failed to query NFS СХД disk usage: {nfs_err}")
+
+            _lvm_cache["data"] = lvm_info
+            _lvm_cache["last_updated"] = now
 
         lvm_info = _lvm_cache["data"]
 
