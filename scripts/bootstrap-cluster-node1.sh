@@ -161,13 +161,22 @@ CDI_VER=$(curl -s https://api.github.com/repos/kubevirt/containerized-data-impor
 kubectl apply -f "https://github.com/kubevirt/containerized-data-importer/releases/download/${CDI_VER}/cdi-operator.yaml"
 kubectl apply -f "https://github.com/kubevirt/containerized-data-importer/releases/download/${CDI_VER}/cdi-cr.yaml"
 
-# 9. Установка virtctl
+# 9. Установка Prometheus Stack
+log "Установка системы сбора метрик Prometheus..."
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+kubectl create namespace prometheus || true
+helm install prometheus prometheus-community/kube-prometheus-stack -n prometheus \
+  --set grafana.enabled=false \
+  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false
+
+# 10. Установка virtctl
 log "Установка утилиты virtctl..."
 curl -LO "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VER}/virtctl-${KUBEVIRT_VER}-linux-amd64"
 install "virtctl-${KUBEVIRT_VER}-linux-amd64" /usr/local/bin/virtctl
 rm "virtctl-${KUBEVIRT_VER}-linux-amd64"
 
-# 10. Установка авто-перезагрузки (Aegis Node Fencer)
+# 11. Установка авто-перезагрузки (Aegis Node Fencer)
 log "Настройка демона авто-перезагрузки/failover (Aegis Node Fencer)..."
 SCRIPT_PATH="/root/Hosting/scripts/node-fencer.py"
 chmod +x "$SCRIPT_PATH"
