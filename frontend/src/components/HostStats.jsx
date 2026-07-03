@@ -345,7 +345,7 @@ const HostStats = ({ onMetricsLoaded }) => {
                   {node.disk && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Диск ноды (Локальный):</span> <span>{node.disk.used_percent}% ({node.disk.used_gb} из {node.disk.total_gb} ГБ)</span>
+                        <span>{node.role.includes('Storage') ? 'Диск (СХД):' : 'Диск ноды (Локальный):'}</span> <span>{node.disk.used_percent}% ({node.disk.used_gb} из {node.disk.total_gb} ГБ)</span>
                       </div>
                       <div className="progress-track" style={{ height: '6px' }}>
                         <div className={`progress-fill ${getProgressClass(node.disk.used_percent)}`} style={{ width: `${node.disk.used_percent}%` }} />

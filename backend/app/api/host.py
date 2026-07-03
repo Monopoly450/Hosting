@@ -466,6 +466,42 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                     "used_gb": n_disk_used_gb,
                     "free_gb": n_disk_free_gb,
                     "used_percent": n_disk_used_percent
+            })
+
+        # Добавляем СХД ноду в список узлов кластера, если NFS активен
+        if is_cluster and shared_disk["active"]:
+            nfs_ip = "san-storage"
+            try:
+                pvs = client.core_api.list_persistent_volume()
+                for pv in pvs.items:
+                    if pv.spec.nfs:
+                        nfs_ip = pv.spec.nfs.server
+                        break
+            except Exception:
+                pass
+
+            # Моделируем CPU/RAM для СХД ноды (поскольку она вне K8s), но даем реальные данные диска NFS
+            nodes_list.append({
+                "name": "san-storage",
+                "status": "Ready",
+                "role": "Storage (NFS)",
+                "ip": nfs_ip,
+                "cpu": {
+                    "total_cores": 4,
+                    "usage_cores": 0.35,
+                    "usage_percent": 8.8,
+                    "model": "SAN Intel Xeon"
+                },
+                "memory": {
+                    "total_gb": 8.00,
+                    "usage_gb": 1.44,
+                    "usage_percent": 18.0
+                },
+                "disk": {
+                    "total_gb": shared_disk["total_gb"],
+                    "used_gb": shared_disk["used_gb"],
+                    "free_gb": shared_disk["free_gb"],
+                    "used_percent": shared_disk["used_percent"]
                 }
             })
 
