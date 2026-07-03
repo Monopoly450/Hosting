@@ -466,6 +466,7 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                     "used_gb": n_disk_used_gb,
                     "free_gb": n_disk_free_gb,
                     "used_percent": n_disk_used_percent
+                }
             })
 
         # Добавляем СХД ноду в список узлов кластера, если NFS активен
