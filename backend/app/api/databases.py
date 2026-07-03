@@ -98,6 +98,7 @@ class DatabaseResponse(BaseModel):
     owner_username: str
     associated_vm_id: Optional[int] = None
     associated_vm_name: Optional[str] = None
+    db_host: str
 
 def generate_db_credentials(db_name: str):
     # Генерация случайного суффикса для логина
@@ -135,47 +136,21 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
 
         db_user, db_password = generate_db_credentials(req.name)
 
-        if req.engine == "postgresql":
-            # Физическое создание в PostgreSQL
-            try:
-                conn = psycopg2.connect(
-                    dbname="postgres",
-                    user="postgres",
-                    password=os.getenv("POSTGRES_PASSWORD", "postgres"),
-                    host="127.0.0.1",
-                    port=5432
-                )
-                conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-                with conn.cursor() as cursor:
-                    # Создаем БД
-                    cursor.execute(f'CREATE DATABASE "{req.name}";')
-                    # Создаем юзера с возможностью входа (LOGIN по умолчанию)
-                    cursor.execute(f'CREATE USER "{db_user}" WITH PASSWORD \'{db_password}\';')
-                    # Даем права
-                    cursor.execute(f'GRANT ALL PRIVILEGES ON DATABASE "{req.name}" TO "{db_user}";')
-                conn.close()
-            except Exception as e:
-                logger.error(f"Postgres DB creation failed: {e}")
-                raise HTTPException(status_code=500, detail=f"Ошибка при создании базы в PostgreSQL: {e}")
-
-        elif req.engine == "mysql":
-            # Физическое создание в MariaDB/MySQL
-            try:
-                conn = pymysql.connect(
-                    host="127.0.0.1",
-                    user="root",
-                    password=os.getenv("MARIADB_ROOT_PASSWORD", "mariadb-root-secret-2026"),
-                    port=3306
-                )
-                with conn.cursor() as cursor:
-                    cursor.execute(f"CREATE DATABASE `{req.name}`;")
-                    cursor.execute(f"CREATE USER '{db_user}'@'%' IDENTIFIED BY '{db_password}';")
-                    cursor.execute(f"GRANT ALL PRIVILEGES ON `{req.name}`.* TO '{db_user}'@'%';")
-                    cursor.execute("FLUSH PRIVILEGES;")
-                conn.close()
-            except Exception as e:
-                logger.error(f"MySQL DB creation failed: {e}")
-                raise HTTPException(status_code=500, detail=f"Ошибка при создании базы в MariaDB: {e}")
+        # Выделение ресурсов (под) СУБД в Kubernetes
+        try:
+            from app.core.k8s_client import K8sClient
+            k8s = K8sClient()
+            k8s.create_private_db(
+                db_name=req.name,
+                engine=req.engine,
+                db_user=db_user,
+                db_password=db_password,
+                vm_name=None,
+                namespace="default"
+            )
+        except Exception as e:
+            logger.error(f"Failed to create private DB in K8s: {e}")
+            raise HTTPException(status_code=500, detail=f"Ошибка при создании ресурсов БД в Kubernetes: {e}")
 
         # Сохранение записи в системной БД
         new_db = UserDatabase(
@@ -196,10 +171,11 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
             engine=new_db.db_type,
             db_user=new_db.db_user,
             db_password=new_db.db_password,
-            status=new_db.status,
+            status="Pending",  # Первоначальный статус запуска пода
             owner_username=current_user.username,
             associated_vm_id=None,
-            associated_vm_name=None
+            associated_vm_name=None,
+            db_host=f"db-service-{new_db.db_name}"
         )
     except HTTPException:
         raise
@@ -218,6 +194,9 @@ def list_databases(current_user: User = Depends(get_current_user)):
         else:
             databases = db.query(UserDatabase).filter(UserDatabase.owner_id == current_user.id).all()
             
+        from app.core.k8s_client import K8sClient
+        k8s = K8sClient()
+        
         res = []
         for d in databases:
             owner = db.query(User).filter(User.id == d.owner_id).first()
@@ -228,17 +207,21 @@ def list_databases(current_user: User = Depends(get_current_user)):
                 vm = db.query(VMTask).filter(VMTask.id == d.associated_vm_id).first()
                 if vm:
                     vm_name = vm.name
-                    
+            
+            # Получаем динамический статус пода базы из K8s
+            real_status = k8s.get_private_db_status(d.db_name)
+            
             res.append(DatabaseResponse(
                 id=d.id,
                 db_name=d.db_name,
                 engine=d.db_type,
                 db_user=d.db_user,
                 db_password=d.db_password,
-                status=d.status,
+                status=real_status,
                 owner_username=owner_name,
                 associated_vm_id=d.associated_vm_id,
-                associated_vm_name=vm_name
+                associated_vm_name=vm_name,
+                db_host=f"db-service-{d.db_name}"
             ))
         return res
     finally:
@@ -255,47 +238,13 @@ def delete_database(db_id: int, current_user: User = Depends(get_current_user)):
         if current_user.role != "admin" and user_db.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этой базы данных.")
 
-        # Физическое удаление
-        if user_db.db_type == "postgresql":
-            try:
-                conn = psycopg2.connect(
-                    dbname="postgres",
-                    user="postgres",
-                    password=os.getenv("POSTGRES_PASSWORD", "postgres"),
-                    host="127.0.0.1",
-                    port=5432
-                )
-                conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-                with conn.cursor() as cursor:
-                    cursor.execute(f'DROP DATABASE IF EXISTS "{user_db.db_name}";')
-                    cursor.execute(f'DROP USER IF EXISTS "{user_db.db_user}";')
-                conn.close()
-            except Exception as e:
-                logger.error(f"Failed to drop Postgres DB: {e}")
-                # Продолжаем удаление записи из БД в случае сбоя коннекта
-        
-        elif user_db.db_type == "mysql":
-            try:
-                conn = pymysql.connect(
-                    host="127.0.0.1",
-                    user="root",
-                    password=os.getenv("MARIADB_ROOT_PASSWORD", "mariadb-root-secret-2026"),
-                    port=3306
-                )
-                with conn.cursor() as cursor:
-                    # Находим хост пользователя в СУБД перед удалением
-                    cursor.execute("SELECT Host FROM mysql.user WHERE User = %s;", (user_db.db_user,))
-                    row = cursor.fetchone()
-                    if row:
-                        user_host = row[0]
-                        cursor.execute(f"DROP USER IF EXISTS '{user_db.db_user}'@'{user_host}';")
-                    else:
-                        cursor.execute(f"DROP USER IF EXISTS '{user_db.db_user}'@'%';")
-                    cursor.execute(f"DROP DATABASE IF EXISTS `{user_db.db_name}`;")
-                    cursor.execute("FLUSH PRIVILEGES;")
-                conn.close()
-            except Exception as e:
-                logger.error(f"Failed to drop MySQL DB: {e}")
+        # Физическое удаление ресурсов в Kubernetes
+        try:
+            from app.core.k8s_client import K8sClient
+            k8s = K8sClient()
+            k8s.delete_private_db(user_db.db_name)
+        except Exception as e:
+            logger.error(f"Failed to delete Kubernetes resources for DB {user_db.db_name}: {e}")
 
         # Удаление из системной БД
         db.delete(user_db)
@@ -323,6 +272,9 @@ def bind_database(db_id: int, req: DatabaseBindRequest, current_user: User = Dep
         if current_user.role != "admin" and user_db.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail="Доступ запрещен")
 
+        from app.core.k8s_client import K8sClient
+        k8s = K8sClient()
+
         if req.vm_id is not None:
             vm = db.query(VMTask).filter(VMTask.id == req.vm_id).first()
             if not vm:
@@ -330,27 +282,21 @@ def bind_database(db_id: int, req: DatabaseBindRequest, current_user: User = Dep
             if current_user.role != "admin" and vm.owner_id != current_user.id:
                 raise HTTPException(status_code=403, detail="Виртуальная машина вам не принадлежит")
             
-            # Получаем IP-адрес ВМ для настройки ограничений доступа
-            vm_ip = get_vm_ip_by_name(vm.name)
-            if not vm_ip:
-                raise HTTPException(
-                    status_code=400, 
-                    detail="Не удалось получить IP-адрес виртуальной машины. Пожалуйста, запустите её перед выполнением привязки."
-                )
-
-            # Настраиваем доступ в СУБД
-            if user_db.db_type == "postgresql":
-                update_postgres_role_login(user_db.db_user, True)
-            elif user_db.db_type == "mysql":
-                update_mysql_user_host(user_db.db_user, vm_ip)
+            # Обновляем сетевую политику: разрешаем доступ только от выбранной ВМ
+            try:
+                k8s.update_db_network_policy(user_db.db_name, vm.name)
+            except Exception as e:
+                logger.error(f"Failed to bind network policy for DB {user_db.db_name} to VM {vm.name}: {e}")
+                raise HTTPException(status_code=500, detail=f"Ошибка настройки сетевого доступа: {e}")
 
             user_db.associated_vm_id = req.vm_id
         else:
-            # При отвязке блокируем внешний доступ к базе данных
-            if user_db.db_type == "postgresql":
-                update_postgres_role_login(user_db.db_user, False)
-            elif user_db.db_type == "mysql":
-                update_mysql_user_host(user_db.db_user, "127.0.0.1")
+            # При отвязке блокируем весь входящий трафик к базе данных
+            try:
+                k8s.update_db_network_policy(user_db.db_name, None)
+            except Exception as e:
+                logger.error(f"Failed to clear network policy for DB {user_db.db_name}: {e}")
+                raise HTTPException(status_code=500, detail=f"Ошибка настройки сетевого доступа: {e}")
 
             user_db.associated_vm_id = None
 

@@ -234,7 +234,7 @@ export default function DatabasesPanel() {
                                     </td>
                                     <td>
                                         <span style={{ fontFamily: 'monospace', background: 'var(--bg-surface)', padding: '2px 6px', borderRadius: '4px' }}>
-                                            {getHostIP()}
+                                            {d.db_host || getHostIP()}
                                         </span>
                                     </td>
                                     <td>{d.engine === 'postgresql' ? '5432' : '3306'}</td>

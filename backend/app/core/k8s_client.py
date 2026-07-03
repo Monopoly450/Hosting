@@ -1099,3 +1099,234 @@ class K8sClient:
         return self.custom_api.create_namespaced_custom_object(
             "snapshot.kubevirt.io", "v1alpha3", namespace, "virtualmachinerestores", body
         )
+
+    def create_private_db(self, db_name: str, engine: str, db_user: str, db_password: str, vm_name: str = None, namespace: str = "default"):
+        """Создает выделенный приватный под базы данных с диском на СХД и сетевой политикой в K8s"""
+        # 1. Создаем PVC под хранилище
+        pvc_body = {
+            "apiVersion": "v1",
+            "kind": "PersistentVolumeClaim",
+            "metadata": {
+                "name": f"db-pvc-{db_name}"
+            },
+            "spec": {
+                "accessModes": ["ReadWriteOnce"],
+                "storageClassName": settings.STORAGE_CLASS,
+                "resources": {
+                    "requests": {
+                        "storage": "5Gi"
+                    }
+                }
+            }
+        }
+        try:
+            self.core_api.create_namespaced_persistent_volume_claim(namespace, pvc_body)
+        except ApiException as e:
+            if e.status != 409: # Игнорируем ошибку, если уже существует
+                raise e
+
+        # 2. Создаем Deployment СУБД
+        port = 5432 if engine == "postgresql" else 3306
+        image = "postgres:15-alpine" if engine == "postgresql" else "mariadb:10.11-jammy"
+        
+        env = []
+        if engine == "postgresql":
+            env = [
+                {"name": "POSTGRES_DB", "value": db_name},
+                {"name": "POSTGRES_USER", "value": db_user},
+                {"name": "POSTGRES_PASSWORD", "value": db_password},
+            ]
+            mount_path = "/var/lib/postgresql/data"
+        else:
+            env = [
+                {"name": "MARIADB_DATABASE", "value": db_name},
+                {"name": "MARIADB_USER", "value": db_user},
+                {"name": "MARIADB_PASSWORD", "value": db_password},
+                {"name": "MARIADB_ROOT_PASSWORD", "value": "mariadb-root-secret-2026"},
+            ]
+            mount_path = "/var/lib/mysql"
+
+        deploy_body = {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {
+                "name": f"db-deploy-{db_name}"
+            },
+            "spec": {
+                "replicas": 1,
+                "selector": {
+                    "matchLabels": {
+                        "app": f"db-{db_name}"
+                    }
+                },
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "app": f"db-{db_name}"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "db",
+                                "image": image,
+                                "env": env,
+                                "ports": [
+                                    {
+                                        "containerPort": port
+                                    }
+                                ],
+                                "volumeMounts": [
+                                    {
+                                        "name": "data",
+                                        "mountPath": mount_path
+                                    }
+                                ],
+                                "resources": {
+                                    "requests": {
+                                        "cpu": "100m",
+                                        "memory": "256Mi"
+                                    },
+                                    "limits": {
+                                        "cpu": "500m",
+                                        "memory": "512Mi"
+                                    }
+                                }
+                            }
+                        ],
+                        "volumes": [
+                            {
+                                "name": "data",
+                                "persistentVolumeClaim": {
+                                    "claimName": f"db-pvc-{db_name}"
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+        apps_api = client.AppsV1Api(self.api_client)
+        try:
+            apps_api.create_namespaced_deployment(namespace, deploy_body)
+        except ApiException as e:
+            if e.status != 409:
+                raise e
+
+        # 3. Создаем Service
+        svc_body = {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {
+                "name": f"db-service-{db_name}"
+            },
+            "spec": {
+                "selector": {
+                    "app": f"db-{db_name}"
+                },
+                "ports": [
+                    {
+                        "port": port,
+                        "targetPort": port
+                    }
+                ],
+                "type": "ClusterIP"
+            }
+        }
+        try:
+            self.core_api.create_namespaced_service(namespace, svc_body)
+        except ApiException as e:
+            if e.status != 409:
+                raise e
+
+        # 4. Создаем NetworkPolicy для изоляции
+        self.update_db_network_policy(db_name, vm_name, namespace)
+
+    def delete_private_db(self, db_name: str, namespace: str = "default"):
+        """Удаляет все ресурсы приватного пода базы данных в K8s"""
+        apps_api = client.AppsV1Api(self.api_client)
+        net_api = client.NetworkingV1Api(self.api_client)
+        
+        # 1. Удаляем NetworkPolicy
+        try:
+            net_api.delete_namespaced_network_policy(f"db-netpol-{db_name}", namespace)
+        except Exception:
+            pass
+            
+        # 2. Удаляем Service
+        try:
+            self.core_api.delete_namespaced_service(f"db-service-{db_name}", namespace)
+        except Exception:
+            pass
+            
+        # 3. Удаляем Deployment
+        try:
+            apps_api.delete_namespaced_deployment(f"db-deploy-{db_name}", namespace)
+        except Exception:
+            pass
+            
+        # 4. Удаляем PVC
+        try:
+            self.core_api.delete_namespaced_persistent_volume_claim(f"db-pvc-{db_name}", namespace)
+        except Exception:
+            pass
+
+    def update_db_network_policy(self, db_name: str, vm_name: str = None, namespace: str = "default"):
+        """Обновляет NetworkPolicy базы данных, разрешая доступ только определенной ВМ"""
+        net_api = client.NetworkingV1Api(self.api_client)
+        ingress = []
+        if vm_name:
+            ingress = [
+                {
+                    "from": [
+                        {
+                            "podSelector": {
+                                "matchLabels": {
+                                    "vm.kubevirt.io/name": vm_name
+                                }
+                            }
+                        }
+                    ]
+                }
+            ]
+            
+        body = {
+            "apiVersion": "networking.k8s.io/v1",
+            "kind": "NetworkPolicy",
+            "metadata": {
+                "name": f"db-netpol-{db_name}"
+            },
+            "spec": {
+                "podSelector": {
+                    "matchLabels": {
+                        "app": f"db-{db_name}"
+                    }
+                },
+                "policyTypes": ["Ingress"],
+                "ingress": ingress
+            }
+        }
+        try:
+            net_api.replace_namespaced_network_policy(f"db-netpol-{db_name}", namespace, body)
+        except ApiException as e:
+            if e.status == 404:
+                try:
+                    net_api.create_namespaced_network_policy(namespace, body)
+                except ApiException as ae:
+                    if ae.status != 409:
+                        raise ae
+            else:
+                raise e
+
+    def get_private_db_status(self, db_name: str, namespace: str = "default"):
+        """Возвращает статус доступности пода СУБД"""
+        apps_api = client.AppsV1Api(self.api_client)
+        try:
+            deploy = apps_api.read_namespaced_deployment_status(f"db-deploy-{db_name}", namespace)
+            ready = deploy.status.ready_replicas
+            if ready and ready > 0:
+                return "Active"
+            return "Pending"
+        except Exception:
+            return "Error"
+
