@@ -48,6 +48,13 @@ async def startup_event():
             await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS firewall_rules VARCHAR;"))
             await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS cloud_init_template VARCHAR;"))
             await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS custom_user_data TEXT;"))
+            
+            # Миграция owner_id для других таблиц
+            await conn.execute(text("ALTER TABLE user_databases ADD COLUMN IF NOT EXISTS owner_id INTEGER;"))
+            await conn.execute(text("ALTER TABLE user_buckets ADD COLUMN IF NOT EXISTS owner_id INTEGER;"))
+            await conn.execute(text("ALTER TABLE user_volumes ADD COLUMN IF NOT EXISTS owner_id INTEGER;"))
+            await conn.execute(text("ALTER TABLE user_mailboxes ADD COLUMN IF NOT EXISTS owner_id INTEGER;"))
+            await conn.execute(text("ALTER TABLE clusters ADD COLUMN IF NOT EXISTS owner_id INTEGER;"))
         except Exception as alter_err:
             logger.warning(f"Could not run ALTER TABLE migrations: {alter_err}")
     logger.info("Таблицы базы данных успешно проверены/созданы.")
