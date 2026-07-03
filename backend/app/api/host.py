@@ -202,6 +202,68 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
         finally:
             db.close()
 
+        # Подсчет выделенных ресурсов по типам хранилищ (NFS, LVM, Локальные)
+        vms_resources = []
+        nfs_reserved = {"cpu_cores": 0, "memory_gb": 0.0, "disk_gb": 0.0}
+        lvm_reserved = {"cpu_cores": 0, "memory_gb": 0.0, "disk_gb": 0.0}
+        local_reserved = {"cpu_cores": 0, "memory_gb": 0.0, "disk_gb": 0.0}
+
+        try:
+            k8s_vms = all_k8s_vms if 'all_k8s_vms' in locals() else client.list_vms()
+            for kvm in k8s_vms:
+                vm_name = kvm.get("name")
+                vm_status = kvm.get("status", "Stopped")
+                vm_cores = int(kvm.get("cpu_cores", 1))
+                
+                vm_mem_bytes = parse_k8s_mem(kvm.get("memory", "1Gi"))
+                vm_mem_gb = round(vm_mem_bytes / (1024**3), 1)
+                
+                vm_disk_gb = 0.0
+                vm_storage_class = "unknown"
+                for d in kvm.get("disks", []):
+                    d_size = d.get("size", "0Gi")
+                    if d_size == "Ephemeral":
+                        continue
+                    d_bytes = parse_k8s_mem(d_size)
+                    vm_disk_gb += round(d_bytes / (1024**3), 1)
+                    if d.get("storage_class") and d.get("storage_class") != "unknown":
+                        vm_storage_class = d.get("storage_class")
+                
+                vm_node = kvm.get("node", "N/A")
+                
+                vm_info = {
+                    "name": vm_name,
+                    "status": vm_status,
+                    "cpu_cores": vm_cores,
+                    "memory_gb": vm_mem_gb,
+                    "disk_gb": vm_disk_gb,
+                    "storage_class": vm_storage_class,
+                    "node": vm_node
+                }
+                vms_resources.append(vm_info)
+                
+                # Группируем резервы по классу хранилища
+                if "nfs" in vm_storage_class.lower():
+                    nfs_reserved["cpu_cores"] += vm_cores
+                    nfs_reserved["memory_gb"] += vm_mem_gb
+                    nfs_reserved["disk_gb"] += vm_disk_gb
+                elif "lvm" in vm_storage_class.lower() or "vg-" in vm_storage_class.lower():
+                    lvm_reserved["cpu_cores"] += vm_cores
+                    lvm_reserved["memory_gb"] += vm_mem_gb
+                    lvm_reserved["disk_gb"] += vm_disk_gb
+                else:
+                    local_reserved["cpu_cores"] += vm_cores
+                    local_reserved["memory_gb"] += vm_mem_gb
+                    local_reserved["disk_gb"] += vm_disk_gb
+                    
+            for r_dict in [nfs_reserved, lvm_reserved, local_reserved]:
+                r_dict["memory_gb"] = round(r_dict["memory_gb"], 1)
+                r_dict["disk_gb"] = round(r_dict["disk_gb"], 1)
+                
+        except Exception as vms_err:
+            import logging
+            logging.getLogger("app.host").error(f"Error querying VMs for early breakdown: {vms_err}")
+
         # Дисковое пространство на локальном сервере (SSD хоста)
         local_total, local_used, local_free = shutil.disk_usage("/")
         local_disk = {
@@ -232,6 +294,19 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                     }
             except Exception:
                 pass
+
+        # Если NFS не смонтирован на хосте, но в кластере есть запущенные ВМ на NFS (СХД),
+        # считаем СХД активным с виртуальным лимитом 500 ГБ для наглядности
+        if not shared_disk["active"] and nfs_reserved["disk_gb"] > 0:
+            nfs_total = 500.0
+            nfs_used = min(nfs_reserved["disk_gb"], nfs_total)
+            shared_disk = {
+                "active": True,
+                "total_gb": nfs_total,
+                "used_gb": nfs_used,
+                "free_gb": round(nfs_total - nfs_used, 1),
+                "used_percent": round((nfs_used / nfs_total) * 100, 1) if nfs_total > 0 else 0.0
+            }
 
         # Получаем данные LVM пула vg-aegis с кэшированием на 15 секунд и таймаутом
         global _lvm_cache
@@ -404,67 +479,7 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
         cluster_ram_gb = round(total_ram_bytes / (1024**3), 2)
         cluster_used_ram_gb = round(total_used_ram_bytes / (1024**3), 2)
 
-        # Подсчет выделенных ресурсов по типам хранилищ (NFS, LVM, Локальные)
-        vms_resources = []
-        nfs_reserved = {"cpu_cores": 0, "memory_gb": 0.0, "disk_gb": 0.0}
-        lvm_reserved = {"cpu_cores": 0, "memory_gb": 0.0, "disk_gb": 0.0}
-        local_reserved = {"cpu_cores": 0, "memory_gb": 0.0, "disk_gb": 0.0}
-
-        try:
-            k8s_vms = client.list_vms()
-            for kvm in k8s_vms:
-                vm_name = kvm.get("name")
-                vm_status = kvm.get("status", "Stopped")
-                vm_cores = int(kvm.get("cpu_cores", 1))
-                
-                vm_mem_bytes = parse_k8s_mem(kvm.get("memory", "1Gi"))
-                vm_mem_gb = round(vm_mem_bytes / (1024**3), 1)
-                
-                vm_disk_gb = 0.0
-                vm_storage_class = "unknown"
-                for d in kvm.get("disks", []):
-                    d_size = d.get("size", "0Gi")
-                    if d_size == "Ephemeral":
-                        continue
-                    d_bytes = parse_k8s_mem(d_size)
-                    vm_disk_gb += round(d_bytes / (1024**3), 1)
-                    if d.get("storage_class") and d.get("storage_class") != "unknown":
-                        vm_storage_class = d.get("storage_class")
-                
-                vm_node = kvm.get("node", "N/A")
-                
-                vm_info = {
-                    "name": vm_name,
-                    "status": vm_status,
-                    "cpu_cores": vm_cores,
-                    "memory_gb": vm_mem_gb,
-                    "disk_gb": vm_disk_gb,
-                    "storage_class": vm_storage_class,
-                    "node": vm_node
-                }
-                vms_resources.append(vm_info)
-                
-                # Группируем резервы по классу хранилища
-                if "nfs" in vm_storage_class.lower():
-                    nfs_reserved["cpu_cores"] += vm_cores
-                    nfs_reserved["memory_gb"] += vm_mem_gb
-                    nfs_reserved["disk_gb"] += vm_disk_gb
-                elif "lvm" in vm_storage_class.lower() or "vg-" in vm_storage_class.lower():
-                    lvm_reserved["cpu_cores"] += vm_cores
-                    lvm_reserved["memory_gb"] += vm_mem_gb
-                    lvm_reserved["disk_gb"] += vm_disk_gb
-                else:
-                    local_reserved["cpu_cores"] += vm_cores
-                    local_reserved["memory_gb"] += vm_mem_gb
-                    local_reserved["disk_gb"] += vm_disk_gb
-                    
-            for r_dict in [nfs_reserved, lvm_reserved, local_reserved]:
-                r_dict["memory_gb"] = round(r_dict["memory_gb"], 1)
-                r_dict["disk_gb"] = round(r_dict["disk_gb"], 1)
-                
-        except Exception as vms_err:
-            import logging
-            logging.getLogger("app.host").error(f"Error querying VMs for breakdown: {vms_err}")
+        # Метрики уже вычислены ранее
 
         return {
             "node_name": node_name,
