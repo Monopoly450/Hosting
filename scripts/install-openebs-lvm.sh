@@ -41,8 +41,8 @@ After=local-fs.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/bash -c "(/sbin/losetup -j /var/lib/aegis/lvm-storage.img | grep -q . || /sbin/losetup -fP /var/lib/aegis/lvm-storage.img) && /sbin/udevadm settle && (/sbin/vgchange -ay vg-aegis || true)"
-ExecStop=/bin/bash -c "/sbin/vgchange -an vg-aegis; LOOP_DEV=\\\$(/sbin/losetup -j /var/lib/aegis/lvm-storage.img | awk -F: '{print \\\$1}'); if [ -n \\\"\\\$LOOP_DEV\\\" ]; then /sbin/losetup -d \\\$LOOP_DEV; fi"
+ExecStart=/bin/bash -c "(losetup -j /var/lib/aegis/lvm-storage.img | grep -q . || losetup -fP /var/lib/aegis/lvm-storage.img) && udevadm settle && (vgchange -ay vg-aegis || true)"
+ExecStop=/bin/bash -c "vgchange -an vg-aegis; LOOP_DEV=\\\$(losetup -j /var/lib/aegis/lvm-storage.img | awk -F: '{print \\\$1}'); if [ -n \\\"\\\$LOOP_DEV\\\" ]; then losetup -d \\\$LOOP_DEV; fi"
 
 [Install]
 WantedBy=multi-user.target
