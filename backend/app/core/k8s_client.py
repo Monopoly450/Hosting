@@ -962,7 +962,7 @@ class K8sClient:
             "name": volume_name,
             "disk": {
                 "disk": {
-                    "bus": "scsi"
+                    "bus": "virtio"
                 }
             },
             "volumeSource": {
