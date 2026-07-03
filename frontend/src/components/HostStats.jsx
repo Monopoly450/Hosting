@@ -202,7 +202,7 @@ const HostStats = ({ onMetricsLoaded }) => {
         )}
 
         {/* LVM Pool */}
-        {metrics.lvm && (
+        {metrics.lvm && (metrics.lvm.total_gb > 0 || !metrics.is_cluster) && (
           <div className="stat-box">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> LVM Хранилище (PaaS)</span>

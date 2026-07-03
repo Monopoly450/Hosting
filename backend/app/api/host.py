@@ -239,12 +239,22 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
         if now - _lvm_cache["last_updated"] >= 15.0:
             lvm_info = {"total_gb": 0.0, "free_gb": 0.0, "used_gb": 0.0}
             try:
+                # Сначала пробуем выполнить vgs на хосте через nsenter, так как там есть доступ к /dev
                 res = subprocess.run(
-                    ["vgs", "--units", "g", "--nosuffix", "--noheadings", "-o", "vg_size,vg_free", "vg-aegis"],
+                    ["nsenter", "--mount=/proc/1/ns/mnt", "vgs", "--units", "g", "--nosuffix", "--noheadings", "-o", "vg_size,vg_free", "vg-aegis"],
                     capture_output=True,
                     text=True,
                     timeout=2.0
                 )
+                if res.returncode != 0:
+                    # Если nsenter не сработал или выдал ошибку, пробуем локальную утилиту контейнера
+                    res = subprocess.run(
+                        ["vgs", "--units", "g", "--nosuffix", "--noheadings", "-o", "vg_size,vg_free", "vg-aegis"],
+                        capture_output=True,
+                        text=True,
+                        timeout=2.0
+                    )
+                
                 if res.returncode == 0:
                     parts = res.stdout.strip().split()
                     if len(parts) >= 2:
