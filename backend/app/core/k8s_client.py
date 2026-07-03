@@ -917,7 +917,7 @@ class K8sClient:
             return None
 
     def create_pvc(self, name: str, size_gb: int, namespace: str = "default"):
-        """Создает PersistentVolumeClaim в Kubernetes с поддержкой блочного режима для горячей замены"""
+        """Создает DataVolume в Kubernetes для автоматического создания disk.img и поддержки NFS/LVM"""
         storage_class = settings.STORAGE_CLASS
         volume_mode = "Block"
         access_mode = "ReadWriteOnce"
@@ -927,27 +927,51 @@ class K8sClient:
             access_mode = "ReadWriteMany"
 
         body = {
-            "apiVersion": "v1",
-            "kind": "PersistentVolumeClaim",
+            "apiVersion": "cdi.kubevirt.io/v1beta1",
+            "kind": "DataVolume",
             "metadata": {
-                "name": name
+                "name": name,
+                "namespace": namespace
             },
             "spec": {
-                "accessModes": [access_mode],
-                "storageClassName": storage_class,
-                "volumeMode": volume_mode,
-                "resources": {
-                    "requests": {
-                        "storage": f"{size_gb}Gi"
+                "source": {
+                    "blank": {}
+                },
+                "storage": {
+                    "accessModes": [access_mode],
+                    "storageClassName": storage_class,
+                    "volumeMode": volume_mode,
+                    "resources": {
+                        "requests": {
+                            "storage": f"{size_gb}Gi"
+                        }
                     }
                 }
             }
         }
-        return self.core_api.create_namespaced_persistent_volume_claim(namespace, body)
+        return self.custom_api.create_namespaced_custom_object(
+            group="cdi.kubevirt.io",
+            version="v1beta1",
+            namespace=namespace,
+            plural="datavolumes",
+            body=body
+        )
 
     def delete_pvc(self, name: str, namespace: str = "default"):
-        """Удаляет PersistentVolumeClaim из Kubernetes"""
-        return self.core_api.delete_namespaced_persistent_volume_claim(name, namespace)
+        """Удаляет DataVolume и соответствующий PVC из Kubernetes"""
+        try:
+            return self.custom_api.delete_namespaced_custom_object(
+                group="cdi.kubevirt.io",
+                version="v1beta1",
+                namespace=namespace,
+                plural="datavolumes",
+                name=name
+            )
+        except Exception as e:
+            try:
+                return self.core_api.delete_namespaced_persistent_volume_claim(name, namespace)
+            except Exception:
+                raise e
 
     def add_vm_volume(self, vm_name: str, pvc_name: str, volume_name: str, namespace: str = "default"):
         """Горячее подключение (hotplug) тома PVC к виртуальной машине KubeVirt"""
