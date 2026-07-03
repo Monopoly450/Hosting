@@ -74,15 +74,30 @@ def decode_access_token(token: str) -> dict:
 
 # --- ЗАВИСИМОСТИ FASTAPI ---
 
-# Для обратной совместимости с оркестратором и старыми скриптами
-def verify_admin_token(x_admin_token: str = Security(token_header)):
-    if not x_admin_token or x_admin_token != ADMIN_TOKEN:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Неверный или отсутствующий токен доступа (X-Admin-Token)",
-            headers={"WWW-Authenticate": "X-Admin-Token"},
-        )
-    return x_admin_token
+async def verify_admin_token(
+    x_admin_token: str = Security(token_header),
+    credentials: HTTPAuthorizationCredentials = Depends(security_bearer),
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Проверяем прямой X-Admin-Token (для старых клиентов и оркестратора)
+    if x_admin_token and x_admin_token == ADMIN_TOKEN:
+        return x_admin_token
+
+    # 2. Проверяем JWT Bearer токен (для вошедшего в веб-панель админа)
+    if credentials:
+        payload = decode_access_token(credentials.credentials)
+        if payload and "sub" in payload:
+            username = payload["sub"]
+            res = await db.execute(select(User).filter_by(username=username))
+            user = res.scalars().first()
+            if user and user.role == "admin":
+                return credentials.credentials
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Неверный или отсутствующий токен доступа",
+        headers={"WWW-Authenticate": "Bearer or X-Admin-Token"},
+    )
 
 async def get_db():
     async with SessionLocal() as session:
