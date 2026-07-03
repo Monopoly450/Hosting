@@ -15,6 +15,7 @@ class Settings(BaseSettings):
         "KUBECONFIG", 
         os.path.expanduser("~/.kube/config")
     )
+    STORAGE_CLASS: str = os.getenv("STORAGE_CLASS", "local-path")
     
     # Настройки CORS
     BACKEND_CORS_ORIGINS: list[str] = ["*"]
