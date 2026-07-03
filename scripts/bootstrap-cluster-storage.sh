@@ -134,7 +134,13 @@ systemctl daemon-reload
 systemctl enable nfs-kernel-server
 systemctl restart nfs-kernel-server
 
+# Установка и запуск node-exporter для сбора метрик СХД в Prometheus
+log "Установка prometheus-node-exporter для мониторинга ресурсов СХД..."
+apt-get install -y prometheus-node-exporter
+systemctl enable prometheus-node-exporter
+systemctl restart prometheus-node-exporter
+
 log "Настройка СХД успешно завершена!"
 log "IP-адрес СХД: $(hostname -I | awk '{print $1}')"
 log "Путь экспорта: $MOUNT_POINT"
-log "Убедитесь, что порты NFS (111, 2049) открыты в брандмауэре СХД."
+log "Убедитесь, что порты NFS (111, 2049) и Node Exporter (9100) открыты в брандмауэре СХД."

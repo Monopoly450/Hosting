@@ -507,22 +507,63 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
             except Exception:
                 pass
 
-            # Моделируем CPU/RAM для СХД ноды (поскольку она вне K8s), но даем реальные данные диска NFS
+            # Загружаем реальные метрики CPU/RAM СХД из Prometheus
+            prom_cpu_cores = 4
+            prom_cpu_load = 8.8
+            prom_ram_total = 8.0
+            prom_ram_used = 1.44
+            
+            try:
+                # 1. Количество ядер CPU
+                cpu_cores_res = client.query_prometheus(f'count(node_cpu_seconds_total{{instance=~"{nfs_ip}:.*", mode="idle"}})')
+                if cpu_cores_res and cpu_cores_res.get("status") == "success":
+                    result = cpu_cores_res.get("data", {}).get("result", [])
+                    if result:
+                        prom_cpu_cores = int(result[0]["value"][1])
+                
+                # 2. Процент загрузки CPU
+                cpu_load_res = client.query_prometheus(f'(1 - avg(irate(node_cpu_seconds_total{{instance=~"{nfs_ip}:.*", mode="idle"}}[2m]))) * 100')
+                if cpu_load_res and cpu_load_res.get("status") == "success":
+                    result = cpu_load_res.get("data", {}).get("result", [])
+                    if result:
+                        prom_cpu_load = round(float(result[0]["value"][1]), 1)
+                
+                # 3. Общая RAM
+                ram_total_res = client.query_prometheus(f'node_memory_MemTotal_bytes{{instance=~"{nfs_ip}:.*"}}')
+                if ram_total_res and ram_total_res.get("status") == "success":
+                    result = ram_total_res.get("data", {}).get("result", [])
+                    if result:
+                        prom_ram_total = round(float(result[0]["value"][1]) / (1024**3), 1)
+                        
+                # 4. Доступная RAM
+                ram_avail_res = client.query_prometheus(f'node_memory_MemAvailable_bytes{{instance=~"{nfs_ip}:.*"}}')
+                if ram_avail_res and ram_avail_res.get("status") == "success":
+                    result = ram_avail_res.get("data", {}).get("result", [])
+                    if result:
+                        avail_gb = float(result[0]["value"][1]) / (1024**3)
+                        prom_ram_used = round(max(0.0, prom_ram_total - avail_gb), 1)
+            except Exception as prom_err:
+                import logging
+                logging.getLogger("app.host").warning(f"Failed to query SAN storage metrics: {prom_err}")
+                
+            prom_cpu_usage_cores = round((prom_cpu_load / 100) * prom_cpu_cores, 2)
+            prom_ram_used_percent = round((prom_ram_used / prom_ram_total) * 100, 1) if prom_ram_total > 0 else 0.0
+
             nodes_list.append({
                 "name": "san-storage",
                 "status": "Ready",
                 "role": "Storage (NFS)",
                 "ip": nfs_ip,
                 "cpu": {
-                    "total_cores": 4,
-                    "usage_cores": 0.35,
-                    "usage_percent": 8.8,
+                    "total_cores": prom_cpu_cores,
+                    "usage_cores": prom_cpu_usage_cores,
+                    "usage_percent": prom_cpu_load,
                     "model": "SAN Intel Xeon"
                 },
                 "memory": {
-                    "total_gb": 8.00,
-                    "usage_gb": 1.44,
-                    "usage_percent": 18.0
+                    "total_gb": prom_ram_total,
+                    "usage_gb": prom_ram_used,
+                    "usage_percent": prom_ram_used_percent
                 },
                 "disk": {
                     "total_gb": shared_disk["total_gb"],

@@ -168,7 +168,9 @@ helm repo update
 kubectl create namespace prometheus || true
 helm install prometheus prometheus-community/kube-prometheus-stack -n prometheus \
   --set grafana.enabled=false \
-  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false
+  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+  --set prometheus.prometheusSpec.additionalScrapeConfigs[0].job_name="san-storage" \
+  --set prometheus.prometheusSpec.additionalScrapeConfigs[0].static_configs[0].targets[0]="${SAN_IP}:9100"
 
 # 10. Установка virtctl
 log "Установка утилиты virtctl..."
