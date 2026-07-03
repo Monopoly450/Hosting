@@ -11,6 +11,13 @@ from app.core.auth import get_current_user
 
 router = APIRouter()
 
+import time
+
+_lvm_cache = {
+    "data": {"total_gb": 0.0, "free_gb": 0.0, "used_gb": 0.0},
+    "last_updated": 0.0
+}
+
 def get_k8s_client():
     return K8sClient()
 
@@ -209,27 +216,33 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
             logging.getLogger("app.host").error(f"Global error in DB block of host metrics: {global_err}")
         finally:
             db.close()
-        # Получаем данные LVM пула vg-aegis
-        lvm_info = {"total_gb": 0.0, "free_gb": 0.0, "used_gb": 0.0}
-        try:
-            res = subprocess.run(
-                ["vgs", "--units", "g", "--nosuffix", "--noheadings", "-o", "vg_size,vg_free", "vg-aegis"],
-                capture_output=True,
-                text=True
-            )
-            if res.returncode == 0:
-                parts = res.stdout.strip().split()
-                if len(parts) >= 2:
-                    vg_size = float(parts[0].replace(",", "."))
-                    vg_free = float(parts[1].replace(",", "."))
-                    lvm_info = {
-                        "total_gb": round(vg_size, 1),
-                        "free_gb": round(vg_free, 1),
-                        "used_gb": round(vg_size - vg_free, 1)
-                    }
-        except Exception as lvm_err:
-            import logging
-            logging.getLogger("app.host").error(f"Failed to query LVM vg-aegis info: {lvm_err}")
+        # Получаем данные LVM пула vg-aegis с кэшированием на 15 секунд и таймаутом
+        global _lvm_cache
+        now = time.time()
+        if now - _lvm_cache["last_updated"] >= 15.0:
+            try:
+                res = subprocess.run(
+                    ["vgs", "--units", "g", "--nosuffix", "--noheadings", "-o", "vg_size,vg_free", "vg-aegis"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2.0
+                )
+                if res.returncode == 0:
+                    parts = res.stdout.strip().split()
+                    if len(parts) >= 2:
+                        vg_size = float(parts[0].replace(",", "."))
+                        vg_free = float(parts[1].replace(",", "."))
+                        _lvm_cache["data"] = {
+                            "total_gb": round(vg_size, 1),
+                            "free_gb": round(vg_free, 1),
+                            "used_gb": round(vg_size - vg_free, 1)
+                        }
+                        _lvm_cache["last_updated"] = now
+            except Exception as lvm_err:
+                import logging
+                logging.getLogger("app.host").error(f"Failed to query LVM vg-aegis info: {lvm_err}")
+
+        lvm_info = _lvm_cache["data"]
 
         total_ram_gb = round(mem_capacity_bytes / (1024 * 1024 * 1024), 2)
 
