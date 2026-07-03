@@ -32,6 +32,21 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
         node = nodes.items[0] # Берем первую (и единственную в K3s) ноду
         node_name = node.metadata.name
         
+        # Get host CPU model and socket count
+        cpu_model = "Unknown Processor"
+        physical_ids = set()
+        if os.path.exists("/proc/cpuinfo"):
+            try:
+                with open("/proc/cpuinfo", "r") as f:
+                    for line in f:
+                        if "model name" in line:
+                            cpu_model = line.split(":", 1)[1].strip()
+                        elif "physical id" in line:
+                            physical_ids.add(line.split(":", 1)[1].strip())
+            except Exception:
+                pass
+        cpu_sockets = len(physical_ids) if physical_ids else 1
+
         # Емкость хоста
         capacity = node.status.capacity
         allocatable = node.status.allocatable
