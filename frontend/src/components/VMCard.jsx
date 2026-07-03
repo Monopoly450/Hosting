@@ -82,16 +82,19 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
   const getBadgeClass = (status) => {
     if (status === 'Running') return isReady ? 'badge-success' : 'badge-warning';
     if (status === 'Stopped') return 'badge-danger';
+    if (status === 'Stopping') return 'badge-warning';
+    if (status === 'Starting' || status === 'Provisioning' || status === 'Scheduled') return 'badge-info animate-pulse';
     return 'badge-info';
   };
 
   const getStatusLabel = (status) => {
-    if (status === 'Running') return isReady ? 'Active' : 'Network...';
-    if (status === 'Stopped') return 'Stopped';
-    if (status === 'Provisioning') return 'Creating...';
-    if (status === 'Importing') return `Import ${vm.import_progress || ''}`;
-    if (status === 'Starting') return 'Starting...';
-    if (status === 'Stopping') return 'Stopping...';
+    if (status === 'Running') return isReady ? 'Запущена' : 'Настройка сети...';
+    if (status === 'Stopped') return 'Остановлена';
+    if (status === 'Provisioning') return 'Создание...';
+    if (status === 'Importing') return `Импорт ${vm.import_progress || ''}`;
+    if (status === 'Starting') return 'Запуск...';
+    if (status === 'Stopping') return 'Выключение...';
+    if (status === 'Scheduled') return 'Планирование...';
     return status;
   };
 
@@ -203,15 +206,19 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
       {/* Actions */}
       <div className="vm-card-actions" style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span className="text-muted" style={{ fontSize: '0.75rem' }}>
-          {isReady ? 'SSH / Console ➔' : vm.status === 'Stopped' ? 'Stopped' : 'Loading...'}
+          {isReady ? 'Доступно ➔' : vm.status === 'Stopped' ? 'Остановлена' : (vm.status === 'Stopping' ? 'Выключение...' : 'Загрузка...')}
         </span>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button 
             className="btn btn-secondary btn-icon"
             onClick={handleDelete}
-            disabled={actionLoading !== null}
-            title="Удалить"
-            style={{ color: '#ef4444', borderColor: '#fee2e2' }}
+            disabled={vm.status !== 'Stopped' || actionLoading !== null}
+            title="Удалить можно только выключенную ВМ"
+            style={{ 
+              color: vm.status !== 'Stopped' ? 'var(--text-muted)' : '#ef4444', 
+              borderColor: vm.status !== 'Stopped' ? 'var(--border-subtle)' : '#fee2e2',
+              cursor: vm.status !== 'Stopped' ? 'not-allowed' : 'pointer'
+            }}
           >
             {actionLoading === 'delete' ? <span className="spinner"/> : <Trash2 size={14}/>}
           </button>

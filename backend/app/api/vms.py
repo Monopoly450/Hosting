@@ -1035,6 +1035,18 @@ def delete_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_us
 @router.post("/{name}/start")
 def start_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(name, current_user)
+    from app.db import SessionLocal
+    from app.models.models import VMTask
+    db = SessionLocal()
+    try:
+        db_vm = db.query(VMTask).filter(VMTask.name == name).first()
+        if db_vm:
+            db_vm.status = "Starting"
+            db.commit()
+    except Exception as db_err:
+        logger.error(f"Failed to set VM {name} status to Starting in DB: {db_err}")
+    finally:
+        db.close()
     try:
         return client.start_vm(name)
     except Exception as e:
@@ -1043,6 +1055,18 @@ def start_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_use
 @router.post("/{name}/stop")
 def stop_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(name, current_user)
+    from app.db import SessionLocal
+    from app.models.models import VMTask
+    db = SessionLocal()
+    try:
+        db_vm = db.query(VMTask).filter(VMTask.name == name).first()
+        if db_vm:
+            db_vm.status = "Stopping"
+            db.commit()
+    except Exception as db_err:
+        logger.error(f"Failed to set VM {name} status to Stopping in DB: {db_err}")
+    finally:
+        db.close()
     try:
         return client.stop_vm(name)
     except Exception as e:
@@ -1051,6 +1075,18 @@ def stop_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user
 @router.post("/{name}/restart")
 def restart_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(name, current_user)
+    from app.db import SessionLocal
+    from app.models.models import VMTask
+    db = SessionLocal()
+    try:
+        db_vm = db.query(VMTask).filter(VMTask.name == name).first()
+        if db_vm:
+            db_vm.status = "Starting"
+            db.commit()
+    except Exception as db_err:
+        logger.error(f"Failed to set VM {name} status to Starting in DB: {db_err}")
+    finally:
+        db.close()
     try:
         return client.restart_vm(name)
     except Exception as e:

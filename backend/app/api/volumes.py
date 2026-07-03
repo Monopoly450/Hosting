@@ -213,6 +213,19 @@ def detach_volume(vol_id: int, client: K8sClient = Depends(get_k8s_client), curr
         if not vm:
             raise HTTPException(status_code=404, detail="Связанная ВМ не найдена в системе.")
 
+        # Получаем реальный статус ВМ из Kubernetes
+        try:
+            k8s_vm = client.get_vm(vm.name)
+            vm_status = k8s_vm.get("status")
+        except Exception:
+            vm_status = vm.status
+
+        if vm_status == "Stopped" or vm_status == "Stopping":
+            raise HTTPException(
+                status_code=400, 
+                detail="Нельзя отключать сетевой диск у выключенной или выключающейся виртуальной машины. Запустите её перед отключением."
+            )
+
         # Горячее отключение в KubeVirt
         try:
             clean_vol_name = re.sub(r"[^a-zA-Z0-9-]", "", re.sub(r"^vol-\d+-", "", vol.name))
@@ -248,13 +261,25 @@ def delete_volume(vol_id: int, client: K8sClient = Depends(get_k8s_client), curr
 
         # Если диск подключен к ВМ, сначала делаем горячее отключение
         if vol.status == "Attached" and vol.attached_vm_id:
-            try:
-                vm = db.query(VMTask).filter(VMTask.id == vol.attached_vm_id).first()
-                if vm:
+            vm = db.query(VMTask).filter(VMTask.id == vol.attached_vm_id).first()
+            if vm:
+                # Получаем реальный статус ВМ из Kubernetes
+                try:
+                    k8s_vm = client.get_vm(vm.name)
+                    vm_status = k8s_vm.get("status")
+                except Exception:
+                    vm_status = vm.status
+
+                if vm_status == "Stopped" or vm_status == "Stopping":
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="Нельзя удалить сетевой диск, подключенный к выключенной или выключающейся виртуальной машине. Включите виртуалку и отключите диск сначала."
+                    )
+                try:
                     clean_vol_name = re.sub(r"[^a-zA-Z0-9-]", "", re.sub(r"^vol-\d+-", "", vol.name))
                     client.remove_vm_volume(vm.name, volume_name=clean_vol_name)
-            except Exception as detach_err:
-                logger.warning(f"Auto-detaching volume failed: {detach_err}")
+                except Exception as detach_err:
+                    logger.warning(f"Auto-detaching volume failed: {detach_err}")
 
         # Удаляем PVC из Kubernetes
         try:

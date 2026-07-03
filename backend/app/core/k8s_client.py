@@ -672,7 +672,11 @@ class K8sClient:
             if vmi:
                 node_name = vmi.get("status", {}).get("nodeName", "")
         elif vmi:
-            status = vmi.get("status", {}).get("phase", "Unknown")
+            # Если желаемое состояние выключено или VMI удаляется, ставим статус Stopping (Выключение)
+            if not running_desired or vmi.get("metadata", {}).get("deletionTimestamp"):
+                status = "Stopping"
+            else:
+                status = vmi.get("status", {}).get("phase", "Unknown")
             node_name = vmi.get("status", {}).get("nodeName", "")
             
             # Собираем IP адреса

@@ -248,7 +248,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                           <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{vm.name}</span>
                         </div>
                         <span className={`status-badge status-${vm.status?.toLowerCase()}`} style={{ fontSize: '0.75rem', padding: '2px 8px' }}>
-                          {vm.status === 'Running' ? 'Запущена' : vm.status === 'Pending' ? 'Ожидание' : vm.status === 'Provisioning' ? 'Создание' : vm.status === 'Scheduled' ? 'Очередь' : vm.status}
+                          {vm.status === 'Running' ? 'Запущена' : vm.status === 'Stopped' ? 'Остановлена' : vm.status === 'Starting' ? 'Запуск...' : vm.status === 'Stopping' ? 'Выключение...' : vm.status === 'Scheduled' ? 'Планирование...' : vm.status === 'Pending' ? 'Ожидание' : vm.status === 'Provisioning' ? 'Создание' : vm.status}
                         </span>
                       </div>
                       
