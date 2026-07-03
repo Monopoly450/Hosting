@@ -14,7 +14,30 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# 1. Создание службы автозапуска сетевого моста (aegis-network.service)
+# 1. Создание скрипта настройки сети (/usr/local/bin/aegis-network-setup.sh)
+echo "Создание вспомогательного скрипта настройки сети..."
+cat <<'EOF' > /usr/local/bin/aegis-network-setup.sh
+#!/usr/bin/env bash
+set -e
+
+# Создание сетевого моста
+ip link show br-vms &>/dev/null || (ip link add br-vms type bridge && ip addr add 172.20.0.1/24 dev br-vms && ip link set br-vms up)
+
+# Включение маршрутизации
+/sbin/sysctl -w net.ipv4.ip_forward=1
+
+# Настройка NAT и правил перенаправления
+ACTIVE_IFACE=$(/sbin/ip route | grep default | awk '{print $5}' | head -n1)
+if [ -n "$ACTIVE_IFACE" ]; then
+    /sbin/iptables -t nat -C POSTROUTING -s 172.20.0.0/24 -o "$ACTIVE_IFACE" -j MASQUERADE &>/dev/null || /sbin/iptables -t nat -A POSTROUTING -s 172.20.0.0/24 -o "$ACTIVE_IFACE" -j MASQUERADE
+    /sbin/iptables -C FORWARD -i br-vms -j ACCEPT &>/dev/null || /sbin/iptables -A FORWARD -i br-vms -j ACCEPT
+    /sbin/iptables -C FORWARD -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || /sbin/iptables -A FORWARD -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT
+fi
+EOF
+
+chmod +x /usr/local/bin/aegis-network-setup.sh
+
+# 2. Создание службы автозапуска сетевого моста (aegis-network.service)
 echo "Создание службы автозапуска сетевого моста..."
 cat <<EOF > /etc/systemd/system/aegis-network.service
 [Unit]
@@ -25,7 +48,7 @@ After=network.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/bash -c "ip link show br-vms &>/dev/null || (ip link add br-vms type bridge && ip addr add 172.20.0.1/24 dev br-vms && ip link set br-vms up); /sbin/sysctl -w net.ipv4.ip_forward=1; ACTIVE_IFACE=\\\$(/sbin/ip route | grep default | awk '{print \\\$5}' | head -n1); if [ -n \\\"\\\$ACTIVE_IFACE\\\" ]; then /sbin/iptables -t nat -C POSTROUTING -s 172.20.0.0/24 -o \\\$ACTIVE_IFACE -j MASQUERADE &>/dev/null || /sbin/iptables -t nat -A POSTROUTING -s 172.20.0.0/24 -o \\\$ACTIVE_IFACE -j MASQUERADE; /sbin/iptables -C FORWARD -i br-vms -j ACCEPT &>/dev/null || /sbin/iptables -A FORWARD -i br-vms -j ACCEPT; /sbin/iptables -C FORWARD -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || /sbin/iptables -A FORWARD -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT; fi"
+ExecStart=/usr/local/bin/aegis-network-setup.sh
 
 [Install]
 WantedBy=multi-user.target
