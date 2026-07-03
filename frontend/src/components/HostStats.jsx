@@ -198,6 +198,29 @@ const HostStats = ({ onMetricsLoaded }) => {
             <span>Доступно для новых ВМ: {metrics.disk ? metrics.disk.available_gb : 0} ГБ</span>
           </div>
         </div>
+
+        {/* LVM Pool */}
+        {metrics.lvm && (
+          <div className="stat-box">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> LVM Хранилище (PaaS)</span>
+              <span className="stat-box-value">
+                {metrics.lvm.total_gb > 0 ? Math.round((metrics.lvm.used_gb / metrics.lvm.total_gb) * 100) : 0}%
+              </span>
+            </div>
+            <div className="progress-track">
+              <div 
+                className={`progress-fill ${getProgressClass(metrics.lvm.total_gb > 0 ? (metrics.lvm.used_gb / metrics.lvm.total_gb) * 100 : 0)}`} 
+                style={{ width: `${metrics.lvm.total_gb > 0 ? (metrics.lvm.used_gb / metrics.lvm.total_gb) * 100 : 0}%` }} 
+              />
+            </div>
+            <div className="stat-box-meta">
+              <span>Общая емкость пула: {metrics.lvm.total_gb} ГБ</span>
+              <span>Занято томами: {metrics.lvm.used_gb} ГБ</span>
+              <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>Свободно (доступно): {metrics.lvm.free_gb} ГБ</span>
+            </div>
+          </div>
+        )}
       </div>
       
       {/* Real-time chart */}

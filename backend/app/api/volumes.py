@@ -51,6 +51,29 @@ def create_volume(req: VolumeCreateRequest, client: K8sClient = Depends(get_k8s_
 
         full_pvc_name = f"vol-{current_user.id}-{req.name}"
 
+        # Проверяем реальное свободное место в LVM группе томов vg-aegis
+        import subprocess
+        lvm_free_gb = None
+        try:
+            res = subprocess.run(
+                ["vgs", "--units", "g", "--nosuffix", "--noheadings", "-o", "vg_free", "vg-aegis"],
+                capture_output=True,
+                text=True
+            )
+            if res.returncode == 0:
+                val = res.stdout.strip().replace(",", ".")
+                if val:
+                    lvm_free_gb = float(val)
+        except Exception as lvm_err:
+            logger.error(f"Failed to check LVM free space during disk creation: {lvm_err}")
+
+        if lvm_free_gb is not None:
+            if req.size_gb > lvm_free_gb:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Недостаточно физического места в LVM хранилище сервера. Доступно: {round(lvm_free_gb, 1)} ГБ, запрашивается: {req.size_gb} ГБ. Обратитесь к администратору для расширения хранилища."
+                )
+
         # Проверяем уникальность имени диска в БД
         existing = db.query(UserVolume).filter(UserVolume.name == full_pvc_name).first()
         if existing:

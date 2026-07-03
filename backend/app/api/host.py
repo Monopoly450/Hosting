@@ -209,11 +209,33 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
             logging.getLogger("app.host").error(f"Global error in DB block of host metrics: {global_err}")
         finally:
             db.close()
-            
+        # Получаем данные LVM пула vg-aegis
+        lvm_info = {"total_gb": 0.0, "free_gb": 0.0, "used_gb": 0.0}
+        try:
+            res = subprocess.run(
+                ["vgs", "--units", "g", "--nosuffix", "--noheadings", "-o", "vg_size,vg_free", "vg-aegis"],
+                capture_output=True,
+                text=True
+            )
+            if res.returncode == 0:
+                parts = res.stdout.strip().split()
+                if len(parts) >= 2:
+                    vg_size = float(parts[0].replace(",", "."))
+                    vg_free = float(parts[1].replace(",", "."))
+                    lvm_info = {
+                        "total_gb": round(vg_size, 1),
+                        "free_gb": round(vg_free, 1),
+                        "used_gb": round(vg_size - vg_free, 1)
+                    }
+        except Exception as lvm_err:
+            import logging
+            logging.getLogger("app.host").error(f"Failed to query LVM vg-aegis info: {lvm_err}")
+
         total_ram_gb = round(mem_capacity_bytes / (1024 * 1024 * 1024), 2)
 
         return {
             "node_name": node_name,
+            "lvm": lvm_info,
             "cpu": {
                 "total_cores": cpu_capacity,
                 "usage_cores": round(cpu_usage_milli / 1000, 2),
