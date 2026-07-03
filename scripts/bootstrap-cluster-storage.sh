@@ -140,7 +140,17 @@ apt-get install -y prometheus-node-exporter
 systemctl enable prometheus-node-exporter
 systemctl restart prometheus-node-exporter
 
+# Автоматическое открытие портов в брандмауэре UFW
+if command -v ufw &>/dev/null && ufw status | grep -q "active"; then
+    log "Настройка фаервола UFW: открываем порты RPC (111), NFS (2049) и Node Exporter (9100)..."
+    ufw allow 111/tcp
+    ufw allow 111/udp
+    ufw allow 2049/tcp
+    ufw allow 9100/tcp
+    ufw reload
+fi
+
 log "Настройка СХД успешно завершена!"
 log "IP-адрес СХД: $(hostname -I | awk '{print $1}')"
 log "Путь экспорта: $MOUNT_POINT"
-log "Убедитесь, что порты NFS (111, 2049) и Node Exporter (9100) открыты в брандмауэре СХД."
+log "Порты NFS (111, 2049) и Node Exporter (9100) успешно настроены и открыты."
