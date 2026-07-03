@@ -7,7 +7,7 @@ const HostStats = ({ onMetricsLoaded }) => {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [selectedStorageTab, setSelectedStorageTab] = useState('nfs');
+  const [selectedStorageTab, setSelectedStorageTab] = useState(null);
 
   const [showResize, setShowResize] = useState(false);
   const [newSizeGb, setNewSizeGb] = useState('');
@@ -58,6 +58,16 @@ const HostStats = ({ onMetricsLoaded }) => {
       
       setMetrics(data);
       setError(false);
+      
+      if (!selectedStorageTab) {
+        if (data.shared_disk && data.shared_disk.active) {
+          setSelectedStorageTab('nfs');
+        } else if (data.lvm && data.lvm.active) {
+          setSelectedStorageTab('lvm');
+        } else {
+          setSelectedStorageTab('local');
+        }
+      }
       
       if (onMetricsLoaded) onMetricsLoaded(data);
 
