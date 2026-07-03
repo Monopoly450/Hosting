@@ -116,6 +116,7 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     # Определение базового образа и логина
     image_url = DEFAULT_UBUNTU_IMAGE
     default_user = "ubuntu"
+    access_mode = "ReadWriteMany" if "nfs" in settings.STORAGE_CLASS.lower() else "ReadWriteOnce"
     
     if req.os_type == "centos":
         image_url = DEFAULT_CENTOS_IMAGE
@@ -364,7 +365,7 @@ local-hostname: {req.name}
                         "storage": {
                             "storageClassName": settings.STORAGE_CLASS,
                             "accessModes": [
-                                "ReadWriteOnce"
+                                access_mode
                             ],
                             "volumeMode": "Filesystem",
                             "resources": {
@@ -391,6 +392,8 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
     if req.os_type == "custom" and req.custom_image:
         host_ip = get_host_ip()
         iso_url = f"http://{host_ip}:8000/static/images/{req.custom_image}"
+
+    access_mode = "ReadWriteMany" if "nfs" in settings.STORAGE_CLASS.lower() else "ReadWriteOnce"
 
     return {
         "apiVersion": "kubevirt.io/v1",
@@ -521,7 +524,7 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                         "storage": {
                             "storageClassName": settings.STORAGE_CLASS,
                             "accessModes": [
-                                "ReadWriteOnce"
+                                access_mode
                             ],
                             "volumeMode": "Filesystem",
                             "resources": {
@@ -548,7 +551,7 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                         "storage": {
                             "storageClassName": settings.STORAGE_CLASS,
                             "accessModes": [
-                                "ReadWriteOnce"
+                                access_mode
                             ],
                             "volumeMode": "Filesystem",
                             "resources": {

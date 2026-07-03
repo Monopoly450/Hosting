@@ -895,9 +895,11 @@ class K8sClient:
         """Создает PersistentVolumeClaim в Kubernetes с поддержкой блочного режима для горячей замены"""
         storage_class = settings.STORAGE_CLASS
         volume_mode = "Block"
-        # NFS не поддерживает режим Block, поэтому автоматически переключаем в Filesystem
+        access_mode = "ReadWriteOnce"
+        # NFS не поддерживает режим Block и требует ReadWriteMany для живой миграции
         if "nfs" in storage_class.lower():
             volume_mode = "Filesystem"
+            access_mode = "ReadWriteMany"
 
         body = {
             "apiVersion": "v1",
@@ -906,7 +908,7 @@ class K8sClient:
                 "name": name
             },
             "spec": {
-                "accessModes": ["ReadWriteOnce"],
+                "accessModes": [access_mode],
                 "storageClassName": storage_class,
                 "volumeMode": volume_mode,
                 "resources": {
