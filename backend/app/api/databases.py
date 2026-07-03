@@ -149,8 +149,8 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
                 with conn.cursor() as cursor:
                     # Создаем БД
                     cursor.execute(f'CREATE DATABASE "{req.name}";')
-                    # Создаем юзера с NOLOGIN
-                    cursor.execute(f'CREATE USER "{db_user}" WITH PASSWORD \'{db_password}\' NOLOGIN;')
+                    # Создаем юзера с возможностью входа (LOGIN по умолчанию)
+                    cursor.execute(f'CREATE USER "{db_user}" WITH PASSWORD \'{db_password}\';')
                     # Даем права
                     cursor.execute(f'GRANT ALL PRIVILEGES ON DATABASE "{req.name}" TO "{db_user}";')
                 conn.close()
@@ -169,8 +169,8 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
                 )
                 with conn.cursor() as cursor:
                     cursor.execute(f"CREATE DATABASE `{req.name}`;")
-                    cursor.execute(f"CREATE USER '{db_user}'@'127.0.0.1' IDENTIFIED BY '{db_password}';")
-                    cursor.execute(f"GRANT ALL PRIVILEGES ON `{req.name}`.* TO '{db_user}'@'127.0.0.1';")
+                    cursor.execute(f"CREATE USER '{db_user}'@'%' IDENTIFIED BY '{db_password}';")
+                    cursor.execute(f"GRANT ALL PRIVILEGES ON `{req.name}`.* TO '{db_user}'@'%';")
                     cursor.execute("FLUSH PRIVILEGES;")
                 conn.close()
             except Exception as e:
