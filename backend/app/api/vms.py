@@ -265,7 +265,12 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
                             "interfaces": [
                                 {
                                     "name": "default",
-                                    "masquerade": {}
+                                    "masquerade": {},
+                                    "ports": [
+                                        {"port": 22},
+                                        {"port": 80},
+                                        {"port": 443}
+                                    ]
                                 }
                             ],
                             "inputs": [
@@ -454,7 +459,13 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                             "interfaces": [
                                 {
                                     "name": "default",
-                                    "masquerade": {}
+                                    "masquerade": {},
+                                    "ports": [
+                                        {"port": 3389},
+                                        {"port": 22},
+                                        {"port": 80},
+                                        {"port": 443}
+                                    ]
                                 }
                             ],
                             "inputs": [
