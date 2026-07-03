@@ -23,9 +23,18 @@ async def vnc_proxy(
     namespace: str = "default",
     token: str = Query(None)
 ):
-    # Проверяем авторизационный токен
-    from app.core.auth import ADMIN_TOKEN
-    if not token or token != ADMIN_TOKEN:
+    # Проверяем авторизационный токен (разрешаем прямой ADMIN_TOKEN либо JWT токен админа)
+    from app.core.auth import ADMIN_TOKEN, decode_access_token
+    is_authorized = False
+    if token:
+        if token == ADMIN_TOKEN:
+            is_authorized = True
+        else:
+            payload = decode_access_token(token)
+            if payload and payload.get("sub") == "admin":
+                is_authorized = True
+
+    if not is_authorized:
         logger.warning(f"Неавторизованное VNC подключение к VM: {name}")
         await websocket.accept(subprotocol="binary")
         await websocket.close(code=1008, reason="Unauthorized")
