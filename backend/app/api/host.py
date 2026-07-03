@@ -343,6 +343,21 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                 total_ram_bytes += n_mem_capacity
                 total_used_ram_bytes += n_mem_usage_bytes
 
+            # Вычисляем диск для каждой ноды
+            n_disk_capacity = parse_k8s_mem(n.status.capacity.get("ephemeral-storage"))
+            n_disk_allocatable = parse_k8s_mem(n.status.allocatable.get("ephemeral-storage"))
+            
+            if n_name == node_name:
+                n_disk_total_gb = local_disk["total_gb"]
+                n_disk_used_gb = local_disk["used_gb"]
+                n_disk_free_gb = local_disk["free_gb"]
+                n_disk_used_percent = local_disk["used_percent"]
+            else:
+                n_disk_total_gb = round(n_disk_capacity / (1024**3), 1) if n_disk_capacity else 0.0
+                n_disk_free_gb = round(n_disk_allocatable / (1024**3), 1) if n_disk_allocatable else 0.0
+                n_disk_used_gb = round(max(0.0, n_disk_total_gb - n_disk_free_gb), 1)
+                n_disk_used_percent = round((n_disk_used_gb / n_disk_total_gb * 100), 1) if n_disk_total_gb else 0.0
+
             nodes_list.append({
                 "name": n_name,
                 "status": n_status,
@@ -358,6 +373,12 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                     "total_gb": n_total_ram_gb,
                     "usage_gb": n_usage_ram_gb,
                     "usage_percent": round(n_usage_ram_gb / n_total_ram_gb * 100, 1) if n_total_ram_gb else 0
+                },
+                "disk": {
+                    "total_gb": n_disk_total_gb,
+                    "used_gb": n_disk_used_gb,
+                    "free_gb": n_disk_free_gb,
+                    "used_percent": n_disk_used_percent
                 }
             })
 

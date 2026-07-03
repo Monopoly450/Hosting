@@ -843,19 +843,44 @@ class K8sClient:
             else:
                 path = f"api/v1/query?query={prom_query}"
                 
+            # Автоматический поиск сервиса Prometheus в кластере
+            prom_svc_name = "prometheus-kube-prometheus-prometheus"
+            prom_namespace = "prometheus"
+            prom_port = 9090
+            prom_cluster_ip = None
+
+            try:
+                all_svcs = self.core_api.list_service_for_all_namespaces()
+                for svc in all_svcs.items:
+                    s_name = svc.metadata.name.lower()
+                    # Ищем сервис, содержащий prometheus в названии и имеющий порт 9090, исключая экспортеры/операторы
+                    if "prometheus" in s_name and not any(x in s_name for x in ["node-exporter", "alertmanager", "operator", "agent"]):
+                        for p in svc.spec.ports:
+                            if p.port == 9090 or p.target_port == 9090:
+                                prom_svc_name = svc.metadata.name
+                                prom_namespace = svc.metadata.namespace
+                                prom_port = p.port
+                                prom_cluster_ip = svc.spec.cluster_ip
+                                break
+                        if prom_cluster_ip:
+                            break
+            except Exception as scan_err:
+                logger.warning(f"Failed to auto-scan Prometheus services: {scan_err}")
+                
             # 1. Попробуем выполнить запрос напрямую к ClusterIP сервиса Prometheus
             try:
-                svc = self.core_api.read_namespaced_service(
-                    name="prometheus-kube-prometheus-prometheus",
-                    namespace="prometheus"
-                )
-                cluster_ip = svc.spec.cluster_ip
-                port = 9090
-                if svc.spec.ports:
-                    for p in svc.spec.ports:
-                        if p.name == "http-web" or p.port == 9090:
-                            port = p.port
-                            break
+                if not prom_cluster_ip:
+                    # Если автопоиск не сработал, пробуем прочитать дефолтный сервис
+                    svc = self.core_api.read_namespaced_service(
+                        name=prom_svc_name,
+                        namespace=prom_namespace
+                    )
+                    prom_cluster_ip = svc.spec.cluster_ip
+                    if svc.spec.ports:
+                        for p in svc.spec.ports:
+                            if p.name == "http-web" or p.port == 9090:
+                                prom_port = p.port
+                                break
                 
                 # Аккуратно кодируем параметры запроса
                 parts = path.split('?', 1)
@@ -867,7 +892,7 @@ class K8sClient:
                 else:
                     full_path = path
                     
-                direct_url = f"http://{cluster_ip}:{port}/{full_path}"
+                direct_url = f"http://{prom_cluster_ip}:{prom_port}/{full_path}"
                 logger.info(f"Querying Prometheus directly at {direct_url}")
                 
                 req = urllib.request.Request(direct_url)
@@ -880,8 +905,8 @@ class K8sClient:
                 # 2. Резервный вариант через прокси K8s API
                 path_encoded = urllib.parse.quote(path, safe="?=&")
                 res = self.core_api.connect_get_namespaced_service_proxy_with_path(
-                    name="http:prometheus-kube-prometheus-prometheus:9090",
-                    namespace="prometheus",
+                    name=f"http:{prom_svc_name}:{prom_port}" if not prom_svc_name.startswith("http:") else prom_svc_name,
+                    namespace=prom_namespace,
                     path=path_encoded
                 )
                 if isinstance(res, str):

@@ -174,8 +174,9 @@ const HostStats = ({ onMetricsLoaded }) => {
             />
           </div>
           <div className="stat-box-meta">
-            <span>Использовано: {metrics.local_disk ? metrics.local_disk.used_gb : (metrics.disk ? metrics.disk.used_gb : 0)} из {metrics.local_disk ? metrics.local_disk.total_gb : (metrics.disk ? metrics.disk.total_gb : 0)} ГБ</span>
-            <span>Свободно на сервере: {metrics.local_disk ? metrics.local_disk.free_gb : (metrics.disk ? metrics.disk.free_gb : 0)} ГБ</span>
+            <span>Использовано хостом: {metrics.local_disk ? metrics.local_disk.used_gb : (metrics.disk ? metrics.disk.used_gb : 0)} из {metrics.local_disk ? metrics.local_disk.total_gb : (metrics.disk ? metrics.disk.total_gb : 0)} ГБ</span>
+            <span>Занято ВМ (резерв): {metrics.disk ? metrics.disk.reserved_gb : 0} ГБ</span>
+            <span>Доступно для новых ВМ: {metrics.disk ? metrics.disk.available_gb : 0} ГБ</span>
           </div>
         </div>
 
@@ -201,7 +202,7 @@ const HostStats = ({ onMetricsLoaded }) => {
         )}
 
         {/* LVM Pool */}
-        {metrics.lvm && metrics.lvm.total_gb > 0 && (!metrics.shared_disk || !metrics.shared_disk.active) && (
+        {metrics.lvm && (
           <div className="stat-box">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> LVM Хранилище (PaaS)</span>
@@ -322,6 +323,16 @@ const HostStats = ({ onMetricsLoaded }) => {
                       <div className={`progress-fill ${getProgressClass(node.memory.usage_percent)}`} style={{ width: `${node.memory.usage_percent}%` }} />
                     </div>
                   </div>
+                  {node.disk && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Диск ноды (Локальный):</span> <span>{node.disk.used_percent}% ({node.disk.used_gb} из {node.disk.total_gb} ГБ)</span>
+                      </div>
+                      <div className="progress-track" style={{ height: '6px' }}>
+                        <div className={`progress-fill ${getProgressClass(node.disk.used_percent)}`} style={{ width: `${node.disk.used_percent}%` }} />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
