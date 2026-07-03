@@ -338,6 +338,8 @@ const HostStats = ({ onMetricsLoaded }) => {
               </div>
             ))}
           </div>
+        </div>
+      )}
       {/* VM Resource Breakdown by Storage */}
       {metrics.vms_resources && metrics.vms_resources.length > 0 && (
         <div style={{ marginTop: '24px', marginBottom: '24px', paddingTop: '20px', borderTop: '1px solid var(--border-subtle)' }}>
