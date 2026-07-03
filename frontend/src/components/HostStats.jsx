@@ -7,6 +7,7 @@ const HostStats = ({ onMetricsLoaded }) => {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [selectedStorageTab, setSelectedStorageTab] = useState('nfs');
 
   const [showResize, setShowResize] = useState(false);
   const [newSizeGb, setNewSizeGb] = useState('');
@@ -175,7 +176,7 @@ const HostStats = ({ onMetricsLoaded }) => {
           </div>
           <div className="stat-box-meta">
             <span>Использовано хостом: {metrics.local_disk ? metrics.local_disk.used_gb : (metrics.disk ? metrics.disk.used_gb : 0)} из {metrics.local_disk ? metrics.local_disk.total_gb : (metrics.disk ? metrics.disk.total_gb : 0)} ГБ</span>
-            <span>Занято ВМ (резерв): {metrics.disk ? metrics.disk.reserved_gb : 0} ГБ</span>
+            <span>Выделено ВМ: {metrics.local_reserved ? `${metrics.local_reserved.cpu_cores} vCPU / ${metrics.local_reserved.memory_gb} ГБ ОЗУ / ${metrics.local_reserved.disk_gb} ГБ диск` : '0'}</span>
             <span>Доступно для новых ВМ: {metrics.disk ? metrics.disk.available_gb : 0} ГБ</span>
           </div>
         </div>
@@ -196,7 +197,7 @@ const HostStats = ({ onMetricsLoaded }) => {
             <div className="stat-box-meta">
               <span>Использовано: {metrics.shared_disk.used_gb} из {metrics.shared_disk.total_gb} ГБ</span>
               <span>Свободно на СХД: {metrics.shared_disk.free_gb} ГБ</span>
-              <span>Зарезервировано ВМ: {metrics.disk ? metrics.disk.reserved_gb : 0} ГБ</span>
+              <span>Выделено ВМ: {metrics.nfs_reserved ? `${metrics.nfs_reserved.cpu_cores} vCPU / ${metrics.nfs_reserved.memory_gb} ГБ ОЗУ / ${metrics.nfs_reserved.disk_gb} ГБ диск` : '0'}</span>
             </div>
           </div>
         )}
@@ -241,8 +242,8 @@ const HostStats = ({ onMetricsLoaded }) => {
               />
             </div>
             <div className="stat-box-meta">
-              <span>Общая емкость пула: {metrics.lvm.total_gb} ГБ</span>
-              <span>Занято томами: {metrics.lvm.used_gb} ГБ</span>
+              <span>Общая емкость пула: {metrics.lvm.total_gb} ГБ | Занято: {metrics.lvm.used_gb} ГБ</span>
+              <span>Выделено ВМ: {metrics.lvm_reserved ? `${metrics.lvm_reserved.cpu_cores} vCPU / ${metrics.lvm_reserved.memory_gb} ГБ ОЗУ / ${metrics.lvm_reserved.disk_gb} ГБ диск` : '0'}</span>
               <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>Свободно (доступно): {metrics.lvm.free_gb} ГБ</span>
             </div>
           </div>
@@ -336,6 +337,98 @@ const HostStats = ({ onMetricsLoaded }) => {
                 </div>
               </div>
             ))}
+          </div>
+      {/* VM Resource Breakdown by Storage */}
+      {metrics.vms_resources && metrics.vms_resources.length > 0 && (
+        <div style={{ marginTop: '24px', marginBottom: '24px', paddingTop: '20px', borderTop: '1px solid var(--border-subtle)' }}>
+          <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-heading)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <HardDrive size={16} /> Распределение ресурсов виртуальных машин по хранилищам
+          </h4>
+          
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+            {metrics.shared_disk && metrics.shared_disk.active && (
+              <button 
+                type="button" 
+                className={`btn btn-sm ${selectedStorageTab === 'nfs' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setSelectedStorageTab('nfs')}
+                style={{ padding: '6px 12px', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+              >
+                Сетевая СХД (NFS) ({metrics.vms_resources.filter(v => v.storage_class.toLowerCase().includes('nfs')).length})
+              </button>
+            )}
+            <button 
+              type="button" 
+              className={`btn btn-sm ${selectedStorageTab === 'lvm' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setSelectedStorageTab('lvm')}
+              style={{ padding: '6px 12px', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+            >
+              LVM Хранилище (PaaS) ({metrics.vms_resources.filter(v => v.storage_class.toLowerCase().includes('lvm') || v.storage_class.toLowerCase().includes('vg-')).length})
+            </button>
+            <button 
+              type="button" 
+              className={`btn btn-sm ${selectedStorageTab === 'local' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setSelectedStorageTab('local')}
+              style={{ padding: '6px 12px', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+            >
+              Локальный SSD ({metrics.vms_resources.filter(v => !v.storage_class.toLowerCase().includes('nfs') && !v.storage_class.toLowerCase().includes('lvm') && !v.storage_class.toLowerCase().includes('vg-')).length})
+            </button>
+          </div>
+
+          <div className="table-responsive" style={{ background: 'var(--bg-surface-hover)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+            <table className="table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+              <thead>
+                <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}>
+                  <th style={{ padding: '8px' }}>Имя ВМ</th>
+                  <th style={{ padding: '8px' }}>Статус</th>
+                  <th style={{ padding: '8px' }}>Размещение (Нода)</th>
+                  <th style={{ padding: '8px', textAlign: 'center' }}>Ядра vCPU</th>
+                  <th style={{ padding: '8px', textAlign: 'center' }}>ОЗУ (RAM)</th>
+                  <th style={{ padding: '8px', textAlign: 'center' }}>Диск (Storage)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {metrics.vms_resources
+                  .filter(v => {
+                    const sc = v.storage_class.toLowerCase();
+                    if (selectedStorageTab === 'nfs') return sc.includes('nfs');
+                    if (selectedStorageTab === 'lvm') return sc.includes('lvm') || sc.includes('vg-');
+                    return !sc.includes('nfs') && !sc.includes('lvm') && !sc.includes('vg-');
+                  })
+                  .map(vm => (
+                    <tr key={vm.name} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'var(--text-primary)' }}>
+                      <td style={{ padding: '10px 8px', fontWeight: 600 }}>{vm.name}</td>
+                      <td style={{ padding: '10px 8px' }}>
+                        <span style={{ 
+                          fontSize: '0.75rem', 
+                          padding: '2px 8px', 
+                          borderRadius: '4px',
+                          fontWeight: 500,
+                          background: vm.status === 'Running' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                          color: vm.status === 'Running' ? 'var(--status-success)' : 'var(--status-danger)'
+                        }}>
+                          {vm.status === 'Running' ? 'Запущена' : 'Остановлена'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 8px', fontFamily: 'monospace' }}>{vm.node || 'Unknown'}</td>
+                      <td style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 600 }}>{vm.cpu_cores}</td>
+                      <td style={{ padding: '10px 8px', textAlign: 'center' }}>{vm.memory_gb} ГБ</td>
+                      <td style={{ padding: '10px 8px', textAlign: 'center' }}>{vm.disk_gb} ГБ</td>
+                    </tr>
+                  ))}
+                {metrics.vms_resources.filter(v => {
+                  const sc = v.storage_class.toLowerCase();
+                  if (selectedStorageTab === 'nfs') return sc.includes('nfs');
+                  if (selectedStorageTab === 'lvm') return sc.includes('lvm') || sc.includes('vg-');
+                  return !sc.includes('nfs') && !sc.includes('lvm') && !sc.includes('vg-');
+                }).length === 0 && (
+                  <tr>
+                    <td colSpan="6" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      Нет виртуальных машин на этом типе хранилища
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

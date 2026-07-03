@@ -621,9 +621,11 @@ class K8sClient:
         for dv in dvt:
             dv_spec = dv.get("spec", {})
             size = dv_spec.get("storage", {}).get("resources", {}).get("requests", {}).get("storage", "10Gi")
+            sc = dv_spec.get("storage", {}).get("storageClassName") or settings.STORAGE_CLASS
             disks.append({
                 "name": dv["metadata"]["name"],
                 "size": size,
+                "storage_class": sc,
                 "source": list(dv_spec.get("source", {}).keys())[0] if dv_spec.get("source") else "unknown"
             })
             
