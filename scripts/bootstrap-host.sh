@@ -203,6 +203,15 @@ fi
 sysctl -w net.ipv4.ip_forward=1
 echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/99-ip-forward.conf
 
+# 2.5. Оптимизация дискового кэша для HDD (предотвращение зависаний I/O при импорте ВМ)
+log "Настройка параметров sysctl для стабильности HDD..."
+sysctl -w vm.dirty_background_ratio=5
+sysctl -w vm.dirty_ratio=10
+cat <<EOF > /etc/sysctl.d/99-aegis-hdd-tuning.conf
+vm.dirty_background_ratio=5
+vm.dirty_ratio=10
+EOF
+
 # 3. Настройка IPTables правил
 iptables -t nat -C POSTROUTING -s 172.20.0.0/24 -o "${ACTIVE_IFACE}" -j MASQUERADE &>/dev/null || \
     iptables -t nat -A POSTROUTING -s 172.20.0.0/24 -o "${ACTIVE_IFACE}" -j MASQUERADE

@@ -31,7 +31,7 @@ else
     mkdir -p /var/lib/aegis
     truncate -s 40G /var/lib/aegis/lvm-storage.img
 
-    log "Создание службы автоподключения петлевого устройства (loop device)..."
+    log "Создание службы автоподключения петлевого устройства (loop device) с Direct I/O..."
     cat <<EOF > /etc/systemd/system/aegis-lvm-loop.service
 [Unit]
 Description=Setup loop device for Aegis LVM Storage
@@ -41,12 +41,22 @@ After=local-fs.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/bash -c "(losetup -j /var/lib/aegis/lvm-storage.img | grep -q . || losetup -fP /var/lib/aegis/lvm-storage.img) && udevadm settle && (vgchange -ay vg-aegis || true)"
+ExecStart=/bin/bash -c "(losetup -j /var/lib/aegis/lvm-storage.img | grep -q . || losetup -fP --direct-io=on /var/lib/aegis/lvm-storage.img) && udevadm settle && (vgchange -ay vg-aegis || true)"
 ExecStop=/bin/bash -c "vgchange -an vg-aegis; LOOP_DEV=\\\$(losetup -j /var/lib/aegis/lvm-storage.img | awk -F: '{print \\\$1}'); if [ -n \\\"\\\$LOOP_DEV\\\" ]; then losetup -d \\\$LOOP_DEV; fi"
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
+    # Настройка параметров sysctl для HDD
+    log "Настройка параметров sysctl для стабильности HDD..."
+    sysctl -w vm.dirty_background_ratio=5
+    sysctl -w vm.dirty_ratio=10
+    cat <<EOF > /etc/sysctl.d/99-aegis-hdd-tuning.conf
+vm.dirty_background_ratio=5
+vm.dirty_ratio=10
+EOF
+    sysctl --system
 
     systemctl daemon-reload
     systemctl enable --now aegis-lvm-loop.service
