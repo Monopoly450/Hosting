@@ -924,9 +924,13 @@ class K8sClient:
         volume_mode = "Block"
         access_mode = "ReadWriteOnce"
         # NFS не поддерживает режим Block и требует ReadWriteMany для живой миграции
+        # local-path и hostpath требуют режима Filesystem, но поддерживают только ReadWriteOnce
         if "nfs" in storage_class.lower():
             volume_mode = "Filesystem"
             access_mode = "ReadWriteMany"
+        elif "local" in storage_class.lower() or "hostpath" in storage_class.lower():
+            volume_mode = "Filesystem"
+            access_mode = "ReadWriteOnce"
 
         body = {
             "apiVersion": "cdi.kubevirt.io/v1beta1",
