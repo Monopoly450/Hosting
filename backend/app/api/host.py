@@ -281,9 +281,35 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
             "free_gb": 0.0,
             "used_percent": 0.0
         }
-        if os.path.exists("/mnt/shared-pvc"):
+        
+        # Автоматическое монтирование NFS для получения реального размера
+        nfs_mount_dir = "/mnt/shared-pvc"
+        try:
+            # Найдем NFS IP из PV
+            nfs_ip = None
             try:
-                sh_total, sh_used, sh_free = shutil.disk_usage("/mnt/shared-pvc")
+                pvs = client.core_api.list_persistent_volume()
+                for pv in pvs.items:
+                    if pv.spec.nfs:
+                        nfs_ip = pv.spec.nfs.server
+                        break
+            except Exception:
+                pass
+            
+            if nfs_ip:
+                os.makedirs(nfs_mount_dir, exist_ok=True)
+                if not os.path.ismount(nfs_mount_dir):
+                    subprocess.run(
+                        ["mount", "-t", "nfs", "-o", "nolock,timeout=3", f"{nfs_ip}:/mnt/shared-pvc", nfs_mount_dir],
+                        capture_output=True,
+                        timeout=5
+                    )
+        except Exception:
+            pass
+
+        if os.path.exists(nfs_mount_dir):
+            try:
+                sh_total, sh_used, sh_free = shutil.disk_usage(nfs_mount_dir)
                 if sh_total > 0:
                     shared_disk = {
                         "active": True,
