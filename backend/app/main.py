@@ -38,8 +38,18 @@ async def startup_event():
         await conn.run_sync(Base.metadata.create_all)
         try:
             await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS iso_url VARCHAR;"))
+            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS owner_id INTEGER;"))
+            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS cluster_id INTEGER;"))
+            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS disk_read_mbs INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS disk_write_mbs INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS disk_read_iops INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS disk_write_iops INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS ports_config VARCHAR;"))
+            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS firewall_rules VARCHAR;"))
+            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS cloud_init_template VARCHAR;"))
+            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS custom_user_data TEXT;"))
         except Exception as alter_err:
-            logger.warning(f"Could not run ALTER TABLE: {alter_err}")
+            logger.warning(f"Could not run ALTER TABLE migrations: {alter_err}")
     logger.info("Таблицы базы данных успешно проверены/созданы.")
     
     # Заполнение начальными данными при пустой БД
