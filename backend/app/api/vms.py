@@ -21,6 +21,7 @@ from app.core.k8s_client import K8sClient
 from app.services.ssh_inspector import SSHInspector
 from app.core.auth import get_current_user
 from app.models.models import User
+from app.core.config import settings
 
 router = APIRouter()
 logger = logging.getLogger("app.api.vms")
@@ -361,7 +362,7 @@ local-hostname: {req.name}
                             }
                         },
                         "storage": {
-                            "storageClassName": "local-path",
+                            "storageClassName": settings.STORAGE_CLASS,
                             "accessModes": [
                                 "ReadWriteOnce"
                             ],
@@ -518,7 +519,7 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                             "blank": {}
                         },
                         "storage": {
-                            "storageClassName": "local-path",
+                            "storageClassName": settings.STORAGE_CLASS,
                             "accessModes": [
                                 "ReadWriteOnce"
                             ],
@@ -545,7 +546,7 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                             }
                         },
                         "storage": {
-                            "storageClassName": "local-path",
+                            "storageClassName": settings.STORAGE_CLASS,
                             "accessModes": [
                                 "ReadWriteOnce"
                             ],

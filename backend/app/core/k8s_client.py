@@ -424,7 +424,7 @@ class K8sClient:
                         }
                     },
                     "storage": {
-                        "storageClassName": "local-path",
+                        "storageClassName": settings.STORAGE_CLASS,
                         "resources": {
                             "requests": {
                                 "storage": storage_size
@@ -574,7 +574,7 @@ class K8sClient:
                         }
                     },
                     "storage": {
-                        "storageClassName": "local-path",
+                        "storageClassName": settings.STORAGE_CLASS,
                         "resources": {
                             "requests": {
                                 "storage": backup_size
@@ -893,6 +893,12 @@ class K8sClient:
 
     def create_pvc(self, name: str, size_gb: int, namespace: str = "default"):
         """Создает PersistentVolumeClaim в Kubernetes с поддержкой блочного режима для горячей замены"""
+        storage_class = settings.STORAGE_CLASS
+        volume_mode = "Block"
+        # NFS не поддерживает режим Block, поэтому автоматически переключаем в Filesystem
+        if "nfs" in storage_class.lower():
+            volume_mode = "Filesystem"
+
         body = {
             "apiVersion": "v1",
             "kind": "PersistentVolumeClaim",
@@ -901,8 +907,8 @@ class K8sClient:
             },
             "spec": {
                 "accessModes": ["ReadWriteOnce"],
-                "storageClassName": "openebs-lvm",
-                "volumeMode": "Block",
+                "storageClassName": storage_class,
+                "volumeMode": volume_mode,
                 "resources": {
                     "requests": {
                         "storage": f"{size_gb}Gi"
