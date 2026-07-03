@@ -14,7 +14,7 @@ router = APIRouter()
 import time
 
 _lvm_cache = {
-    "data": {"total_gb": 0.0, "free_gb": 0.0, "used_gb": 0.0},
+    "data": {"active": False, "total_gb": 0.0, "free_gb": 0.0, "used_gb": 0.0},
     "last_updated": 0.0
 }
 
@@ -237,7 +237,7 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
         global _lvm_cache
         now = time.time()
         if now - _lvm_cache["last_updated"] >= 15.0:
-            lvm_info = {"total_gb": 0.0, "free_gb": 0.0, "used_gb": 0.0}
+            lvm_info = {"active": False, "total_gb": 0.0, "free_gb": 0.0, "used_gb": 0.0}
             try:
                 # Сначала пробуем выполнить vgs на хосте через nsenter, так как там есть доступ к /dev
                 res = subprocess.run(
@@ -261,6 +261,7 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                         vg_size = float(parts[0].replace(",", "."))
                         vg_free = float(parts[1].replace(",", "."))
                         lvm_info = {
+                            "active": True,
                             "total_gb": round(vg_size, 1),
                             "free_gb": round(vg_free, 1),
                             "used_gb": round(vg_size - vg_free, 1)
@@ -270,8 +271,9 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                 logging.getLogger("app.host").error(f"Failed to query LVM vg-aegis info: {lvm_err}")
 
             # Резервный вариант: если LVM пуст, показываем СХД
-            if lvm_info["total_gb"] == 0.0 and shared_disk["active"]:
+            if not lvm_info["active"] and shared_disk["active"]:
                 lvm_info = {
+                    "active": False,
                     "total_gb": shared_disk["total_gb"],
                     "free_gb": shared_disk["free_gb"],
                     "used_gb": shared_disk["used_gb"]

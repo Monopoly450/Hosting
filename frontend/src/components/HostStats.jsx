@@ -207,7 +207,7 @@ const HostStats = ({ onMetricsLoaded }) => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> LVM Хранилище (PaaS)</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {localStorage.getItem('aegis_role') === 'admin' && (
+                {localStorage.getItem('aegis_role') === 'admin' && metrics.lvm.active && (
                   <button 
                     className="btn btn-secondary btn-icon-only" 
                     style={{ 
