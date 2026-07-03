@@ -74,6 +74,10 @@ def decode_access_token(token: str) -> dict:
 
 # --- ЗАВИСИМОСТИ FASTAPI ---
 
+async def get_db():
+    async with SessionLocal() as session:
+        yield session
+
 async def verify_admin_token(
     x_admin_token: str = Security(token_header),
     credentials: HTTPAuthorizationCredentials = Depends(security_bearer),
@@ -98,10 +102,6 @@ async def verify_admin_token(
         detail="Неверный или отсутствующий токен доступа",
         headers={"WWW-Authenticate": "Bearer or X-Admin-Token"},
     )
-
-async def get_db():
-    async with SessionLocal() as session:
-        yield session
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security_bearer),
