@@ -85,37 +85,11 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
             # Если метрики временно недоступны
             pass
 
-        # Дисковое пространство на хосте
-        total, used, free = shutil.disk_usage("/")
-        disk_total_gb = round(total / (1024**3), 1)
-        disk_used_gb = round(used / (1024**3), 1)
-        disk_free_gb = round(free / (1024**3), 1)
-        disk_used_percent = round(used / total * 100, 1)
-
-        # Вычисляем зарезервированные ресурсы ВМ в базе данных
+        # Дисковое пространство         # Вычисляем зарезервированные ресурсы ВМ в базе данных
         reserved_cpu_cores = 0
         reserved_ram_gb = 0
         reserved_disk_gb = 0
-
-        # Get host CPU model and socket count
-        cpu_model = "Unknown Processor"
-        physical_ids = set()
-        if os.path.exists("/proc/cpuinfo"):
-            try:
-                with open("/proc/cpuinfo", "r") as f:
-                    for line in f:
-                        if "model name" in line:
-                            cpu_model = line.split(":", 1)[1].strip()
-                        elif "physical id" in line:
-                            physical_ids.add(line.split(":", 1)[1].strip())
-            except Exception:
-                pass
-        cpu_sockets = len(physical_ids) if physical_ids else 1
-
-        # Инициализируем девелоперские счетчики по умолчанию
-        reserved_cpu_cores = 0
-        reserved_ram_gb = 0
-        reserved_disk_gb = 0
+        reserved_stopped_ram_gb = 0
 
         db = SessionLocal()
         try:
@@ -149,10 +123,8 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
 
                     for name, k8s_vm in k8s_vm_map.items():
                         if name not in db_vm_names:
-                            # Воссоздаем CPU
                             cpu_cores = k8s_vm.get("cpu_cores", 1)
                             
-                            # Воссоздаем RAM
                             mem_str = k8s_vm.get("memory", "1Gi")
                             memory_gb = 1
                             try:
@@ -163,7 +135,6 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                             except Exception:
                                 pass
                             
-                            # Воссоздаем Disk
                             disk_gb = 10
                             disks = k8s_vm.get("disks", [])
                             if disks:
@@ -173,10 +144,9 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                                         disk_gb = int(size_str[:-2])
                                     elif size_str.endswith("Mi"):
                                         disk_gb = int(size_str[:-2]) // 1024
-                                except Exception:
+                                  except Exception:
                                     pass
 
-                            # Угадываем владельца по вхождению его имени в название ВМ
                             owner_id = default_owner_id
                             for u in users:
                                 if u.username.lower() in name.lower():
@@ -216,6 +186,38 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
             logging.getLogger("app.host").error(f"Global error in DB block of host metrics: {global_err}")
         finally:
             db.close()
+
+        # Дисковое пространство на локальном сервере (SSD хоста)
+        local_total, local_used, local_free = shutil.disk_usage("/")
+        local_disk = {
+            "total_gb": round(local_total / (1024**3), 1),
+            "used_gb": round(local_used / (1024**3), 1),
+            "free_gb": round(local_free / (1024**3), 1),
+            "used_percent": round(local_used / local_total * 100, 1)
+        }
+
+        # Дисковое пространство на СХД (NFS)
+        shared_disk = {
+            "active": False,
+            "total_gb": 0.0,
+            "used_gb": 0.0,
+            "free_gb": 0.0,
+            "used_percent": 0.0
+        }
+        if os.path.exists("/mnt/shared-pvc"):
+            try:
+                sh_total, sh_used, sh_free = shutil.disk_usage("/mnt/shared-pvc")
+                if sh_total > 0:
+                    shared_disk = {
+                        "active": True,
+                        "total_gb": round(sh_total / (1024**3), 1),
+                        "used_gb": round(sh_used / (1024**3), 1),
+                        "free_gb": round(sh_free / (1024**3), 1),
+                        "used_percent": round(sh_used / sh_total * 100, 1)
+                    }
+            except Exception:
+                pass
+
         # Получаем данные LVM пула vg-aegis с кэшированием на 15 секунд и таймаутом
         global _lvm_cache
         now = time.time()
@@ -242,55 +244,149 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                 import logging
                 logging.getLogger("app.host").error(f"Failed to query LVM vg-aegis info: {lvm_err}")
 
-            # Резервный вариант: если LVM пуст (равен 0), проверяем смонтированную СХД в /mnt/shared-pvc
-            if lvm_info["total_gb"] == 0.0:
-                try:
-                    if os.path.exists("/mnt/shared-pvc"):
-                        total, used, free = shutil.disk_usage("/mnt/shared-pvc")
-                        if total > 0:
-                            lvm_info = {
-                                "total_gb": round(total / (1024 * 1024 * 1024), 1),
-                                "free_gb": round(free / (1024 * 1024 * 1024), 1),
-                                "used_gb": round(used / (1024 * 1024 * 1024), 1)
-                            }
-                except Exception as nfs_err:
-                    import logging
-                    logging.getLogger("app.host").error(f"Failed to query NFS СХД disk usage: {nfs_err}")
+            # Резервный вариант: если LVM пуст, показываем СХД
+            if lvm_info["total_gb"] == 0.0 and shared_disk["active"]:
+                lvm_info = {
+                    "total_gb": shared_disk["total_gb"],
+                    "free_gb": shared_disk["free_gb"],
+                    "used_gb": shared_disk["used_gb"]
+                }
 
             _lvm_cache["data"] = lvm_info
             _lvm_cache["last_updated"] = now
 
         lvm_info = _lvm_cache["data"]
 
-        total_ram_gb = round(mem_capacity_bytes / (1024 * 1024 * 1024), 2)
+        # Получаем данные о кластере и нодах
+        nodes_list = []
+        is_cluster = len(nodes.items) > 1
+
+        total_cores = 0
+        total_used_cores = 0.0
+        total_ram_bytes = 0
+        total_used_ram_bytes = 0
+
+        for n in nodes.items:
+            n_name = n.metadata.name
+            
+            n_status = "Unknown"
+            for cond in n.status.conditions:
+                if cond.type == "Ready":
+                    n_status = "Ready" if cond.status == "True" else "NotReady"
+                    break
+                    
+            n_role = "Worker"
+            for label in n.metadata.labels:
+                if "control-plane" in label or "master" in label:
+                    n_role = "Master"
+                    break
+                    
+            n_ip = "Unknown"
+            if n.status.addresses:
+                for addr in n.status.addresses:
+                    if addr.type == "InternalIP":
+                        n_ip = addr.address
+                        break
+                        
+            n_cpu_capacity = int(n.status.capacity.get("cpu", 1))
+            n_mem_capacity = parse_k8s_mem(n.status.capacity.get("memory"))
+            
+            n_cpu_usage_milli = 0
+            n_mem_usage_bytes = 0
+            
+            try:
+                n_metrics = client.custom_api.get_cluster_custom_object(
+                    group="metrics.k8s.io",
+                    version="v1beta1",
+                    plural="nodes",
+                    name=n_name
+                )
+                
+                cpu_str = n_metrics.get("usage", {}).get("cpu", "0n")
+                if cpu_str.endswith("n"):
+                    n_cpu_usage_milli = int(cpu_str[:-1]) / 1000000
+                elif cpu_str.endswith("u"):
+                    n_cpu_usage_milli = int(cpu_str[:-1]) / 1000
+                elif cpu_str.endswith("m"):
+                    n_cpu_usage_milli = int(cpu_str[:-1])
+                else:
+                    n_cpu_usage_milli = int(cpu_str) * 1000
+                    
+                mem_str = n_metrics.get("usage", {}).get("memory", "0Ki")
+                n_mem_usage_bytes = parse_k8s_mem(mem_str)
+            except Exception:
+                pass
+                
+            n_usage_cores = round(n_cpu_usage_milli / 1000, 2)
+            n_usage_ram_gb = round(n_mem_usage_bytes / (1024**3), 2)
+            n_total_ram_gb = round(n_mem_capacity / (1024**3), 2)
+
+            # Суммируем ресурсы для кластера
+            if n_status == "Ready":
+                total_cores += n_cpu_capacity
+                total_used_cores += n_usage_cores
+                total_ram_bytes += n_mem_capacity
+                total_used_ram_bytes += n_mem_usage_bytes
+
+            nodes_list.append({
+                "name": n_name,
+                "status": n_status,
+                "role": n_role,
+                "ip": n_ip,
+                "cpu": {
+                    "total_cores": n_cpu_capacity,
+                    "usage_cores": n_usage_cores,
+                    "usage_percent": round(n_usage_cores / n_cpu_capacity * 100, 1) if n_cpu_capacity else 0,
+                    "model": cpu_model if n_role == "Master" else "Cluster Node vCPU"
+                },
+                "memory": {
+                    "total_gb": n_total_ram_gb,
+                    "usage_gb": n_usage_ram_gb,
+                    "usage_percent": round(n_usage_ram_gb / n_total_ram_gb * 100, 1) if n_total_ram_gb else 0
+                }
+            })
+
+        # Если это не кластер, или если суммирование дало 0 (все упали), откатываемся к локальной ноде
+        if not is_cluster or total_cores == 0:
+            total_cores = cpu_capacity
+            total_used_cores = round(cpu_usage_milli / 1000, 2)
+            total_ram_bytes = mem_capacity_bytes
+            total_used_ram_bytes = mem_usage_bytes
+
+        cluster_ram_gb = round(total_ram_bytes / (1024**3), 2)
+        cluster_used_ram_gb = round(total_used_ram_bytes / (1024**3), 2)
 
         return {
             "node_name": node_name,
+            "is_cluster": is_cluster,
+            "nodes_list": nodes_list,
+            "local_disk": local_disk,
+            "shared_disk": shared_disk,
             "lvm": lvm_info,
             "cpu": {
-                "total_cores": cpu_capacity,
-                "usage_cores": round(cpu_usage_milli / 1000, 2),
-                "usage_percent": round((cpu_usage_milli / 1000) / cpu_capacity * 100, 1) if cpu_capacity else 0,
+                "total_cores": total_cores,
+                "usage_cores": round(total_used_cores, 2),
+                "usage_percent": round(total_used_cores / total_cores * 100, 1) if total_cores else 0,
                 "reserved_cores": reserved_cpu_cores,
-                "available_cores": max(0, cpu_capacity - reserved_cpu_cores),
+                "available_cores": max(0, total_cores - reserved_cpu_cores),
                 "model": cpu_model,
                 "sockets": cpu_sockets
             },
             "memory": {
-                "total_gb": total_ram_gb,
-                "allocatable_gb": round(mem_allocatable_bytes / (1024 * 1024 * 1024), 2),
-                "usage_gb": round(mem_usage_bytes / (1024 * 1024 * 1024), 2),
-                "usage_percent": round(mem_usage_bytes / mem_capacity_bytes * 100, 1) if mem_capacity_bytes else 0,
+                "total_gb": cluster_ram_gb,
+                "allocatable_gb": round(mem_allocatable_bytes / (1024**3), 2) if not is_cluster else round(cluster_ram_gb * 0.9, 2),
+                "usage_gb": cluster_used_ram_gb,
+                "usage_percent": round(total_used_ram_bytes / total_ram_bytes * 100, 1) if total_ram_bytes else 0,
                 "reserved_gb": reserved_ram_gb,
-                "available_gb": max(0.0, round(total_ram_gb - (mem_usage_bytes / (1024**3)) - reserved_stopped_ram_gb, 2))
+                "available_gb": max(0.0, round(cluster_ram_gb - cluster_used_ram_gb - reserved_stopped_ram_gb, 2))
             },
             "disk": {
-                "total_gb": disk_total_gb,
-                "used_gb": disk_used_gb,
-                "free_gb": disk_free_gb,
-                "used_percent": disk_used_percent,
+                "total_gb": shared_disk["total_gb"] if shared_disk["active"] else local_disk["total_gb"],
+                "used_gb": shared_disk["used_gb"] if shared_disk["active"] else local_disk["used_gb"],
+                "free_gb": shared_disk["free_gb"] if shared_disk["active"] else local_disk["free_gb"],
+                "used_percent": shared_disk["used_percent"] if shared_disk["active"] else local_disk["used_percent"],
                 "reserved_gb": reserved_disk_gb,
-                "available_gb": max(0.0, disk_free_gb)
+                "available_gb": max(0.0, shared_disk["free_gb"] if shared_disk["active"] else local_disk["free_gb"])
             },
             "os_info": node.status.node_info.os_image,
             "kernel_version": node.status.node_info.kernel_version,

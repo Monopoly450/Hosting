@@ -159,54 +159,79 @@ const HostStats = ({ onMetricsLoaded }) => {
           </div>
         </div>
 
-        {/* Disk */}
+        {/* Local SSD */}
         <div className="stat-box">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> Дисковое пространство</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {localStorage.getItem('aegis_role') === 'admin' && (
-                <button 
-                  className="btn btn-secondary btn-icon-only" 
-                  style={{ 
-                    width: '28px', 
-                    height: '28px', 
-                    padding: 0, 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    borderRadius: '50%',
-                    border: '1px solid var(--border-subtle)',
-                    background: 'var(--bg-surface-hover)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                  onClick={() => { setShowResize(!showResize); setResizeStatus(null); }}
-                  title="Управление пулом LVM"
-                >
-                  <Settings size={14} style={{ color: showResize ? 'var(--accent-primary)' : 'var(--text-secondary)' }} />
-                </button>
-              )}
-              <span className="stat-box-value">{metrics.disk ? metrics.disk.used_percent : 0}%</span>
-            </div>
+            <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> Локальный SSD (Панель)</span>
+            <span className="stat-box-value">
+              {metrics.local_disk ? metrics.local_disk.used_percent : (metrics.disk ? metrics.disk.used_percent : 0)}%
+            </span>
           </div>
           <div className="progress-track">
-            <div className={`progress-fill ${getProgressClass(metrics.disk ? metrics.disk.used_percent : 0)}`} style={{ width: `${metrics.disk ? metrics.disk.used_percent : 0}%` }} />
+            <div 
+              className={`progress-fill ${getProgressClass(metrics.local_disk ? metrics.local_disk.used_percent : (metrics.disk ? metrics.disk.used_percent : 0))}`} 
+              style={{ width: `${metrics.local_disk ? metrics.local_disk.used_percent : (metrics.disk ? metrics.disk.used_percent : 0)}%` }} 
+            />
           </div>
           <div className="stat-box-meta">
-            <span>Использовано хостом: {metrics.disk ? metrics.disk.used_gb : 0} из {metrics.disk ? metrics.disk.total_gb : 0} ГБ</span>
-            <span>Занято ВМ (резерв): {metrics.disk ? metrics.disk.reserved_gb : 0} ГБ</span>
-            <span>Доступно для новых ВМ: {metrics.disk ? metrics.disk.available_gb : 0} ГБ</span>
+            <span>Использовано: {metrics.local_disk ? metrics.local_disk.used_gb : (metrics.disk ? metrics.disk.used_gb : 0)} из {metrics.local_disk ? metrics.local_disk.total_gb : (metrics.disk ? metrics.disk.total_gb : 0)} ГБ</span>
+            <span>Свободно на сервере: {metrics.local_disk ? metrics.local_disk.free_gb : (metrics.disk ? metrics.disk.free_gb : 0)} ГБ</span>
           </div>
         </div>
 
+        {/* Network СХД / NFS */}
+        {metrics.shared_disk && metrics.shared_disk.active && (
+          <div className="stat-box">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> Сетевая СХД (NFS)</span>
+              <span className="stat-box-value">{metrics.shared_disk.used_percent}%</span>
+            </div>
+            <div className="progress-track">
+              <div 
+                className={`progress-fill ${getProgressClass(metrics.shared_disk.used_percent)}`} 
+                style={{ width: `${metrics.shared_disk.used_percent}%` }} 
+              />
+            </div>
+            <div className="stat-box-meta">
+              <span>Использовано: {metrics.shared_disk.used_gb} из {metrics.shared_disk.total_gb} ГБ</span>
+              <span>Свободно на СХД: {metrics.shared_disk.free_gb} ГБ</span>
+              <span>Зарезервировано ВМ: {metrics.disk ? metrics.disk.reserved_gb : 0} ГБ</span>
+            </div>
+          </div>
+        )}
+
         {/* LVM Pool */}
-        {metrics.lvm && (
+        {metrics.lvm && metrics.lvm.total_gb > 0 && (!metrics.shared_disk || !metrics.shared_disk.active) && (
           <div className="stat-box">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> LVM Хранилище (PaaS)</span>
-              <span className="stat-box-value">
-                {metrics.lvm.total_gb > 0 ? Math.round((metrics.lvm.used_gb / metrics.lvm.total_gb) * 100) : 0}%
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {localStorage.getItem('aegis_role') === 'admin' && (
+                  <button 
+                    className="btn btn-secondary btn-icon-only" 
+                    style={{ 
+                      width: '28px', 
+                      height: '28px', 
+                      padding: 0, 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      borderRadius: '50%',
+                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--bg-surface-hover)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                    onClick={() => { setShowResize(!showResize); setResizeStatus(null); }}
+                    title="Управление пулом LVM"
+                  >
+                    <Settings size={14} style={{ color: showResize ? 'var(--accent-primary)' : 'var(--text-secondary)' }} />
+                  </button>
+                )}
+                <span className="stat-box-value">
+                  {metrics.lvm.total_gb > 0 ? Math.round((metrics.lvm.used_gb / metrics.lvm.total_gb) * 100) : 0}%
+                </span>
+              </div>
             </div>
             <div className="progress-track">
               <div 
@@ -252,6 +277,57 @@ const HostStats = ({ onMetricsLoaded }) => {
         </div>
       )}
 
+      {/* Cluster Nodes Status */}
+      {metrics.is_cluster && metrics.nodes_list && (
+        <div style={{ marginTop: '24px', marginBottom: '24px', paddingTop: '20px', borderTop: '1px solid var(--border-subtle)' }}>
+          <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-heading)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Server size={16} /> Состояние узлов кластера (Nodes)
+          </h4>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
+            {metrics.nodes_list.map((node) => (
+              <div className="glass-card" key={node.name} style={{ padding: '16px', border: '1px solid var(--border-subtle)', background: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text-heading)', fontSize: '0.9rem' }}>{node.name}</span>
+                  <span style={{ 
+                    fontSize: '0.75rem', 
+                    padding: '2px 8px', 
+                    borderRadius: '4px', 
+                    fontWeight: 600,
+                    background: node.status === 'Ready' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)', 
+                    color: node.status === 'Ready' ? 'var(--status-success)' : 'var(--status-danger)' 
+                  }}>
+                    {node.status}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Роль:</span> <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{node.role}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>IP-адрес:</span> <span style={{ fontFamily: 'monospace' }}>{node.ip}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Нагрузка ЦП:</span> <span>{node.cpu.usage_percent}% ({node.cpu.usage_cores} из {node.cpu.total_cores} ядер)</span>
+                    </div>
+                    <div className="progress-track" style={{ height: '6px' }}>
+                      <div className={`progress-fill ${getProgressClass(node.cpu.usage_percent)}`} style={{ width: `${node.cpu.usage_percent}%` }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Использование ОЗУ:</span> <span>{node.memory.usage_percent}% ({node.memory.usage_gb} из {node.memory.total_gb} ГБ)</span>
+                    </div>
+                    <div className="progress-track" style={{ height: '6px' }}>
+                      <div className={`progress-fill ${getProgressClass(node.memory.usage_percent)}`} style={{ width: `${node.memory.usage_percent}%` }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Meta Info */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px', padding: '20px', background: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
