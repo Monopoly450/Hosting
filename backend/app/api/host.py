@@ -159,7 +159,7 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                                         disk_gb = int(size_str[:-2])
                                     elif size_str.endswith("Mi"):
                                         disk_gb = int(size_str[:-2]) // 1024
-                                  except Exception:
+                                except Exception:
                                     pass
 
                             owner_id = default_owner_id
