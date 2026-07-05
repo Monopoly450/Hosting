@@ -7,29 +7,29 @@
 
 :root {
   /* Surfaces (Selectel/AWS/DigitalOcean theme) */
-  --bg-body: #F4F6F8;
+  --bg-body: #F8F9FA;
   --bg-surface: #ffffff;
-  --bg-surface-hover: #F8FAFC;
-  --bg-surface-active: #F1F5F9;
+  --bg-surface-hover: #F8F9FA;
+  --bg-surface-active: #EDF2F7;
   --bg-glass: #ffffff;
 
-  --border-subtle: #ECEFF1;
-  --border-default: #E5E7EB;
-  --border-hover: #D1D5DB;
+  --border-subtle: #EDF2F7;
+  --border-default: #E2E8F0;
+  --border-hover: #CBD5E1;
 
   --text-heading: #0F172A;
   --text-primary: #1E293B;
   --text-secondary: #475569;
   --text-muted: #64748B;
 
-  /* Accent — Selectel/DO Blue */
-  --accent-primary: #0066FF;
-  --accent-primary-hover: #0052CC;
-  --accent-primary-light: rgba(0, 102, 255, 0.08);
+  /* Accent — Premium Vercel/Supabase Cyan-Blue */
+  --accent-primary: #3182CE;
+  --accent-primary-hover: #2B6CB0;
+  --accent-primary-light: rgba(49, 130, 206, 0.08);
   --accent-secondary: #0ea5e9;
   --accent-tertiary: #ec4899;
-  --gradient-accent: #0066FF;
-  --gradient-accent-soft: rgba(0, 102, 255, 0.04);
+  --gradient-accent: #3182CE;
+  --gradient-accent-soft: rgba(49, 130, 206, 0.04);
   --gradient-aurora: none;
 
   --status-success: #10B981;
@@ -38,7 +38,7 @@
   --status-warning-bg: #FEF3C7;
   --status-danger: #EF4444;
   --status-danger-bg: #FEE2E2;
-  --status-info: #0066FF;
+  --status-info: #3182CE;
   --status-info-bg: #E6F0FF;
 
   /* Typography */
@@ -110,10 +110,10 @@ body {
 /* Sidebar */
 .sidebar {
   width: 240px;
-  background: #1E2229;
+  background: #111318;
   border-radius: 0;
   border: none;
-  border-right: 1px solid #2D333F;
+  border-right: 1px solid #1E293B;
   display: flex;
   flex-direction: column;
   padding: 24px 16px;
@@ -172,26 +172,27 @@ body {
   font-weight: 500;
   font-size: 0.88rem;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
   text-align: left;
   position: relative;
-  transition: color var(--transition-fast), background var(--transition-fast);
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
 }
 
-.nav-item svg { transition: none; flex-shrink: 0; color: #64748B; }
+.nav-item svg { transition: none; flex-shrink: 0; color: #4A5568; }
 .nav-item:hover {
-  background-color: #2D333F;
+  background-color: #1A202C;
   color: #ffffff;
 }
 .nav-item:hover svg { color: #ffffff; }
 
 .nav-item.active {
-  background: var(--accent-primary);
+  background: rgba(49, 130, 206, 0.08);
   color: #ffffff;
   font-weight: 600;
+  border-color: rgba(49, 130, 206, 0.4);
 }
-.nav-item.active svg { color: #ffffff; }
+.nav-item.active svg { color: #3182CE; }
 
 /* Main Area */
 .main-area {
@@ -499,8 +500,8 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
 /* =========================== Progress =========================== */
 .progress-track {
   width: 100%;
-  height: 6px;
-  background-color: var(--bg-surface-active);
+  height: 2px;
+  background-color: #EDF2F7;
   border-radius: var(--radius-pill);
   overflow: hidden;
 }
@@ -508,9 +509,9 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
   height: 100%;
   border-radius: var(--radius-pill);
   transition: width 0.6s var(--ease-spring);
-  background: var(--gradient-accent);
+  background: var(--accent-primary);
 }
-.progress-fill.primary { background: var(--gradient-accent); }
+.progress-fill.primary { background: var(--accent-primary); }
 .progress-fill.success { background-color: var(--status-success); }
 .progress-fill.warning { background-color: var(--status-warning); }
 .progress-fill.danger { background-color: var(--status-danger); }
