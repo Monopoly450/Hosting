@@ -624,6 +624,16 @@ def clear_iptables_rules_for_ip(vm_ip: str):
                 del_cmd = line.replace("-A ", "-D ")
                 subprocess.run(nsenter_prefix + [f"iptables {del_cmd}"], capture_output=True, timeout=5)
 
+def clear_iptables_rules_for_port(ext_port: int):
+    import subprocess
+    nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
+    res = subprocess.run(nsenter_prefix + ["iptables -t nat -S PREROUTING"], capture_output=True, text=True, timeout=5)
+    if res.returncode == 0:
+        for line in res.stdout.splitlines():
+            if f"--dport {ext_port} " in line or line.endswith(f"--dport {ext_port}"):
+                del_cmd = line.replace("-A ", "-D ")
+                subprocess.run(nsenter_prefix + [f"iptables -t nat {del_cmd}"], capture_output=True, timeout=5)
+
 def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_config: str = None, firewall_rules: str = None, os_type: str = "linux"):
     """Настраивает проброс портов и правила доступа для ВМ с помощью iptables на хосте"""
     import subprocess
@@ -631,7 +641,7 @@ def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_c
     try:
         nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
         
-        # Очищаем старые правила
+        # Очищаем старые правила по IP
         clear_iptables_rules_for_ip(vm_ip)
         
         # Парсим список портов
@@ -671,6 +681,12 @@ def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_c
                         {"ext_port": 28000 + last_octet, "int_port": 80, "name": "HTTP"},
                         {"ext_port": 44300 + last_octet, "int_port": 443, "name": "HTTPS"}
                     ]
+
+        # Очищаем старые правила DNAT для каждого из портов, чтобы они не указывали на прошлые IP-адреса
+        for p in ports:
+            ext_port = p.get("ext_port")
+            if ext_port:
+                clear_iptables_rules_for_port(int(ext_port))
             
         # Парсим список разрешенных IP
         fw_map = {}
