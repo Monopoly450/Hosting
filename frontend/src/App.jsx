@@ -316,46 +316,63 @@ const App = () => {
   if (!authenticated) {
     return (
       <div className="login-wrapper">
+        <div className="login-orb orb-1" />
+        <div className="login-orb orb-2" />
+        <div className="login-orb orb-3" />
+
         <div className="login-card">
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', marginBottom: '32px' }}>
-            <div style={{ background: 'var(--accent-primary-light)', padding: '16px', borderRadius: '16px', color: 'var(--accent-primary)' }}>
-              <Monitor size={42} />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', marginBottom: '32px' }}>
+            <div className="login-logo-badge">
+              <Layers size={38} strokeWidth={2.4} />
             </div>
-            <h2 style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-heading)', margin: 0 }}>ByteBurnes</h2>
-            <p style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
+            <h2 className="login-title" style={{ margin: 0 }}>ByteBurners</h2>
+            <p style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.95rem', maxWidth: '280px' }}>
               Платформа управления облачной инфраструктурой
             </p>
           </div>
 
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div className="input-group">
-              <label className="input-label">Имя пользователя / Username</label>
-              <input 
-                type="text"
-                className="form-control"
-                value={usernameInput}
-                onChange={(e) => setUsernameInput(e.target.value)}
-                placeholder="admin"
-                required
-              />
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div className="input-group" style={{ marginBottom: 0 }}>
+              <label className="input-label">Имя пользователя</label>
+              <div style={{ position: 'relative' }}>
+                <Users size={17} style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                <input
+                  type="text"
+                  className="form-control"
+                  style={{ paddingLeft: '40px' }}
+                  value={usernameInput}
+                  onChange={(e) => setUsernameInput(e.target.value)}
+                  placeholder="admin"
+                  required
+                />
+              </div>
             </div>
 
-            <div className="input-group">
-              <label className="input-label">Пароль или Ключ доступа</label>
-              <input 
-                type="password"
-                className="form-control"
-                value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-                placeholder="Введите пароль или API ключ..."
-                required
-              />
+            <div className="input-group" style={{ marginBottom: 0 }}>
+              <label className="input-label">Пароль или ключ доступа</label>
+              <div style={{ position: 'relative' }}>
+                <Key size={17} style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                <input
+                  type="password"
+                  className="form-control"
+                  style={{ paddingLeft: '40px' }}
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder="Введите пароль или API ключ..."
+                  required
+                />
+              </div>
             </div>
 
-            <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: '1rem', marginTop: '8px' }}>
-              {formLoading ? <span className="spinner" /> : 'Войти'}
+            <button type="submit" className="btn btn-primary" disabled={formLoading} style={{ width: '100%', padding: '13px', fontSize: '1rem', marginTop: '10px' }}>
+              {formLoading ? <span className="spinner" /> : 'Войти в панель'}
             </button>
           </form>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '26px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+            <span className="status-dot live" style={{ background: 'var(--status-success)', width: '7px', height: '7px' }} />
+            Защищённое соединение · ByteBurners Cloud
+          </div>
         </div>
       </div>
     );
@@ -372,8 +389,8 @@ const App = () => {
       {/* Left Sidebar */}
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-logo">
-          <Layers className="logo-icon" size={28} strokeWidth={2.5} />
-          <span className="logo-text">ByteBurnes</span>
+          <Layers className="logo-icon" size={26} strokeWidth={2.5} />
+          <span className="logo-text">ByteBurners</span>
         </div>
 
         <div className="sidebar-nav">

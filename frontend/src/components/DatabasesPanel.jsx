@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, X, Link2, Unlink } from 'lucide-react';
+import { Database, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, X, Link2, Unlink, Plug, ArrowLeft, Terminal, Code2, Server, Check, User } from 'lucide-react';
 import CustomSelect from './CustomSelect';
 
 export default function DatabasesPanel() {
@@ -7,12 +7,12 @@ export default function DatabasesPanel() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [showCreateModal, setShowCreateModal] = useState(false);
-    
+
     // Form fields
     const [dbName, setDbName] = useState('');
     const [engine, setEngine] = useState('postgresql');
     const [submitting, setSubmitting] = useState(false);
-    
+
     // Visibility of password
     const [visiblePasswords, setVisiblePasswords] = useState({});
 
@@ -21,6 +21,11 @@ export default function DatabasesPanel() {
     const [showBindModal, setShowBindModal] = useState(false);
     const [selectedDbId, setSelectedDbId] = useState(null);
     const [selectedVmId, setSelectedVmId] = useState('');
+
+    // "Enter database" connection hub
+    const [connectDb, setConnectDb] = useState(null);
+    const [connectTab, setConnectTab] = useState('cli');
+    const [copiedKey, setCopiedKey] = useState(null);
 
     const getHeaders = () => {
         const token = localStorage.getItem('aegis_admin_token') || '';
@@ -168,14 +173,68 @@ export default function DatabasesPanel() {
         }));
     };
 
-    const copyToClipboard = (text) => {
+    const copyToClipboard = (text, key = null) => {
         navigator.clipboard.writeText(text);
-        alert('Скопировано в буфер обмена!');
+        if (key) {
+            setCopiedKey(key);
+            setTimeout(() => setCopiedKey(c => (c === key ? null : c)), 1400);
+        }
     };
 
     const getHostIP = () => {
         return window.location.hostname;
     };
+
+    // ---- Connection hub helpers ("enter database") ----
+    const connInfo = (d) => {
+        const isPg = d.engine === 'postgresql';
+        return {
+            isPg,
+            engineLabel: isPg ? 'PostgreSQL' : 'MySQL / MariaDB',
+            host: d.db_host || getHostIP(),
+            port: isPg ? '5432' : '3306',
+            user: d.db_user,
+            password: d.db_password,
+            name: d.db_name,
+        };
+    };
+
+    const buildSnippet = (d, tab) => {
+        const c = connInfo(d);
+        if (tab === 'cli') {
+            return c.isPg
+                ? `PGPASSWORD='${c.password}' psql -h ${c.host} -p ${c.port} -U ${c.user} -d ${c.name}`
+                : `mysql -h ${c.host} -P ${c.port} -u ${c.user} -p'${c.password}' ${c.name}`;
+        }
+        if (tab === 'uri') {
+            return c.isPg
+                ? `postgresql://${c.user}:${c.password}@${c.host}:${c.port}/${c.name}`
+                : `mysql://${c.user}:${c.password}@${c.host}:${c.port}/${c.name}`;
+        }
+        if (tab === 'python') {
+            return c.isPg
+                ? `import psycopg2\nconn = psycopg2.connect(\n    host="${c.host}", port=${c.port},\n    user="${c.user}", password="${c.password}",\n    dbname="${c.name}",\n)`
+                : `import pymysql\nconn = pymysql.connect(\n    host="${c.host}", port=${c.port},\n    user="${c.user}", password="${c.password}",\n    database="${c.name}",\n)`;
+        }
+        if (tab === 'node') {
+            return c.isPg
+                ? `import { Client } from 'pg'\nconst client = new Client({\n  host: '${c.host}', port: ${c.port},\n  user: '${c.user}', password: '${c.password}',\n  database: '${c.name}',\n})\nawait client.connect()`
+                : `import mysql from 'mysql2/promise'\nconst conn = await mysql.createConnection({\n  host: '${c.host}', port: ${c.port},\n  user: '${c.user}', password: '${c.password}',\n  database: '${c.name}',\n})`;
+        }
+        return '';
+    };
+
+    const CopyField = ({ label, value, ck, mono = true }) => (
+        <div className="input-group" style={{ marginBottom: 0 }}>
+            {label && <label className="input-label">{label}</label>}
+            <div className="copy-field">
+                <code style={{ fontFamily: mono ? 'var(--font-mono)' : 'inherit' }}>{value}</code>
+                <button className="btn-icon" onClick={() => copyToClipboard(value, ck)} title="Копировать">
+                    {copiedKey === ck ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                </button>
+            </div>
+        </div>
+    );
 
     const getVmIp = (vm) => {
         if (!vm || !vm.ips || vm.ips.length === 0) return null;
@@ -188,6 +247,102 @@ export default function DatabasesPanel() {
         );
         return bridgeIp || vm.ips[0] || null;
     };
+
+    // ===== Connection hub view ("enter database") =====
+    if (connectDb) {
+        const c = connInfo(connectDb);
+        const tabs = [
+            { id: 'cli', label: 'Терминал', icon: Terminal },
+            { id: 'uri', label: 'URI строка', icon: Link2 },
+            { id: 'python', label: 'Python', icon: Code2 },
+            { id: 'node', label: 'Node.js', icon: Code2 },
+        ];
+        return (
+            <div className="panel-container">
+                <button className="btn btn-secondary" onClick={() => setConnectDb(null)} style={{ marginBottom: '18px' }}>
+                    <ArrowLeft size={16} /> Назад к списку баз данных
+                </button>
+
+                <div className="glass-card accent-top" style={{ marginBottom: '22px', display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap' }}>
+                    <div className="connect-tile-icon" style={{ width: '54px', height: '54px', flexShrink: 0 }}>
+                        <Database size={26} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: '200px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                            <h2 className="panel-title" style={{ fontSize: '1.5rem' }}>{c.name}</h2>
+                            <span className={`status-badge ${c.isPg ? 'status-active' : 'status-pending'}`}>{c.engineLabel}</span>
+                        </div>
+                        <p className="panel-subtitle" style={{ marginTop: '2px' }}>
+                            {connectDb.associated_vm_name
+                                ? <>Доступ разрешён для ВМ <strong style={{ color: 'var(--accent-primary)' }}>{connectDb.associated_vm_name}</strong></>
+                                : 'База изолирована. Привяжите ВМ, чтобы разрешить доступ по сети.'}
+                        </p>
+                    </div>
+                </div>
+
+                <div className="grid-cols-4 stagger" style={{ marginBottom: '24px' }}>
+                    <div className="connect-tile">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><Server size={14} /> Хост</div>
+                        <CopyField value={c.host} ck="host" />
+                    </div>
+                    <div className="connect-tile">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><Plug size={14} /> Порт</div>
+                        <CopyField value={c.port} ck="port" />
+                    </div>
+                    <div className="connect-tile">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><User size={14} /> Пользователь</div>
+                        <CopyField value={c.user} ck="user" />
+                    </div>
+                    <div className="connect-tile">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><Key size={14} /> Пароль</div>
+                        <CopyField value={c.password} ck="password" />
+                    </div>
+                </div>
+
+                <div className="glass-card">
+                    <div className="section-title"><Terminal size={18} /> Строка подключения</div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
+                        {tabs.map(t => (
+                            <button
+                                key={t.id}
+                                className={`btn ${connectTab === t.id ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+                                onClick={() => setConnectTab(t.id)}
+                            >
+                                <t.icon size={14} /> {t.label}
+                            </button>
+                        ))}
+                    </div>
+                    <div style={{ position: 'relative' }}>
+                        <pre style={{
+                            background: 'var(--bg-surface-hover)',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 'var(--radius-md)',
+                            padding: '18px 48px 18px 18px',
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: '0.84rem',
+                            color: 'var(--text-primary)',
+                            overflowX: 'auto',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-all',
+                            margin: 0,
+                        }}>{buildSnippet(connectDb, connectTab)}</pre>
+                        <button
+                            className="btn-icon"
+                            style={{ position: 'absolute', top: '12px', right: '12px' }}
+                            onClick={() => copyToClipboard(buildSnippet(connectDb, connectTab), 'snippet')}
+                            title="Копировать"
+                        >
+                            {copiedKey === 'snippet' ? <Check size={16} color="var(--status-success)" /> : <Copy size={16} />}
+                        </button>
+                    </div>
+                    <div className="alert alert-info" style={{ marginTop: '18px', marginBottom: 0, display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                        <Info size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                        <span>Подключение к базе возможно только с привязанной виртуальной машины — сетевой доступ ограничен политикой Kubernetes NetworkPolicy.</span>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="panel-container">
@@ -301,13 +456,22 @@ export default function DatabasesPanel() {
                                     </td>
                                     <td>{d.owner_username}</td>
                                     <td>
-                                        <button 
-                                            className="btn btn-danger btn-sm" 
-                                            onClick={() => handleDeleteDatabase(d.id)}
-                                            style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                                        >
-                                            <Trash2 size={12} /> Удалить
-                                        </button>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button
+                                                className="btn btn-primary btn-sm"
+                                                onClick={() => { setConnectDb(d); setConnectTab('cli'); }}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                                            >
+                                                <Plug size={12} /> Подключиться
+                                            </button>
+                                            <button
+                                                className="btn btn-danger btn-sm"
+                                                onClick={() => handleDeleteDatabase(d.id)}
+                                                style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                                            >
+                                                <Trash2 size={12} /> Удалить
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}

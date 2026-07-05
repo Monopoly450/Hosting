@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { FolderOpen, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, Upload, ArrowLeft, File, X } from 'lucide-react';
+import { FolderOpen, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, Upload, ArrowLeft, File, X, Check, Server, Code2, Terminal, Plug, HardDrive, FileText, FileImage, FileArchive, FileVideo } from 'lucide-react';
 
 export default function S3Panel() {
     const [buckets, setBuckets] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [showCreateModal, setShowCreateModal] = useState(false);
-    
+
     // Form fields
     const [bucketName, setBucketName] = useState('');
     const [submitting, setSubmitting] = useState(false);
-    
+
     // Secret Key visibility
     const [visibleSecrets, setVisibleSecrets] = useState({});
 
@@ -19,6 +19,10 @@ export default function S3Panel() {
     const [bucketFiles, setBucketFiles] = useState([]);
     const [filesLoading, setFilesLoading] = useState(false);
     const [uploadingFile, setUploadingFile] = useState(false);
+    const [dragOver, setDragOver] = useState(false);
+    const [copiedKey, setCopiedKey] = useState(null);
+    const [showConnect, setShowConnect] = useState(false);
+    const [connTab, setConnTab] = useState('cli');
 
     const getHeaders = (isMultipart = false) => {
         const token = localStorage.getItem('aegis_admin_token') || '';
@@ -115,10 +119,8 @@ export default function S3Panel() {
         }
     };
 
-    const handleFileUpload = async (e) => {
-        const file = e.target.files[0];
+    const uploadFile = async (file) => {
         if (!file) return;
-
         setUploadingFile(true);
         const formData = new FormData();
         formData.append('file', file);
@@ -138,6 +140,19 @@ export default function S3Panel() {
             alert(err.message || 'Ошибка при загрузке файла');
         } finally {
             setUploadingFile(false);
+        }
+    };
+
+    const handleFileUpload = (e) => {
+        uploadFile(e.target.files[0]);
+        e.target.value = '';
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        setDragOver(false);
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+            uploadFile(e.dataTransfer.files[0]);
         }
     };
 
@@ -165,9 +180,12 @@ export default function S3Panel() {
         }));
     };
 
-    const copyToClipboard = (text) => {
+    const copyToClipboard = (text, key = null) => {
         navigator.clipboard.writeText(text);
-        alert('Скопировано в буфер обмена!');
+        if (key) {
+            setCopiedKey(key);
+            setTimeout(() => setCopiedKey(c => (c === key ? null : c)), 1400);
+        }
     };
 
     const getMinioEndpoint = () => {
@@ -182,76 +200,185 @@ export default function S3Panel() {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
-    // Render File Explorer for the selected bucket
+    const fileIcon = (name) => {
+        const ext = (name.split('.').pop() || '').toLowerCase();
+        if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) return FileImage;
+        if (['zip', 'tar', 'gz', 'rar', '7z'].includes(ext)) return FileArchive;
+        if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) return FileVideo;
+        if (['txt', 'md', 'json', 'log', 'csv', 'yaml', 'yml', 'sql'].includes(ext)) return FileText;
+        return File;
+    };
+
+    const buildS3Snippet = (b, tab) => {
+        const endpoint = getMinioEndpoint();
+        if (tab === 'cli') {
+            return `aws configure set aws_access_key_id ${b.access_key}\naws configure set aws_secret_access_key ${b.secret_key}\naws --endpoint-url ${endpoint} s3 ls s3://${b.bucket_name}\naws --endpoint-url ${endpoint} s3 cp ./file.txt s3://${b.bucket_name}/`;
+        }
+        if (tab === 'boto3') {
+            return `import boto3\ns3 = boto3.client(\n    "s3",\n    endpoint_url="${endpoint}",\n    aws_access_key_id="${b.access_key}",\n    aws_secret_access_key="${b.secret_key}",\n)\ns3.upload_file("file.txt", "${b.bucket_name}", "file.txt")`;
+        }
+        if (tab === 'mc') {
+            return `mc alias set mybucket ${endpoint} ${b.access_key} ${b.secret_key}\nmc ls mybucket/${b.bucket_name}\nmc cp ./file.txt mybucket/${b.bucket_name}/`;
+        }
+        return '';
+    };
+
+    const S3CopyField = ({ label, value, ck, type = 'text', toggleable = false, id = null }) => (
+        <div className="input-group" style={{ marginBottom: 0 }}>
+            {label && <label className="input-label">{label}</label>}
+            <div className="copy-field">
+                <code style={{ fontFamily: 'var(--font-mono)' }}>
+                    {toggleable && !visibleSecrets[id] ? '•'.repeat(Math.min(value.length, 20)) : value}
+                </code>
+                {toggleable && (
+                    <button className="btn-icon" onClick={() => toggleSecretVisibility(id)} title="Показать/скрыть">
+                        {visibleSecrets[id] ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                )}
+                <button className="btn-icon" onClick={() => copyToClipboard(value, ck)} title="Копировать">
+                    {copiedKey === ck ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                </button>
+            </div>
+        </div>
+    );
+
+    // Render File Explorer for the selected bucket ("enter storage")
     if (selectedBucket) {
+        const b = selectedBucket;
+        const connTabs = [
+            { id: 'cli', label: 'AWS CLI', icon: Terminal },
+            { id: 'boto3', label: 'Python (boto3)', icon: Code2 },
+            { id: 'mc', label: 'MinIO Client', icon: Code2 },
+        ];
+        const totalSize = bucketFiles.reduce((s, f) => s + (f.size || 0), 0);
         return (
             <div className="panel-container">
-                <div className="panel-header" style={{ marginBottom: '20px' }}>
-                    <button className="btn btn-secondary" onClick={() => setSelectedBucket(null)} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
-                        <ArrowLeft size={16} /> Назад к списку бакетов
-                    </button>
-                    <div>
-                        <h2 className="panel-title">Бакет: {selectedBucket.bucket_name}</h2>
-                        <p className="panel-subtitle">Просмотр, загрузка и удаление файлов</p>
+                <button className="btn btn-secondary" onClick={() => { setSelectedBucket(null); setShowConnect(false); }} style={{ marginBottom: '18px' }}>
+                    <ArrowLeft size={16} /> Назад к списку бакетов
+                </button>
+
+                <div className="glass-card accent-top" style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap' }}>
+                    <div className="connect-tile-icon" style={{ width: '54px', height: '54px', flexShrink: 0 }}>
+                        <HardDrive size={26} />
                     </div>
+                    <div style={{ flex: 1, minWidth: '200px' }}>
+                        <h2 className="panel-title" style={{ fontSize: '1.5rem' }}>{b.bucket_name}</h2>
+                        <p className="panel-subtitle" style={{ marginTop: '2px' }}>
+                            {bucketFiles.length} объектов · {formatBytes(totalSize)} · S3-совместимое хранилище
+                        </p>
+                    </div>
+                    <button className={`btn ${showConnect ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setShowConnect(v => !v)}>
+                        <Plug size={16} /> Подключиться
+                    </button>
                 </div>
 
-                <div className="glass-card" style={{ padding: '20px', marginBottom: '20px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Загрузить файл в хранилище:</span>
-                            <label className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                                <Upload size={16} /> Выберите файл
-                                <input type="file" onChange={handleFileUpload} style={{ display: 'none' }} disabled={uploadingFile} />
-                            </label>
+                {showConnect && (
+                    <div className="glass-card" style={{ marginBottom: '20px' }}>
+                        <div className="section-title"><Key size={18} /> Доступ к бакету по API S3</div>
+                        <div className="grid-cols-4 stagger" style={{ marginBottom: '18px' }}>
+                            <div className="connect-tile">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><Server size={14} /> Endpoint</div>
+                                <S3CopyField value={getMinioEndpoint()} ck="endpoint" />
+                            </div>
+                            <div className="connect-tile">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><FolderOpen size={14} /> Bucket</div>
+                                <S3CopyField value={b.bucket_name} ck="bname" />
+                            </div>
+                            <div className="connect-tile">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><Key size={14} /> Access Key</div>
+                                <S3CopyField value={b.access_key} ck="akey" />
+                            </div>
+                            <div className="connect-tile">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><Key size={14} /> Secret Key</div>
+                                <S3CopyField value={b.secret_key} ck="skey" toggleable id={b.id} />
+                            </div>
                         </div>
-                        {uploadingFile && <span className="spinner"></span>}
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
+                            {connTabs.map(t => (
+                                <button key={t.id} className={`btn ${connTab === t.id ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setConnTab(t.id)}>
+                                    <t.icon size={14} /> {t.label}
+                                </button>
+                            ))}
+                        </div>
+                        <div style={{ position: 'relative' }}>
+                            <pre style={{
+                                background: 'var(--bg-surface-hover)', border: '1px solid var(--border-subtle)',
+                                borderRadius: 'var(--radius-md)', padding: '18px 48px 18px 18px',
+                                fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--text-primary)',
+                                overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0,
+                            }}>{buildS3Snippet(b, connTab)}</pre>
+                            <button className="btn-icon" style={{ position: 'absolute', top: '12px', right: '12px' }}
+                                onClick={() => copyToClipboard(buildS3Snippet(b, connTab), 'snippet')} title="Копировать">
+                                {copiedKey === 'snippet' ? <Check size={16} color="var(--status-success)" /> : <Copy size={16} />}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Drag & drop upload zone */}
+                <div
+                    className="glass-card"
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={handleDrop}
+                    style={{
+                        marginBottom: '20px',
+                        border: `2px dashed ${dragOver ? 'var(--accent-primary)' : 'var(--border-default)'}`,
+                        background: dragOver ? 'var(--accent-primary-light)' : 'var(--bg-surface)',
+                        textAlign: 'center',
+                        padding: '30px 20px',
+                        transition: 'all var(--transition-fast)',
+                    }}
+                >
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                        <div className="connect-tile-icon" style={{ width: '48px', height: '48px' }}>
+                            {uploadingFile ? <span className="spinner" style={{ borderColor: 'rgba(255,255,255,0.4)', borderTopColor: '#fff' }} /> : <Upload size={22} />}
+                        </div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-heading)' }}>
+                            {uploadingFile ? 'Загрузка...' : 'Перетащите файл сюда'}
+                        </div>
+                        <div className="text-muted">или</div>
+                        <label className="btn btn-primary" style={{ cursor: 'pointer' }}>
+                            <Upload size={16} /> Выберите файл
+                            <input type="file" onChange={handleFileUpload} style={{ display: 'none' }} disabled={uploadingFile} />
+                        </label>
                     </div>
                 </div>
 
                 {filesLoading ? (
                     <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
-                        <div className="spinner"></div>
+                        <div className="spinner spinner-lg"></div>
+                    </div>
+                ) : bucketFiles.length === 0 ? (
+                    <div className="glass-card" style={{ textAlign: 'center', padding: '54px 20px' }}>
+                        <FolderOpen size={44} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
+                        <h3 className="section-title" style={{ justifyContent: 'center' }}>Бакет пуст</h3>
+                        <p className="text-muted">Загрузите первый файл — перетащите его в зону выше.</p>
                     </div>
                 ) : (
-                    <div className="table-responsive">
-                        <table className="table">
-                            <thead>
-                                <tr>
-                                    <th>Имя файла</th>
-                                    <th>Размер</th>
-                                    <th>Дата изменения</th>
-                                    <th>Действия</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {bucketFiles.map((file, idx) => (
-                                    <tr key={idx}>
-                                        <td style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
-                                            <File size={16} color="var(--accent-primary)" /> {file.name}
-                                        </td>
-                                        <td>{formatBytes(file.size)}</td>
-                                        <td>{file.last_modified}</td>
-                                        <td>
-                                            <button 
-                                                className="btn btn-danger btn-sm" 
-                                                onClick={() => handleDeleteFile(file.name)}
-                                                style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                                            >
-                                                <Trash2 size={12} /> Удалить
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                                {bucketFiles.length === 0 && (
-                                    <tr>
-                                        <td colSpan="4" style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
-                                            Бакет пуст. Загрузите файлы для проверки!
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
+                    <div className="grid-cols-4 stagger">
+                        {bucketFiles.map((file, idx) => {
+                            const Icon = fileIcon(file.name);
+                            return (
+                                <div key={idx} className="glass-card interactive" style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                        <div className="connect-tile-icon" style={{ width: '40px', height: '40px', background: 'var(--gradient-accent-soft)', color: 'var(--accent-primary)' }}>
+                                            <Icon size={20} />
+                                        </div>
+                                        <button className="btn-icon" onClick={() => handleDeleteFile(file.name)} title="Удалить" style={{ color: 'var(--status-danger)' }}>
+                                            <Trash2 size={15} />
+                                        </button>
+                                    </div>
+                                    <div style={{ fontWeight: 600, color: 'var(--text-heading)', fontSize: '0.9rem', wordBreak: 'break-all', lineHeight: 1.3 }}>
+                                        {file.name}
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: 'auto' }}>
+                                        <span>{formatBytes(file.size)}</span>
+                                        <span>{file.last_modified}</span>
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
             </div>
