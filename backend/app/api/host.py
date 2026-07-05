@@ -255,6 +255,23 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                     local_reserved["cpu_cores"] += vm_cores
                     local_reserved["memory_gb"] += vm_mem_gb
                     local_reserved["disk_gb"] += vm_disk_gb
+
+            # Добавляем объемы сетевых дисков (UserVolume) к резервам
+            try:
+                from app.models.models import UserVolume
+                from app.core.config import settings
+                db_vols = db.query(UserVolume).all()
+                for vol in db_vols:
+                    vol_sc = settings.STORAGE_CLASS
+                    if "nfs" in vol_sc.lower():
+                        nfs_reserved["disk_gb"] += vol.size_gb
+                    elif "lvm" in vol_sc.lower() or "vg-" in vol_sc.lower():
+                        lvm_reserved["disk_gb"] += vol.size_gb
+                    else:
+                        local_reserved["disk_gb"] += vol.size_gb
+            except Exception as vols_err:
+                import logging
+                logging.getLogger("app.host").error(f"Error querying UserVolumes for stats: {vols_err}")
                     
             for r_dict in [nfs_reserved, lvm_reserved, local_reserved]:
                 r_dict["memory_gb"] = round(r_dict["memory_gb"], 1)

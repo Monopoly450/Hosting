@@ -212,8 +212,10 @@ const HostStats = ({ onMetricsLoaded }) => {
             <div className="stat-box-meta">
               <span>Использовано: {metrics.shared_disk.used_gb} из {metrics.shared_disk.total_gb} ГБ</span>
               <span>Свободно на СХД: {metrics.shared_disk.free_gb} ГБ</span>
-              {metrics.is_cluster && (
+              {metrics.is_cluster ? (
                 <span>Выделено ВМ: {metrics.nfs_reserved ? `${metrics.nfs_reserved.cpu_cores} vCPU / ${metrics.nfs_reserved.memory_gb} ГБ ОЗУ / ${metrics.nfs_reserved.disk_gb} ГБ диск` : '0'}</span>
+              ) : (
+                <span>Занято ВМ (резерв): {metrics.nfs_reserved ? metrics.nfs_reserved.disk_gb : 0} ГБ</span>
               )}
             </div>
           </div>
@@ -260,8 +262,10 @@ const HostStats = ({ onMetricsLoaded }) => {
             </div>
             <div className="stat-box-meta">
               <span>Общая емкость пула: {metrics.lvm.total_gb} ГБ | Занято: {metrics.lvm.used_gb} ГБ</span>
-              {metrics.is_cluster && (
+              {metrics.is_cluster ? (
                 <span>Выделено ВМ: {metrics.lvm_reserved ? `${metrics.lvm_reserved.cpu_cores} vCPU / ${metrics.lvm_reserved.memory_gb} ГБ ОЗУ / ${metrics.lvm_reserved.disk_gb} ГБ диск` : '0'}</span>
+              ) : (
+                <span>Занято ВМ (резерв): {metrics.lvm_reserved ? metrics.lvm_reserved.disk_gb : 0} ГБ</span>
               )}
               <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>Свободно (доступно): {metrics.lvm.free_gb} ГБ</span>
             </div>
