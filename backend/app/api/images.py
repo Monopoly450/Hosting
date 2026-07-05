@@ -52,7 +52,7 @@ def list_images(current_user: User = Depends(get_current_user)):
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 def upload_image(file: UploadFile = File(...), admin: str = Depends(verify_admin_token)):
     """Загрузить файл образа на сервер (потоковая запись в файл)"""
-    filename = file.filename
+    filename = os.path.basename(file.filename)
     _, ext = os.path.splitext(filename)
     
     if ext.lower() not in ALLOWED_EXTENSIONS:

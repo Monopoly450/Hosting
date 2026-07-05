@@ -269,8 +269,13 @@ func authMiddleware(next http.Handler) http.Handler {
 		}
 
 		adminToken := os.Getenv("ADMIN_TOKEN")
-		if adminToken == "" {
-			adminToken = "aegis-admin-secret-key-2026"
+		if adminToken == "" || adminToken == "aegis-admin-secret-key-2026" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "Unauthorized: admin token is not configured securely on server",
+			})
+			return
 		}
 
 		token := r.Header.Get("X-Admin-Token")
@@ -292,6 +297,14 @@ func authMiddleware(next http.Handler) http.Handler {
 }
 
 func main() {
+	adminToken := os.Getenv("ADMIN_TOKEN")
+	if adminToken == "" {
+		log.Fatal("ADMIN_TOKEN environment variable is not set!")
+	}
+	if adminToken == "aegis-admin-secret-key-2026" {
+		log.Fatal("ADMIN_TOKEN environment variable cannot be the default insecure key 'aegis-admin-secret-key-2026'!")
+	}
+
 	initDB()
 	loadState()
 	loadAWSState()

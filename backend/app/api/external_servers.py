@@ -9,7 +9,8 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.crypto import encrypt_secret, decrypt_secret
-from app.models.models import ExternalServer
+from app.models.models import ExternalServer, User
+from app.core.auth import get_current_user
 from app.services.ssh_inspector import SSHInspector
 
 router = APIRouter()
@@ -218,8 +219,16 @@ class CommandExecuteRequest(BaseModel):
 
 
 @router.post("/{server_id}/execute")
-async def execute_ssh_command(server_id: str, req: CommandExecuteRequest, db: AsyncSession = Depends(get_db)):
+async def execute_ssh_command(
+    server_id: str, 
+    req: CommandExecuteRequest, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Выполнить произвольную команду на внешнем сервере через SSH"""
+    logger.warning(
+        f"[AUDIT] Пользователь '{current_user.username}' запустил SSH-команду на сервере {server_id}: {req.command} (Рабочая директория: {req.cwd or '~'})"
+    )
     res = await db.execute(select(ExternalServer).filter_by(id=server_id))
     server = res.scalars().first()
     

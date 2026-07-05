@@ -14,7 +14,11 @@ ENC_PREFIX = "enc:v1:"
 def _build_key() -> bytes:
     """Строит ключ Fernet из AEGIS_SECRET_KEY (или из ADMIN_TOKEN для совместимости
     со старыми установками, где AEGIS_SECRET_KEY ещё не задан)."""
-    secret = os.getenv("AEGIS_SECRET_KEY") or os.getenv("ADMIN_TOKEN", "aegis-admin-secret-key-2026")
+    secret = os.getenv("AEGIS_SECRET_KEY") or os.getenv("ADMIN_TOKEN")
+    if not secret:
+        raise ValueError("Критическая ошибка безопасности: Не задана переменная окружения AEGIS_SECRET_KEY или ADMIN_TOKEN!")
+    if secret == "aegis-admin-secret-key-2026":
+        raise ValueError("Критическая ошибка безопасности: Использование стандартного ключа 'aegis-admin-secret-key-2026' для шифрования секретов запрещено!")
     digest = hashlib.pbkdf2_hmac(
         "sha256", secret.encode("utf-8"), b"aegis-secret-storage-v1", 100_000
     )

@@ -12,7 +12,11 @@ from app.core.database import SessionLocal
 from app.models.models import User
 
 # Получаем токен из переменных окружения
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "aegis-admin-secret-key-2026")
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
+if not ADMIN_TOKEN:
+    raise ValueError("Критическая ошибка безопасности: Переменная окружения ADMIN_TOKEN не задана!")
+if ADMIN_TOKEN == "aegis-admin-secret-key-2026":
+    raise ValueError("Критическая ошибка безопасности: Использование стандартного ADMIN_TOKEN 'aegis-admin-secret-key-2026' запрещено!")
 
 # Заголовки для авторизации
 token_header = APIKeyHeader(name="X-Admin-Token", auto_error=False)

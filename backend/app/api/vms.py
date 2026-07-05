@@ -1563,8 +1563,14 @@ async def migrate_vm(name: str, target_server_id: str = Query(...), k8s: K8sClie
             ssh.exec_command(f"mkdir -p ~/.ssh && echo '{pub_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys")
             
             # 7. SCP
-            scp_cmd = f"scp -o StrictHostKeyChecking=no -i {key_path} {disk_path} {target_server.username}@{target_server.host}:/opt/antigravity/vms/{name}/disk.img"
-            scp_res = subprocess.run(nsenter_prefix + ["sh", "-c", scp_cmd], capture_output=True, text=True)
+            scp_args = [
+                "scp",
+                "-o", "StrictHostKeyChecking=no",
+                "-i", key_path,
+                disk_path,
+                f"{target_server.username}@{target_server.host}:/opt/antigravity/vms/{name}/disk.img"
+            ]
+            scp_res = subprocess.run(nsenter_prefix + scp_args, capture_output=True, text=True)
             
             subprocess.run(nsenter_prefix + ["rm", "-f", key_path, f"{key_path}.pub"])
             

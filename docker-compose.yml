@@ -43,7 +43,13 @@ services:
       dockerfile: Dockerfile
     container_name: hosting-backend
     network_mode: host
-    privileged: true
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - NET_ADMIN
+      - SYS_CHROOT
+    security_opt:
+      - apparmor:unconfined
     pid: host
     restart: unless-stopped
     depends_on:
@@ -82,7 +88,13 @@ services:
       dockerfile: Dockerfile
     container_name: hosting-worker
     network_mode: host
-    privileged: true
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - NET_ADMIN
+      - SYS_CHROOT
+    security_opt:
+      - apparmor:unconfined
     pid: host
     restart: unless-stopped
     command: ["python", "-m", "app.worker"]
