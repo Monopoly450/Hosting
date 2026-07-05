@@ -22,14 +22,14 @@
   --text-secondary: #475569;
   --text-muted: #64748B;
 
-  /* Accent — Premium Vercel/Supabase Cyan-Blue */
-  --accent-primary: #3182CE;
-  --accent-primary-hover: #2B6CB0;
-  --accent-primary-light: rgba(49, 130, 206, 0.08);
+  /* Accent — Selectel Orange */
+  --accent-primary: #FF5C00;
+  --accent-primary-hover: #E05200;
+  --accent-primary-light: rgba(255, 92, 0, 0.08);
   --accent-secondary: #0ea5e9;
   --accent-tertiary: #ec4899;
-  --gradient-accent: #3182CE;
-  --gradient-accent-soft: rgba(49, 130, 206, 0.04);
+  --gradient-accent: #FF5C00;
+  --gradient-accent-soft: rgba(255, 92, 0, 0.04);
   --gradient-aurora: none;
 
   --status-success: #10B981;
@@ -38,8 +38,8 @@
   --status-warning-bg: #FEF3C7;
   --status-danger: #EF4444;
   --status-danger-bg: #FEE2E2;
-  --status-info: #3182CE;
-  --status-info-bg: #E6F0FF;
+  --status-info: #FF5C00;
+  --status-info-bg: #FFF3E0;
 
   /* Typography */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -187,12 +187,12 @@ body {
 .nav-item:hover svg { color: #ffffff; }
 
 .nav-item.active {
-  background: rgba(49, 130, 206, 0.08);
+  background: rgba(255, 92, 0, 0.08);
   color: #ffffff;
   font-weight: 600;
-  border-color: rgba(49, 130, 206, 0.4);
+  border-color: rgba(255, 92, 0, 0.4);
 }
-.nav-item.active svg { color: #3182CE; }
+.nav-item.active svg { color: #FF5C00; }
 
 /* Main Area */
 .main-area {
@@ -1010,13 +1010,13 @@ font { background-color: transparent !important; }
   --text-secondary: #94A3B8;
   --text-muted: #64748B;
 
-  --accent-primary: #0066FF;
-  --accent-primary-hover: #0052CC;
-  --accent-primary-light: rgba(0, 102, 255, 0.16);
+  --accent-primary: #FF5C00;
+  --accent-primary-hover: #E05200;
+  --accent-primary-light: rgba(255, 92, 0, 0.16);
   --accent-secondary: #34e0f5;
   --accent-tertiary: #f472b6;
-  --gradient-accent: #0066FF;
-  --gradient-accent-soft: rgba(0, 102, 255, 0.08);
+  --gradient-accent: #FF5C00;
+  --gradient-accent-soft: rgba(255, 92, 0, 0.08);
   --gradient-aurora: none;
 
   --status-success: #10B981;
@@ -1025,8 +1025,8 @@ font { background-color: transparent !important; }
   --status-warning-bg: rgba(245, 158, 11, 0.14);
   --status-danger: #EF4444;
   --status-danger-bg: rgba(239, 68, 68, 0.14);
-  --status-info: #0066FF;
-  --status-info-bg: rgba(0, 102, 255, 0.14);
+  --status-info: #FF5C00;
+  --status-info-bg: rgba(255, 92, 0, 0.14);
 
   --shadow-xs: none;
   --shadow-sm: none;
