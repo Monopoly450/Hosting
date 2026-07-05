@@ -994,15 +994,15 @@ font { background-color: transparent !important; }
 
 /* =========================== Dark Theme =========================== */
 [data-theme="dark"] {
-  --bg-body: #0F172A;
-  --bg-surface: #1E293B;
-  --bg-surface-hover: #334155;
-  --bg-surface-active: #1E293B;
-  --bg-glass: #1E293B;
+  --bg-body: #0F131C;
+  --bg-surface: #171E2E;
+  --bg-surface-hover: #222B3E;
+  --bg-surface-active: #2B374E;
+  --bg-glass: #171E2E;
 
-  --border-subtle: #1E293B;
-  --border-default: #334155;
-  --border-hover: #475569;
+  --border-subtle: #242E42;
+  --border-default: #32405A;
+  --border-hover: #485A7E;
 
   --text-heading: #FFFFFF;
   --text-primary: #F1F5F9;
