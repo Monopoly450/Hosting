@@ -1091,7 +1091,7 @@ class K8sClient:
     def create_vm_snapshot(self, vm_name: str, snapshot_name: str, namespace: str = "default"):
         """Создает снимок (snapshot) виртуальной машины KubeVirt"""
         body = {
-            "apiVersion": "snapshot.kubevirt.io/v1alpha3",
+            "apiVersion": "snapshot.kubevirt.io/v1beta1",
             "kind": "VirtualMachineSnapshot",
             "metadata": {
                 "name": snapshot_name
@@ -1105,13 +1105,13 @@ class K8sClient:
             }
         }
         return self.custom_api.create_namespaced_custom_object(
-            "snapshot.kubevirt.io", "v1alpha3", namespace, "virtualmachinesnapshots", body
+            "snapshot.kubevirt.io", "v1beta1", namespace, "virtualmachinesnapshots", body
         )
 
     def list_vm_snapshots(self, vm_name: str, namespace: str = "default"):
         """Возвращает список снимков для определенной виртуальной машины"""
         res = self.custom_api.list_namespaced_custom_object(
-            "snapshot.kubevirt.io", "v1alpha3", namespace, "virtualmachinesnapshots"
+            "snapshot.kubevirt.io", "v1beta1", namespace, "virtualmachinesnapshots"
         )
         items = res.get("items", [])
         # Фильтруем те, у которых source.name == vm_name
@@ -1130,7 +1130,7 @@ class K8sClient:
     def delete_vm_snapshot(self, snapshot_name: str, namespace: str = "default"):
         """Удаляет снимок виртуальной машины"""
         return self.custom_api.delete_namespaced_custom_object(
-            "snapshot.kubevirt.io", "v1alpha3", namespace, "virtualmachinesnapshots", snapshot_name
+            "snapshot.kubevirt.io", "v1beta1", namespace, "virtualmachinesnapshots", snapshot_name
         )
 
     def restore_vm_snapshot(self, vm_name: str, snapshot_name: str, namespace: str = "default"):
@@ -1139,7 +1139,7 @@ class K8sClient:
         import time
         restore_name = f"restore-{snapshot_name}-{int(time.time())}"
         body = {
-            "apiVersion": "snapshot.kubevirt.io/v1alpha3",
+            "apiVersion": "snapshot.kubevirt.io/v1beta1",
             "kind": "VirtualMachineRestore",
             "metadata": {
                 "name": restore_name
@@ -1154,7 +1154,7 @@ class K8sClient:
             }
         }
         return self.custom_api.create_namespaced_custom_object(
-            "snapshot.kubevirt.io", "v1alpha3", namespace, "virtualmachinerestores", body
+            "snapshot.kubevirt.io", "v1beta1", namespace, "virtualmachinerestores", body
         )
 
     def create_private_db(self, db_name: str, engine: str, db_user: str, db_password: str, vm_name: str = None, namespace: str = "default"):
