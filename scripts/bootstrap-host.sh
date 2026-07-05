@@ -271,6 +271,14 @@ spec:
 EOF
 log "Сетевой мост bridge-network успешно настроен в режиме NAT (172.20.0.0/24)!"
 
+# 7.5 Установка Kubernetes VolumeSnapshot CRDs и Snapshot Controller
+log "Установка VolumeSnapshot CRDs и Snapshot Controller..."
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml || true
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml || true
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml || true
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml || true
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml || true
+
 # 8. Установка KubeVirt
 log "Получение актуальной версии KubeVirt..."
 KUBEVIRT_VERSION=$(curl -s https://api.github.com/repos/kubevirt/kubevirt/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
@@ -285,12 +293,12 @@ kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEV
 log "Применение KubeVirt Custom Resource..."
 kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml"
 
-# Настройка параметров KubeVirt (включаем горячее подключение дисков HotplugVolumes и эмуляцию при необходимости)
+# Настройка параметров KubeVirt (включаем горячее подключение дисков HotplugVolumes, снимки WorkloadSnapshots и эмуляцию при необходимости)
 log "Настройка конфигурации KubeVirt (Feature Gates)..."
 if [ "$KVM_SUPPORTED" = false ]; then
-    kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true,"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes"]}}}}'
+    kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true,"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes","WorkloadSnapshots"]}}}}'
 else
-    kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes"]}}}}'
+    kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes","WorkloadSnapshots"]}}}}'
 fi
 
 # Ждем развертывания KubeVirt
