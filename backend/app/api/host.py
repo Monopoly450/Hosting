@@ -256,22 +256,6 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                     local_reserved["memory_gb"] += vm_mem_gb
                     local_reserved["disk_gb"] += vm_disk_gb
 
-            # Добавляем объемы сетевых дисков (UserVolume) к резервам
-            try:
-                from app.models.models import UserVolume
-                from app.core.config import settings
-                db_vols = db.query(UserVolume).all()
-                for vol in db_vols:
-                    vol_sc = settings.STORAGE_CLASS
-                    if "nfs" in vol_sc.lower():
-                        nfs_reserved["disk_gb"] += vol.size_gb
-                    elif "lvm" in vol_sc.lower() or "vg-" in vol_sc.lower():
-                        lvm_reserved["disk_gb"] += vol.size_gb
-                    else:
-                        local_reserved["disk_gb"] += vol.size_gb
-            except Exception as vols_err:
-                import logging
-                logging.getLogger("app.host").error(f"Error querying UserVolumes for stats: {vols_err}")
                     
             for r_dict in [nfs_reserved, lvm_reserved, local_reserved]:
                 r_dict["memory_gb"] = round(r_dict["memory_gb"], 1)
@@ -357,24 +341,20 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
         if now - _lvm_cache["last_updated"] >= 15.0:
             lvm_info = {"active": False, "total_gb": 0.0, "free_gb": 0.0, "used_gb": 0.0, "reserved_gb": 0.0}
             
-            # Собираем суммарный резерв дисков ВМ на LVM (из vms_resources + UserVolume)
-            total_lvm_reserved = lvm_reserved["disk_gb"]
-            # Если storage class не содержит "lvm"/"vg-", но LVM пул существует,
-            # все ВМ фактически используют LVM через local-path на loopback
-            if total_lvm_reserved == 0.0:
-                total_lvm_reserved = reserved_disk_gb
-                # Добавляем сетевые диски UserVolume
+            # LVM пул используется ТОЛЬКО для сетевых дисков (UserVolume).
+            # Считаем суммарный объём сетевых дисков из БД.
+            total_lvm_reserved = 0.0
+            try:
+                from app.models.models import UserVolume as UVol
+                db_lvm = SessionLocal()
                 try:
-                    from app.models.models import UserVolume as UVol
-                    db2 = SessionLocal()
-                    try:
-                        user_vols = db2.query(UVol).all()
-                        for uv in user_vols:
-                            total_lvm_reserved += uv.size_gb
-                    finally:
-                        db2.close()
-                except Exception:
-                    pass
+                    user_vols = db_lvm.query(UVol).all()
+                    for uv in user_vols:
+                        total_lvm_reserved += uv.size_gb
+                finally:
+                    db_lvm.close()
+            except Exception:
+                pass
 
             try:
                 # Сначала пробуем выполнить vgs на хосте через nsenter, так как там есть доступ к /dev
@@ -399,8 +379,8 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                         vg_size = float(parts[0].replace(",", "."))
                         vg_free = float(parts[1].replace(",", "."))
                         physical_used = vg_size - vg_free
-                        # Используем максимум из физически занятого и логически зарезервированного,
-                        # так как thin provisioning может показывать vg_free ≈ vg_size
+                        # Используем максимум из физически занятого и логически зарезервированного
+                        # (сетевыми дисками), так как thin provisioning скрывает реальное использование
                         effective_used = max(physical_used, total_lvm_reserved)
                         effective_used = min(effective_used, vg_size)  # не больше общего размера
                         effective_free = max(0.0, vg_size - effective_used)
