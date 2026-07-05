@@ -371,7 +371,24 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                 import logging
                 logging.getLogger("app.host").error(f"Failed to query LVM vg-aegis info: {lvm_err}")
 
-            # Резервный вариант: если LVM пуст, показываем СХД
+            # Резервный вариант 1: если vgs не сработал, но есть файл-образ LVM на хосте
+            if not lvm_info["active"] and os.path.exists("/var/lib/aegis/lvm-storage.img"):
+                try:
+                    file_size = os.path.getsize("/var/lib/aegis/lvm-storage.img")
+                    total_gb = round(file_size / (1024**3), 1)
+                    used_gb = float(reserved_disk_gb)
+                    free_gb = max(0.0, round(total_gb - used_gb, 1))
+                    lvm_info = {
+                        "active": True,
+                        "total_gb": total_gb,
+                        "free_gb": free_gb,
+                        "used_gb": used_gb
+                    }
+                except Exception as f_err:
+                    import logging
+                    logging.getLogger("app.host").error(f"Failed to read loopback file size: {f_err}")
+
+            # Резервный вариант 2: если LVM пуст, показываем СХД
             if not lvm_info["active"] and shared_disk["active"]:
                 lvm_info = {
                     "active": False,
