@@ -53,9 +53,9 @@ fi
 log "Активный сетевой интерфейс хоста: $ACTIVE_IFACE"
 
 # 4. Установка зависимостей
-log "Установка необходимых пакетов (curl, iptables, bridge-utils, docker, nginx)..."
+log "Установка необходимых пакетов (curl, iptables, bridge-utils, docker, nginx, fail2ban)..."
 apt-get update
-apt-get install -y curl iptables bridge-utils jq net-tools openssl nginx
+apt-get install -y curl iptables bridge-utils jq net-tools openssl nginx fail2ban
 
 # Установка Docker и Docker Compose v2 для запуска панели
 log "Проверка и установка Docker & Docker Compose..."
@@ -386,8 +386,39 @@ if [ -f "${SCRIPT_DIR}/install-openebs-lvm.sh" ]; then
     bash "${SCRIPT_DIR}/install-openebs-lvm.sh" || true
 fi
 
+# 13. Автоматическая настройка параметров безопасности хоста (Fail2Ban + права .env)
+log "Настройка параметров безопасности хост-системы..."
+if [ -f "${SCRIPT_DIR}/../.env" ]; then
+    chmod 600 "${SCRIPT_DIR}/../.env" || true
+    log "Установлены безопасные права 600 на файл конфигурации .env"
+fi
+
+JAIL_LOCAL="/etc/fail2ban/jail.local"
+log "Создание конфигурации Fail2Ban: ${JAIL_LOCAL}..."
+cat <<EOT > "$JAIL_LOCAL"
+[DEFAULT]
+bantime = 1h
+findtime = 10m
+maxretry = 5
+destemail = root@localhost
+sender = root@localhost
+action = %(action_mwl)s
+
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 5
+bantime = 1d
+EOT
+
+systemctl restart fail2ban || true
+systemctl enable fail2ban || true
+log "Служба Fail2Ban настроена и успешно запущена!"
+
 log "=========================================================="
-log "Установка завершена! Kubernetes + KubeVirt + CDI + Prometheus + Nginx развернуты."
+log "Установка завершена! Kubernetes + KubeVirt + CDI + Prometheus + Nginx + Fail2Ban развернуты."
 log "Проверьте статус подов: kubectl get pods -A"
 log "Панель управления можно запускать и подключать к /etc/rancher/k3s/k3s.yaml"
 log "=========================================================="
