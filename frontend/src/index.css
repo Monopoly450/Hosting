@@ -963,7 +963,7 @@ font { background-color: transparent !important; }
     margin-right: 4px;
   }
   .btn-menu:hover { background-color: var(--bg-surface-hover); }
-  .top-header { padding: 0 12px; height: 56px; border-radius: var(--radius-md); }
+  .top-header { padding: 0 12px; height: 70px; border-radius: var(--radius-md); }
   .content-container { padding: 14px 10px 32px; }
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr !important; gap: 16px !important; }
   .table-responsive { overflow-x: auto; width: 100%; margin-bottom: 16px; }
