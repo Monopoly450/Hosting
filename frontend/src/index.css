@@ -242,7 +242,7 @@ body {
   max-width: 1440px;
   margin: 0 auto;
   width: 100%;
-  animation: fadeInUp var(--transition-slow) both;
+  animation: fadeIn var(--transition-slow) both;
 }
 
 /* =========================== Cards =========================== */
@@ -649,7 +649,7 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
   border: 1px solid var(--border-subtle);
   min-height: calc(100vh - 140px);
   padding: 30px;
-  animation: fadeInUp var(--transition-normal);
+  animation: fadeIn var(--transition-normal);
 }
 .page-header {
   display: flex;
