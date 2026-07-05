@@ -355,7 +355,27 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
         global _lvm_cache
         now = time.time()
         if now - _lvm_cache["last_updated"] >= 15.0:
-            lvm_info = {"active": False, "total_gb": 0.0, "free_gb": 0.0, "used_gb": 0.0}
+            lvm_info = {"active": False, "total_gb": 0.0, "free_gb": 0.0, "used_gb": 0.0, "reserved_gb": 0.0}
+            
+            # Собираем суммарный резерв дисков ВМ на LVM (из vms_resources + UserVolume)
+            total_lvm_reserved = lvm_reserved["disk_gb"]
+            # Если storage class не содержит "lvm"/"vg-", но LVM пул существует,
+            # все ВМ фактически используют LVM через local-path на loopback
+            if total_lvm_reserved == 0.0:
+                total_lvm_reserved = reserved_disk_gb
+                # Добавляем сетевые диски UserVolume
+                try:
+                    from app.models.models import UserVolume as UVol
+                    db2 = SessionLocal()
+                    try:
+                        user_vols = db2.query(UVol).all()
+                        for uv in user_vols:
+                            total_lvm_reserved += uv.size_gb
+                    finally:
+                        db2.close()
+                except Exception:
+                    pass
+
             try:
                 # Сначала пробуем выполнить vgs на хосте через nsenter, так как там есть доступ к /dev
                 res = subprocess.run(
@@ -378,11 +398,18 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                     if len(parts) >= 2:
                         vg_size = float(parts[0].replace(",", "."))
                         vg_free = float(parts[1].replace(",", "."))
+                        physical_used = vg_size - vg_free
+                        # Используем максимум из физически занятого и логически зарезервированного,
+                        # так как thin provisioning может показывать vg_free ≈ vg_size
+                        effective_used = max(physical_used, total_lvm_reserved)
+                        effective_used = min(effective_used, vg_size)  # не больше общего размера
+                        effective_free = max(0.0, vg_size - effective_used)
                         lvm_info = {
                             "active": True,
                             "total_gb": round(vg_size, 1),
-                            "free_gb": round(vg_free, 1),
-                            "used_gb": round(vg_size - vg_free, 1)
+                            "free_gb": round(effective_free, 1),
+                            "used_gb": round(effective_used, 1),
+                            "reserved_gb": round(total_lvm_reserved, 1)
                         }
             except Exception as lvm_err:
                 import logging
@@ -393,13 +420,14 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                 try:
                     file_size = os.path.getsize("/var/lib/aegis/lvm-storage.img")
                     total_gb = round(file_size / (1024**3), 1)
-                    used_gb = float(reserved_disk_gb)
+                    used_gb = min(total_lvm_reserved, total_gb)
                     free_gb = max(0.0, round(total_gb - used_gb, 1))
                     lvm_info = {
                         "active": True,
                         "total_gb": total_gb,
                         "free_gb": free_gb,
-                        "used_gb": used_gb
+                        "used_gb": round(used_gb, 1),
+                        "reserved_gb": round(total_lvm_reserved, 1)
                     }
                 except Exception as f_err:
                     import logging
@@ -411,7 +439,8 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                     "active": False,
                     "total_gb": shared_disk["total_gb"],
                     "free_gb": shared_disk["free_gb"],
-                    "used_gb": shared_disk["used_gb"]
+                    "used_gb": shared_disk["used_gb"],
+                    "reserved_gb": 0.0
                 }
 
             _lvm_cache["data"] = lvm_info
@@ -665,6 +694,63 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/prometheus/history")
+def get_prometheus_history(hours: int = 3, client: K8sClient = Depends(get_k8s_client)):
+    """Возвращает временные ряды CPU и RAM загрузки хоста из Prometheus за последние N часов"""
+    import urllib.parse
+    
+    end_time = int(time.time())
+    start_time = end_time - (hours * 3600)
+    
+    # Определяем шаг на основе диапазона
+    if hours <= 1:
+        step = "30s"
+    elif hours <= 6:
+        step = "60s"
+    elif hours <= 24:
+        step = "300s"
+    else:
+        step = "600s"
+    
+    cpu_data = []
+    ram_data = []
+    
+    try:
+        # CPU usage % — средняя загрузка CPU по всем ядрам (100% = полная загрузка)
+        cpu_query = urllib.parse.quote('100 - (avg(irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)')
+        cpu_result = client.query_prometheus(cpu_query, start_time=start_time, end_time=end_time, step=step)
+        
+        if cpu_result and cpu_result.get("status") == "success":
+            results = cpu_result.get("data", {}).get("result", [])
+            if results:
+                for ts, val in results[0].get("values", []):
+                    cpu_data.append({"timestamp": int(ts), "value": round(float(val), 1)})
+    except Exception as e:
+        import logging
+        logging.getLogger("app.host").warning(f"Prometheus CPU query failed: {e}")
+    
+    try:
+        # RAM usage % — процент используемой памяти
+        ram_query = urllib.parse.quote('100 - ((node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100)')
+        ram_result = client.query_prometheus(ram_query, start_time=start_time, end_time=end_time, step=step)
+        
+        if ram_result and ram_result.get("status") == "success":
+            results = ram_result.get("data", {}).get("result", [])
+            if results:
+                for ts, val in results[0].get("values", []):
+                    ram_data.append({"timestamp": int(ts), "value": round(float(val), 1)})
+    except Exception as e:
+        import logging
+        logging.getLogger("app.host").warning(f"Prometheus RAM query failed: {e}")
+    
+    return {
+        "cpu": cpu_data,
+        "ram": ram_data,
+        "range_hours": hours,
+        "step": step
+    }
 
 
 class StorageResizeRequest(BaseModel):

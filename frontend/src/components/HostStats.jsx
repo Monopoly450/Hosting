@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Cpu, HardDrive, Server, RefreshCw, Activity, Settings } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
+import { Cpu, HardDrive, Server, RefreshCw, Activity, Settings, Clock } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from 'recharts';
 import Portal from './Portal';
 
 const HostStats = ({ onMetricsLoaded }) => {
@@ -14,6 +14,10 @@ const HostStats = ({ onMetricsLoaded }) => {
   const [newSizeGb, setNewSizeGb] = useState('');
   const [resizing, setResizing] = useState(false);
   const [resizeStatus, setResizeStatus] = useState(null);
+
+  const [promHistory, setPromHistory] = useState(null);
+  const [promRange, setPromRange] = useState(3);
+  const [promLoading, setPromLoading] = useState(false);
 
   const handleResizeLvm = async (e) => {
     e.preventDefault();
@@ -90,11 +94,52 @@ const HostStats = ({ onMetricsLoaded }) => {
     }
   };
 
+  const fetchPromHistory = async (hours) => {
+    setPromLoading(true);
+    try {
+      const response = await fetch(`/api/host/prometheus/history?hours=${hours}`);
+      if (!response.ok) throw new Error('Failed');
+      const data = await response.json();
+      
+      // Merge CPU and RAM data by timestamp
+      const merged = [];
+      const cpuMap = {};
+      for (const p of (data.cpu || [])) {
+        cpuMap[p.timestamp] = p.value;
+      }
+      for (const p of (data.ram || [])) {
+        merged.push({
+          time: new Date(p.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          cpu: cpuMap[p.timestamp] ?? null,
+          ram: p.value
+        });
+      }
+      // If RAM was empty, use CPU data alone
+      if (merged.length === 0) {
+        for (const p of (data.cpu || [])) {
+          merged.push({
+            time: new Date(p.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            cpu: p.value,
+            ram: null
+          });
+        }
+      }
+      setPromHistory(merged.length > 0 ? merged : null);
+    } catch (err) {
+      console.error('Prometheus history error:', err);
+      setPromHistory(null);
+    } finally {
+      setPromLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchMetrics();
+    fetchPromHistory(promRange);
     const interval = setInterval(fetchMetrics, 3000);
-    return () => clearInterval(interval);
-  }, []);
+    const promInterval = setInterval(() => fetchPromHistory(promRange), 60000);
+    return () => { clearInterval(interval); clearInterval(promInterval); };
+  }, [promRange]);
 
   if (loading && !metrics) {
     return (
@@ -262,45 +307,126 @@ const HostStats = ({ onMetricsLoaded }) => {
             </div>
             <div className="stat-box-meta">
               <span>Общая емкость пула: {metrics.lvm.total_gb} ГБ | Занято: {metrics.lvm.used_gb} ГБ</span>
-              {metrics.is_cluster ? (
-                <span>Выделено ВМ: {metrics.lvm_reserved ? `${metrics.lvm_reserved.cpu_cores} vCPU / ${metrics.lvm_reserved.memory_gb} ГБ ОЗУ / ${metrics.lvm_reserved.disk_gb} ГБ диск` : '0'}</span>
-              ) : (
-                <span>Занято ВМ (резерв): {metrics.lvm_reserved ? metrics.lvm_reserved.disk_gb : 0} ГБ</span>
-              )}
+              <span>Зарезервировано ВМ: {metrics.lvm.reserved_gb ?? (metrics.lvm_reserved ? metrics.lvm_reserved.disk_gb : 0)} ГБ</span>
               <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>Свободно (доступно): {metrics.lvm.free_gb} ГБ</span>
             </div>
           </div>
         )}
       </div>
       
-      {/* Real-time chart */}
+      {/* Real-time chart (live polling) */}
       {history.length > 1 && (
-        <div style={{ height: '220px', width: '100%', marginBottom: '24px' }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={history} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--accent-primary)" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="var(--accent-primary)" stopOpacity={0}/>
-                </linearGradient>
-                <linearGradient id="colorMem" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--status-success)" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="var(--status-success)" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="time" hide />
-              <YAxis domain={[0, 100]} tickLine={false} axisLine={false} style={{ fontSize: '11px', fill: 'var(--text-muted)' }} />
-              <Tooltip 
-                contentStyle={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)' }}
-                labelStyle={{ color: 'var(--text-secondary)', marginBottom: '4px' }}
-                itemStyle={{ fontSize: '0.9rem', fontWeight: 500 }}
-              />
-              <Area type="monotone" dataKey="cpu" name="CPU Load %" stroke="var(--accent-primary)" fillOpacity={1} fill="url(#colorCpu)" strokeWidth={2} />
-              <Area type="monotone" dataKey="memory" name="RAM Usage %" stroke="var(--status-success)" fillOpacity={1} fill="url(#colorMem)" strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
+        <div style={{ marginBottom: '24px' }}>
+          <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-heading)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Activity size={16} /> Мониторинг в реальном времени
+          </h4>
+          <div style={{ height: '180px', width: '100%' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={history} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--accent-primary)" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="var(--accent-primary)" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorMem" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--status-success)" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="var(--status-success)" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="time" hide />
+                <YAxis domain={[0, 100]} tickLine={false} axisLine={false} style={{ fontSize: '11px', fill: 'var(--text-muted)' }} />
+                <Tooltip 
+                  contentStyle={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)' }}
+                  labelStyle={{ color: 'var(--text-secondary)', marginBottom: '4px' }}
+                  itemStyle={{ fontSize: '0.9rem', fontWeight: 500 }}
+                />
+                <Area type="monotone" dataKey="cpu" name="CPU Load %" stroke="var(--accent-primary)" fillOpacity={1} fill="url(#colorCpu)" strokeWidth={2} />
+                <Area type="monotone" dataKey="memory" name="RAM Usage %" stroke="var(--status-success)" fillOpacity={1} fill="url(#colorMem)" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       )}
+
+      {/* Prometheus Historical Chart */}
+      <div style={{ marginBottom: '24px', padding: '20px', background: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-heading)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Clock size={16} /> Статистика загрузки (Prometheus)
+          </h4>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {[1, 3, 6, 12, 24].map(h => (
+              <button
+                key={h}
+                type="button"
+                className={`btn btn-sm ${promRange === h ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setPromRange(h)}
+                style={{ padding: '4px 10px', fontSize: '0.75rem', borderRadius: 'var(--radius-sm)', cursor: 'pointer', minWidth: '40px' }}
+              >
+                {h}ч
+              </button>
+            ))}
+          </div>
+        </div>
+        {promLoading && !promHistory ? (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+            <div className="spinner" />
+          </div>
+        ) : promHistory && promHistory.length > 0 ? (
+          <div style={{ height: '220px', width: '100%' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={promHistory} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorPromCpu" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#FF5C00" stopOpacity={0.25}/>
+                    <stop offset="95%" stopColor="#FF5C00" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorPromRam" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.25}/>
+                    <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" opacity={0.5} />
+                <XAxis 
+                  dataKey="time" 
+                  tick={{ fontSize: 11, fill: 'var(--text-muted)' }} 
+                  tickLine={false}
+                  axisLine={{ stroke: 'var(--border-subtle)' }}
+                  interval={Math.max(0, Math.floor(promHistory.length / 8))}
+                />
+                <YAxis 
+                  domain={[0, 100]} 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
+                  tickFormatter={v => `${v}%`}
+                />
+                <Tooltip 
+                  contentStyle={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)', fontSize: '0.85rem' }}
+                  labelStyle={{ color: 'var(--text-secondary)', marginBottom: '4px', fontWeight: 600 }}
+                  formatter={(value) => [`${value}%`]}
+                />
+                <Area type="monotone" dataKey="cpu" name="CPU" stroke="#FF5C00" fillOpacity={1} fill="url(#colorPromCpu)" strokeWidth={2} dot={false} />
+                <Area type="monotone" dataKey="ram" name="RAM" stroke="#10B981" fillOpacity={1} fill="url(#colorPromRam)" strokeWidth={2} dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '40px 0', color: 'var(--text-muted)' }}>
+            <Clock size={32} opacity={0.4} />
+            <span style={{ fontSize: '0.85rem' }}>Нет данных Prometheus за выбранный период</span>
+            <span style={{ fontSize: '0.75rem' }}>Убедитесь, что Prometheus установлен в кластере</span>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: '16px', marginTop: '12px', justifyContent: 'center' }}>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ width: '12px', height: '3px', background: '#FF5C00', borderRadius: '2px', display: 'inline-block' }} /> CPU Load
+          </span>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ width: '12px', height: '3px', background: '#10B981', borderRadius: '2px', display: 'inline-block' }} /> RAM Usage
+          </span>
+        </div>
+      </div>
 
       {/* Cluster Nodes Status */}
       {metrics.is_cluster && metrics.nodes_list && (
@@ -518,11 +644,11 @@ const HostStats = ({ onMetricsLoaded }) => {
                   <div style={{ padding: '12px', background: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', marginBottom: '6px' }}>
                       <span style={{ color: 'var(--text-secondary)' }}>Выделено под пул LVM:</span>
-                      <span style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.disk ? metrics.disk.total_gb : 0} ГБ</span>
+                      <span style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.lvm ? metrics.lvm.total_gb : 0} ГБ</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
                       <span style={{ color: 'var(--text-secondary)' }}>Зарезервировано ВМ:</span>
-                      <span style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.disk ? metrics.disk.reserved_gb : 0} ГБ</span>
+                      <span style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.lvm ? metrics.lvm.reserved_gb : 0} ГБ</span>
                     </div>
                   </div>
                 </div>
@@ -539,7 +665,7 @@ const HostStats = ({ onMetricsLoaded }) => {
                     required
                   />
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px', lineHeight: '1.4' }}>
-                    Вы можете расширить объем пула или безопасно уменьшить его. Уменьшение сработает только в том случае, если новый размер больше, чем суммарный объем дисков созданных ВМ ({metrics.disk ? metrics.disk.reserved_gb : 0} ГБ).
+                    Вы можете расширить объем пула или безопасно уменьшить его. Уменьшение сработает только в том случае, если новый размер больше, чем суммарный объем дисков созданных ВМ ({metrics.lvm ? metrics.lvm.reserved_gb : 0} ГБ).
                   </span>
                 </div>
 
