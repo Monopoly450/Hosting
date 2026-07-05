@@ -645,6 +645,98 @@ const App = () => {
                 </div>
               </div>
 
+
+
+              {(loading && vms.length === 0) || (serversLoading && externalServers.length === 0) ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}><div className="spinner"></div></div>
+              ) : (vms.length === 0 && externalServers.length === 0) ? (
+                <div className="glass-card" style={{ textAlign: 'center', padding: '64px 20px' }}>
+                  <Server size={48} color="var(--text-muted)" style={{ marginBottom: '16px' }} />
+                  <h3 className="section-title" style={{ justifyContent: 'center' }}>Нет серверов и инстансов</h3>
+                  <p className="text-muted">Разверните новую виртуальную машину или подключите внешний Linux-сервер.</p>
+                </div>
+              ) : (
+                <div className="grid-cols-3">
+                  {vms.map(vm => (
+                    <VMCard 
+                      key={`vm-${vm.name}`} 
+                      vm={vm} 
+                      onActionSuccess={fetchVMs}
+                      onOpenConsole={(name) => setOpenConsoleName(name)}
+                      onOpenEdit={(vmObj) => setEditingVM(vmObj)}
+                      onOpenDetail={(name) => setSelectedVMDetailName(name)}
+                    />
+                  ))}
+                  {externalServers.map(server => (
+                    <ExternalServerCard 
+                      key={`ext-${server.id}`} 
+                      server={server} 
+                      onClick={() => server.status === 'Online' && setSelectedServerId(server.id)}
+                      onDeleteSuccess={fetchExternalServers}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : activeTab === 'balancer' ? (
+            <BalancerPanel />
+          ) : activeTab === 'images' ? (
+            <ImageManager onImagesChanged={setCustomImages} />
+          ) : activeTab === 'databases' ? (
+            <DatabasesPanel />
+          ) : activeTab === 's3' ? (
+            <S3Panel />
+          ) : activeTab === 'volumes' ? (
+            <VolumesPanel />
+          ) : activeTab === 'mail' ? (
+            <MailPanel />
+          ) : activeTab === 'docker' ? (
+            <DockerPanel />
+          ) : activeTab === 'infra' ? (
+            <InfraPanel />
+          ) : activeTab === 'users' ? (
+            <UsersAdminPanel apiToken={localStorage.getItem('aegis_admin_token')} apiUrl={window.location.origin} />
+          ) : null}
+
+        </main>
+      </div>
+
+      {/* Modals */}
+      {openConsoleName && (
+        <VncConsole 
+          name={openConsoleName} 
+          username={vms.find(v => v.name === openConsoleName)?.credentials?.username || 'root'}
+          password={vms.find(v => v.name === openConsoleName)?.credentials?.password || ''}
+          onClose={() => setOpenConsoleName(null)} 
+        />
+      )}
+
+      {editingVM && (
+        <VMEditModal 
+          vm={editingVM} 
+          onClose={() => setEditingVM(null)} 
+          onSaveSuccess={fetchVMs} 
+        />
+      )}
+
+      {showConnectModal && (
+        <ConnectServerModal 
+          onClose={() => setShowConnectModal(false)}
+          onSuccess={fetchExternalServers}
+        />
+      )}
+
+      {selectedServerId && (
+        <ExternalServerDetail 
+          serverId={selectedServerId}
+          onClose={() => setSelectedServerId(null)}
+        />
+      )}
+
+      {showChangePasswordModal && (
+        <ChangePasswordModal onClose={() => setShowChangePasswordModal(false)} />
+      )}
+
               {showCreateVM && (
                 <div className="slide-over-overlay" onClick={() => setShowCreateVM(false)}>
                   <div className="slide-over-content" onClick={e => e.stopPropagation()}>
@@ -819,97 +911,6 @@ const App = () => {
                   </div>
                 </div>
               )}
-
-
-              {(loading && vms.length === 0) || (serversLoading && externalServers.length === 0) ? (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}><div className="spinner"></div></div>
-              ) : (vms.length === 0 && externalServers.length === 0) ? (
-                <div className="glass-card" style={{ textAlign: 'center', padding: '64px 20px' }}>
-                  <Server size={48} color="var(--text-muted)" style={{ marginBottom: '16px' }} />
-                  <h3 className="section-title" style={{ justifyContent: 'center' }}>Нет серверов и инстансов</h3>
-                  <p className="text-muted">Разверните новую виртуальную машину или подключите внешний Linux-сервер.</p>
-                </div>
-              ) : (
-                <div className="grid-cols-3">
-                  {vms.map(vm => (
-                    <VMCard 
-                      key={`vm-${vm.name}`} 
-                      vm={vm} 
-                      onActionSuccess={fetchVMs}
-                      onOpenConsole={(name) => setOpenConsoleName(name)}
-                      onOpenEdit={(vmObj) => setEditingVM(vmObj)}
-                      onOpenDetail={(name) => setSelectedVMDetailName(name)}
-                    />
-                  ))}
-                  {externalServers.map(server => (
-                    <ExternalServerCard 
-                      key={`ext-${server.id}`} 
-                      server={server} 
-                      onClick={() => server.status === 'Online' && setSelectedServerId(server.id)}
-                      onDeleteSuccess={fetchExternalServers}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : activeTab === 'balancer' ? (
-            <BalancerPanel />
-          ) : activeTab === 'images' ? (
-            <ImageManager onImagesChanged={setCustomImages} />
-          ) : activeTab === 'databases' ? (
-            <DatabasesPanel />
-          ) : activeTab === 's3' ? (
-            <S3Panel />
-          ) : activeTab === 'volumes' ? (
-            <VolumesPanel />
-          ) : activeTab === 'mail' ? (
-            <MailPanel />
-          ) : activeTab === 'docker' ? (
-            <DockerPanel />
-          ) : activeTab === 'infra' ? (
-            <InfraPanel />
-          ) : activeTab === 'users' ? (
-            <UsersAdminPanel apiToken={localStorage.getItem('aegis_admin_token')} apiUrl={window.location.origin} />
-          ) : null}
-
-        </main>
-      </div>
-
-      {/* Modals */}
-      {openConsoleName && (
-        <VncConsole 
-          name={openConsoleName} 
-          username={vms.find(v => v.name === openConsoleName)?.credentials?.username || 'root'}
-          password={vms.find(v => v.name === openConsoleName)?.credentials?.password || ''}
-          onClose={() => setOpenConsoleName(null)} 
-        />
-      )}
-
-      {editingVM && (
-        <VMEditModal 
-          vm={editingVM} 
-          onClose={() => setEditingVM(null)} 
-          onSaveSuccess={fetchVMs} 
-        />
-      )}
-
-      {showConnectModal && (
-        <ConnectServerModal 
-          onClose={() => setShowConnectModal(false)}
-          onSuccess={fetchExternalServers}
-        />
-      )}
-
-      {selectedServerId && (
-        <ExternalServerDetail 
-          serverId={selectedServerId}
-          onClose={() => setSelectedServerId(null)}
-        />
-      )}
-
-      {showChangePasswordModal && (
-        <ChangePasswordModal onClose={() => setShowChangePasswordModal(false)} />
-      )}
 
     </div>
   );
