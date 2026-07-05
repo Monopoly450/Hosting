@@ -285,7 +285,7 @@ body {
 
 .text-muted { color: var(--text-muted); font-size: 0.85rem; }
 
-.panel-container { animation: fadeInUp var(--transition-slow) both; }
+.panel-container { animation: fadeIn var(--transition-slow) both; }
 
 .panel-header { margin-bottom: 22px; }
 
