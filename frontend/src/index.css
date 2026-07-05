@@ -603,9 +603,8 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
 }
 .slide-over-content {
   background-color: var(--bg-surface);
-  width: 75vw;
-  max-width: 1100px;
-  min-width: 600px;
+  width: 100%;
+  max-width: 500px;
   height: 100%;
   box-shadow: var(--shadow-xl);
   border-left: 1px solid var(--border-subtle);
