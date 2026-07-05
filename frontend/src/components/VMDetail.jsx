@@ -625,11 +625,21 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                 </div>
 
                 <div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда внешнего SSH:</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда внешнего SSH (через проброс):</div>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={vm.ssh_port ? `ssh ${vm.credentials?.username || 'root'}@${window.location.hostname} -p ${vm.ssh_port}` : 'Ожидание порта...'} />
                     <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${window.location.hostname} -p ${vm.ssh_port}`, 'extSsh')} disabled={!vm.ssh_port}>
                       {copiedField === 'extSsh' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '8px' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда SSH через бастион (Jump Host):</div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={sshIp ? `ssh -J root@${window.location.hostname} ${vm.credentials?.username || 'root'}@${sshIp}` : 'Ожидание сети...'} />
+                    <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`ssh -J root@${window.location.hostname} ${vm.credentials?.username || 'root'}@${sshIp}`, 'bastionSsh')} disabled={!sshIp}>
+                      {copiedField === 'bastionSsh' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
                     </button>
                   </div>
                 </div>
