@@ -623,12 +623,11 @@ def clear_iptables_rules_for_ip(vm_ip: str):
                 del_cmd = line.replace("-A ", "-D ")
                 subprocess.run(nsenter_prefix + [f"iptables {del_cmd}"], capture_output=True, timeout=5)
 
-def reconcile_vm_firewall_rules(vm_ip: str, ports_config: str = None, firewall_rules: str = None, os_type: str = "linux"):
+def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_config: str = None, firewall_rules: str = None, os_type: str = "linux"):
     """Настраивает проброс портов и правила доступа для ВМ с помощью iptables на хосте"""
     import subprocess
     import json
     try:
-        last_octet = int(vm_ip.split('.')[-1])
         nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
         
         # Очищаем старые правила
@@ -644,18 +643,33 @@ def reconcile_vm_firewall_rules(vm_ip: str, ports_config: str = None, firewall_r
                 
         # Если порты не настроены, используем дефолтные
         if not ports:
-            if os_type == "windows":
-                ports = [
-                    {"ext_port": 33000 + last_octet, "int_port": 3389, "name": "RDP"},
-                    {"ext_port": 22000 + last_octet, "int_port": 22, "name": "SSH"},
-                    {"ext_port": 28000 + last_octet, "int_port": 80, "name": "HTTP"}
-                ]
+            if vm_id:
+                if os_type == "windows":
+                    ports = [
+                        {"ext_port": 33000 + vm_id, "int_port": 3389, "name": "RDP"},
+                        {"ext_port": 22000 + vm_id, "int_port": 22, "name": "SSH"},
+                        {"ext_port": 28000 + vm_id, "int_port": 80, "name": "HTTP"}
+                    ]
+                else:
+                    ports = [
+                        {"ext_port": 22000 + vm_id, "int_port": 22, "name": "SSH"},
+                        {"ext_port": 28000 + vm_id, "int_port": 80, "name": "HTTP"},
+                        {"ext_port": 44300 + vm_id, "int_port": 443, "name": "HTTPS"}
+                    ]
             else:
-                ports = [
-                    {"ext_port": 22000 + last_octet, "int_port": 22, "name": "SSH"},
-                    {"ext_port": 28000 + last_octet, "int_port": 80, "name": "HTTP"},
-                    {"ext_port": 44300 + last_octet, "int_port": 443, "name": "HTTPS"}
-                ]
+                last_octet = int(vm_ip.split('.')[-1])
+                if os_type == "windows":
+                    ports = [
+                        {"ext_port": 33000 + last_octet, "int_port": 3389, "name": "RDP"},
+                        {"ext_port": 22000 + last_octet, "int_port": 22, "name": "SSH"},
+                        {"ext_port": 28000 + last_octet, "int_port": 80, "name": "HTTP"}
+                    ]
+                else:
+                    ports = [
+                        {"ext_port": 22000 + last_octet, "int_port": 22, "name": "SSH"},
+                        {"ext_port": 28000 + last_octet, "int_port": 80, "name": "HTTP"},
+                        {"ext_port": 44300 + last_octet, "int_port": 443, "name": "HTTPS"}
+                    ]
             
         # Парсим список разрешенных IP
         fw_map = {}
@@ -833,7 +847,7 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client)):
                 # Если виртуальная машина активна и получила IP-адрес, автоматически пробрасываем порт
                 if vm_data.get("status") == "Running" and vm_data.get("ips"):
                     ip = vm_data["ips"][0]
-                    reconcile_vm_firewall_rules(ip, db_vm.ports_config, db_vm.firewall_rules, db_vm.os_type)
+                    reconcile_vm_firewall_rules(ip, db_vm.id, db_vm.ports_config, db_vm.firewall_rules, db_vm.os_type)
         finally:
             db.close()
             
@@ -1002,6 +1016,22 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         db.add(task)
         db.commit()
         db.refresh(task)
+        
+        # Генерируем дефолтные порты на основе уникального ID виртуальной машины для стабильности
+        if task.os_type == "windows":
+            default_ports = [
+                {"ext_port": 33000 + task.id, "int_port": 3389, "name": "RDP"},
+                {"ext_port": 22000 + task.id, "int_port": 22, "name": "SSH"},
+                {"ext_port": 28000 + task.id, "int_port": 80, "name": "HTTP"}
+            ]
+        else:
+            default_ports = [
+                {"ext_port": 22000 + task.id, "int_port": 22, "name": "SSH"},
+                {"ext_port": 28000 + task.id, "int_port": 80, "name": "HTTP"},
+                {"ext_port": 44300 + task.id, "int_port": 443, "name": "HTTPS"}
+            ]
+        task.ports_config = json.dumps(default_ports)
+        db.commit()
         
         # Отправляем в RabbitMQ
         publish_task("vm_tasks", {
@@ -1204,7 +1234,7 @@ def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClien
             vm_k8s = client.get_vm(name)
             if vm_k8s.get("status") == "Running" and vm_k8s.get("ips"):
                 ip = vm_k8s["ips"][0]
-                reconcile_vm_firewall_rules(ip, db_vm.ports_config, db_vm.firewall_rules, db_vm.os_type)
+                reconcile_vm_firewall_rules(ip, db_vm.id, db_vm.ports_config, db_vm.firewall_rules, db_vm.os_type)
                 
             return {"status": "success", "message": "Настройки ВМ сохранены"}
         finally:

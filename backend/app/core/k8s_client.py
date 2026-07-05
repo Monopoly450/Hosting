@@ -730,22 +730,59 @@ class K8sClient:
         except Exception:
             pass
 
-        # Вычисляем уникальный порт SSH на основе первого валидного IPv4
+        # Вычисляем уникальный порт SSH на основе ID из БД для стабильности
         ssh_port = None
         http_port = None
         https_port = None
         rdp_port = None
-        for ip in ips:
-            if "." in ip and not ip.startswith("10.244.") and not ip.startswith("127."):
-                try:
-                    last_octet = int(ip.split(".")[-1])
-                    ssh_port = 22000 + last_octet
-                    http_port = 28000 + last_octet
-                    https_port = 44300 + last_octet
-                    rdp_port = 33000 + last_octet
-                    break
-                except ValueError:
-                    pass
+        try:
+            from app.db import SessionLocal
+            from app.models.models import VMTask
+            import json
+            db = SessionLocal()
+            try:
+                db_vm = db.query(VMTask).filter(VMTask.name == name).first()
+                if db_vm:
+                    vm_id = db_vm.id
+                    ssh_port = 22000 + vm_id
+                    http_port = 28000 + vm_id
+                    https_port = 44300 + vm_id
+                    rdp_port = 33000 + vm_id
+                    
+                    if db_vm.ports_config:
+                        try:
+                            ports = json.loads(db_vm.ports_config)
+                            for p in ports:
+                                int_p = p.get("int_port")
+                                ext_p = p.get("ext_port")
+                                if int_p == 22:
+                                    ssh_port = ext_p
+                                elif int_p == 80:
+                                    http_port = ext_p
+                                elif int_p == 443:
+                                    https_port = ext_p
+                                elif int_p == 3389:
+                                    rdp_port = ext_p
+                        except Exception:
+                            pass
+            finally:
+                db.close()
+        except Exception:
+            pass
+
+        # Фолбэк на IP, если не удалось получить ID из БД
+        if ssh_port is None:
+            for ip in ips:
+                if "." in ip and not ip.startswith("10.244.") and not ip.startswith("127."):
+                    try:
+                        last_octet = int(ip.split(".")[-1])
+                        ssh_port = 22000 + last_octet
+                        http_port = 28000 + last_octet
+                        https_port = 44300 + last_octet
+                        rdp_port = 33000 + last_octet
+                        break
+                    except ValueError:
+                        pass
 
         return {
             "name": name,
