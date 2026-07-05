@@ -13,6 +13,7 @@ const BalancerPanel = () => {
   const [newPoolPort, setNewPoolPort] = useState(80);
   const [newPoolMethod, setNewPoolMethod] = useState('Round Robin');
   const [selectedVms, setSelectedVms] = useState([]);
+  const [newBackendPort, setNewBackendPort] = useState(80);
 
   const fetchPools = async () => {
     try {
@@ -62,7 +63,7 @@ const BalancerPanel = () => {
       port: parseInt(newPoolPort),
       method: newPoolMethod,
       vms: selectedVms,
-      backend_port: 80
+      backend_port: parseInt(newBackendPort)
     };
     
     try {
@@ -75,6 +76,7 @@ const BalancerPanel = () => {
         fetchPools();
         setNewPoolName('');
         setSelectedVms([]);
+        setNewBackendPort(80);
         setShowCreatePool(false);
       } else {
         const errData = await response.json();
@@ -240,9 +242,13 @@ const BalancerPanel = () => {
                   <label className="input-label" style={{ fontSize: '0.75rem' }}>Имя пула</label>
                   <input type="text" className="form-control" style={{ fontSize: '0.85rem' }} value={newPoolName} onChange={(e) => setNewPoolName(e.target.value)} placeholder="Например: app-upstream" required />
                 </div>
-                <div style={{ width: '80px' }}>
-                  <label className="input-label" style={{ fontSize: '0.75rem' }}>Порт</label>
+                <div style={{ width: '100px' }}>
+                  <label className="input-label" style={{ fontSize: '0.75rem' }}>Внешний порт</label>
                   <input type="number" className="form-control" style={{ fontSize: '0.85rem' }} value={newPoolPort} onChange={(e) => setNewPoolPort(parseInt(e.target.value))} required />
+                </div>
+                <div style={{ width: '100px' }}>
+                  <label className="input-label" style={{ fontSize: '0.75rem' }}>Порт ВМ</label>
+                  <input type="number" className="form-control" style={{ fontSize: '0.85rem' }} value={newBackendPort} onChange={(e) => setNewBackendPort(parseInt(e.target.value))} required />
                 </div>
                 <div style={{ flex: 1 }}>
                   <label className="input-label" style={{ fontSize: '0.75rem' }}>Метод балансировки</label>

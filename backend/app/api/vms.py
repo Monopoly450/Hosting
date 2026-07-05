@@ -1701,18 +1701,23 @@ def create_balancer_pool(payload: BalancerPoolCreate, client: K8sClient = Depend
     servers = []
     for vm_name in payload.vms:
         try:
-            vmi = client.custom_api.get_namespaced_custom_object(
-                group="kubevirt.io",
-                version="v1",
-                namespace="default",
-                plural="virtualmachineinstances",
-                name=vm_name
-            )
-            interfaces = vmi.get("status", {}).get("interfaces", [])
-            if interfaces:
-                ip = interfaces[0].get("ipAddress")
-                if ip:
-                    servers.append(f"server {ip}:{payload.backend_port};")
+            vm_info = client.get_vm(vm_name)
+            ips = vm_info.get("ips", [])
+            
+            # Выбираем лучший IP: предпочитаем физический/мостовой IP перед flannel-IP 10.244.x.x
+            best_ip = None
+            for ip in ips:
+                if ip and not ip.startswith("127."):
+                    if not ip.startswith("10.244."):
+                        best_ip = ip
+                        break
+            
+            # Если нет внешнего/мостового IP, берем любой доступный
+            if not best_ip and ips:
+                best_ip = ips[0]
+                
+            if best_ip:
+                servers.append(f"server {best_ip}:{payload.backend_port};")
         except Exception as e:
             logger.error(f"Error resolving IP for VM {vm_name}: {e}")
             
