@@ -1196,11 +1196,15 @@ class K8sClient:
             ]
             mount_path = "/var/lib/postgresql/data"
         else:
+            # Root-пароль пода нигде повторно не используется (приложение ходит под
+            # db_user), поэтому генерируем случайный вместо общего захардкоженного.
+            import secrets
+            mariadb_root_pw = secrets.token_urlsafe(24)
             env = [
                 {"name": "MARIADB_DATABASE", "value": db_name},
                 {"name": "MARIADB_USER", "value": db_user},
                 {"name": "MARIADB_PASSWORD", "value": db_password},
-                {"name": "MARIADB_ROOT_PASSWORD", "value": "mariadb-root-secret-2026"},
+                {"name": "MARIADB_ROOT_PASSWORD", "value": mariadb_root_pw},
             ]
             mount_path = "/var/lib/mysql"
 

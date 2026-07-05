@@ -17,8 +17,12 @@ class Settings(BaseSettings):
     )
     STORAGE_CLASS: str = os.getenv("STORAGE_CLASS", "local-path")
     
-    # Настройки CORS
-    BACKEND_CORS_ORIGINS: list[str] = ["*"]
+    # Настройки CORS. По умолчанию "*" (панель отдаётся тем же хостом и
+    # авторизуется токеном в заголовке, не куками). Можно ограничить через
+    # AEGIS_CORS_ORIGINS="https://panel.example.com,https://vds.example.com".
+    BACKEND_CORS_ORIGINS: list[str] = [
+        o.strip() for o in os.getenv("AEGIS_CORS_ORIGINS", "*").split(",") if o.strip()
+    ]
     
     # URL для подключения к базе данных PostgreSQL
     DATABASE_URL: str = os.getenv(

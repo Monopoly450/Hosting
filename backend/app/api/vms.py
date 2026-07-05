@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from app.core.k8s_client import K8sClient
 from app.services.ssh_inspector import SSHInspector
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, check_admin
 from app.models.models import User
 from app.core.config import settings
 
@@ -717,26 +717,39 @@ def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_c
             except Exception as e:
                 logger.error(f"Error parsing firewall_rules: {e}")
                 
+        # ЗАЩИТА ОТ ИНЪЕКЦИИ: vm_ip подставляется в shell-команду iptables,
+        # поэтому он обязан быть валидным IPv4. Иначе — не трогаем файрвол.
+        from app.core.netutils import is_valid_ipv4, is_valid_ip_or_cidr
+        if not is_valid_ipv4(vm_ip):
+            logger.error(f"reconcile_vm_firewall_rules: некорректный vm_ip {vm_ip!r}, пропуск")
+            return
+
         # Применяем правила для каждого порта
         for p in ports:
             ext_port = int(p.get("ext_port"))
             int_port = int(p.get("int_port"))
-            
+
             # 1. Добавляем DNAT правило в PREROUTING
             add_dnat = f"iptables -t nat -A PREROUTING -p tcp --dport {ext_port} -j DNAT --to-destination {vm_ip}:{int_port}"
             subprocess.run(nsenter_prefix + [add_dnat], capture_output=True, timeout=5)
-            
-            # 2. Получаем белый список IP для этого порта
+
+            # 2. Получаем белый список IP для этого порта.
+            #    Отбрасываем всё, что не является валидным IP/CIDR — значения
+            #    из firewall_rules задаёт пользователь и они уходят в iptables.
             whitelist = fw_map.get(int_port) or fw_map.get(ext_port) or []
-            whitelist = [ip.strip() for ip in whitelist if ip.strip()]
-            
+            whitelist = [ip.strip() for ip in whitelist if ip and ip.strip()]
+            allow_all = (not whitelist) or ("0.0.0.0/0" in whitelist)
+            safe_whitelist = [ip for ip in whitelist if is_valid_ip_or_cidr(ip)]
+            for bad in [ip for ip in whitelist if ip not in safe_whitelist and ip != "0.0.0.0/0"]:
+                logger.warning(f"reconcile_vm_firewall_rules: игнорирую некорректный IP в белом списке: {bad!r}")
+
             # Если белый список пуст или содержит 0.0.0.0/0, разрешаем всем
-            if not whitelist or "0.0.0.0/0" in whitelist:
+            if allow_all:
                 add_forward = f"iptables -A FORWARD -p tcp -d {vm_ip} --dport {int_port} -j ACCEPT"
                 subprocess.run(nsenter_prefix + [add_forward], capture_output=True, timeout=5)
             else:
-                # Разрешаем доступ только для белого списка
-                for ip_addr in whitelist:
+                # Разрешаем доступ только для проверенного белого списка
+                for ip_addr in safe_whitelist:
                     add_allow = f"iptables -A FORWARD -p tcp -s {ip_addr} -d {vm_ip} --dport {int_port} -j ACCEPT"
                     subprocess.run(nsenter_prefix + [add_allow], capture_output=True, timeout=5)
                 # Все остальное для этого порта сбрасываем
@@ -750,7 +763,7 @@ def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_c
         logger.error(f"Error in reconcile_vm_firewall_rules for {vm_ip}: {e}")
 
 @router.get("/balancer/resources", response_model=List[dict])
-def get_balancer_resources(client: K8sClient = Depends(get_k8s_client)):
+def get_balancer_resources(client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     try:
         # 1. List all VMs to get their configurations (CPU limit, RAM limit)
         vms = client.list_vms()
@@ -850,10 +863,11 @@ def get_balancer_resources(client: K8sClient = Depends(get_k8s_client)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{name}", response_model=dict)
-def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client)):
+def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
+    check_vm_ownership(name, current_user)
     from app.db import SessionLocal
     from app.models.models import VMTask
-    
+
     try:
         vm_data = client.get_vm(name)
         
@@ -1403,7 +1417,8 @@ class VMCommandExecuteRequest(BaseModel):
 
 
 @router.get("/{name}/ssh-details")
-def get_vm_ssh_details(name: str, client: K8sClient = Depends(get_k8s_client)):
+def get_vm_ssh_details(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
+    check_vm_ownership(name, current_user)
     """Получить детальный статус виртуальной машины через SSH (процессы, systemd, docker)"""
     try:
         vm = client.get_vm(name)
@@ -1444,7 +1459,8 @@ def get_vm_ssh_details(name: str, client: K8sClient = Depends(get_k8s_client)):
 
 
 @router.post("/{name}/execute")
-def execute_vm_ssh_command(name: str, req: VMCommandExecuteRequest, client: K8sClient = Depends(get_k8s_client)):
+def execute_vm_ssh_command(name: str, req: VMCommandExecuteRequest, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
+    check_vm_ownership(name, current_user)
     """Выполнить bash-команду на виртуальной машине через SSH"""
     try:
         vm = client.get_vm(name)
@@ -1509,7 +1525,7 @@ def execute_vm_ssh_command(name: str, req: VMCommandExecuteRequest, client: K8sC
         }
 
 @router.post("/{name}/migrate")
-async def migrate_vm(name: str, target_server_id: str = Query(...), k8s: K8sClient = Depends(get_k8s_client), db: AsyncSession = Depends(get_db)):
+async def migrate_vm(name: str, target_server_id: str = Query(...), k8s: K8sClient = Depends(get_k8s_client), db: AsyncSession = Depends(get_db), current_user: User = Depends(check_admin)):
     from app.models.models import ExternalServer
     from sqlalchemy import select
     import asyncio
@@ -1704,16 +1720,23 @@ def save_balancer_pools(pools: list):
         logger.error(f"Error saving pools: {e}")
 
 @router.get("/balancer/pools", response_model=List[dict])
-def get_balancer_pools():
+def get_balancer_pools(current_user: User = Depends(get_current_user)):
     """Получить список активных балансировочных пулов"""
     return load_balancer_pools()
 
 @router.post("/balancer/pools")
-def create_balancer_pool(payload: BalancerPoolCreate, client: K8sClient = Depends(get_k8s_client)):
+def create_balancer_pool(payload: BalancerPoolCreate, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(check_admin)):
     """Создать новый балансировочный пул и применить конфигурацию Nginx на хосте"""
     import os
     import subprocess
-    
+    from app.core.netutils import is_safe_name, is_valid_ipv4
+
+    # ЗАЩИТА ОТ ИНЪЕКЦИИ: имя пула попадает и в конфиг Nginx, и в имя файла на хосте.
+    if not is_safe_name(payload.name):
+        raise HTTPException(status_code=400, detail="Имя пула может содержать только строчные латинские буквы, цифры и дефис.")
+    if not (1 <= payload.port <= 65535) or not (1 <= payload.backend_port <= 65535):
+        raise HTTPException(status_code=400, detail="Некорректный порт.")
+
     pools = load_balancer_pools()
     
     # 1. Проверяем уникальность имени
@@ -1743,8 +1766,10 @@ def create_balancer_pool(payload: BalancerPoolCreate, client: K8sClient = Depend
             if not best_ip and ips:
                 best_ip = ips[0]
                 
-            if best_ip:
+            if best_ip and is_valid_ipv4(best_ip):
                 servers.append(f"server {best_ip}:{payload.backend_port};")
+            elif best_ip:
+                logger.warning(f"Пропускаю ВМ {vm_name}: некорректный IP {best_ip!r}")
         except Exception as e:
             logger.error(f"Error resolving IP for VM {vm_name}: {e}")
             
@@ -1839,11 +1864,16 @@ server {{
     return {"status": "success", "message": f"Пул балансировки {payload.name} успешно запущен на порту {payload.port}"}
 
 @router.delete("/balancer/pools/{name}")
-def delete_balancer_pool(name: str):
+def delete_balancer_pool(name: str, current_user: User = Depends(check_admin)):
     """Удалить балансировочный пул и стереть его конфигурацию из Nginx на хосте"""
     import os
     import subprocess
-    
+    from app.core.netutils import is_safe_name
+
+    # ЗАЩИТА ОТ PATH TRAVERSAL: имя уходит в путь файла на хосте.
+    if not is_safe_name(name):
+        raise HTTPException(status_code=400, detail="Некорректное имя пула.")
+
     pools = load_balancer_pools()
     pool_to_delete = next((p for p in pools if p["name"] == name), None)
     if not pool_to_delete:

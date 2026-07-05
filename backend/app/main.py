@@ -120,12 +120,17 @@ async def startup_event():
             logger.warning(f"Не удалось зашифровать старые секреты: {enc_err}")
 
 
-# Настройка CORS
+# Настройка CORS.
+# Wildcard-источник ("*") несовместим с allow_credentials=True по спецификации
+# CORS, поэтому при "*" отключаем credentials. Авторизация всё равно идёт через
+# токен в заголовке Authorization, а не через куки, так что это безопасно.
 if settings.BACKEND_CORS_ORIGINS:
+    origins = [str(origin) for origin in settings.BACKEND_CORS_ORIGINS]
+    allow_all = "*" in origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
-        allow_credentials=True,
+        allow_origins=origins,
+        allow_credentials=not allow_all,
         allow_methods=["*"],
         allow_headers=["*"],
     )
