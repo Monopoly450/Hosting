@@ -671,7 +671,7 @@ const App = () => {
 
                         <div className="input-group">
                           <label className="input-label">Операционная система</label>
-                          <div className="os-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '10px' }}>
+                          <div className="os-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
                             <div className={`os-card ${osType === 'none' ? 'selected' : ''}`} onClick={() => setOsType('none')}>
                               <div className="os-card-icon" style={{ color: '#94a3b8' }}><Info size={24} /></div>
                               <div className="os-card-title">Без ОС</div>
