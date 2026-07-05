@@ -176,30 +176,38 @@ def process_attach_network(db: Session, task_id: int, network_name: str):
         logger.error(f"Error attaching network for task {task_id}: {e}")
 
 def callback(ch, method, properties, body):
-    data = json.loads(body)
-    task_id = data.get("task_id")
-    action = data.get("action")
-    
-    logger.info(f"Received task: {action} for task_id {task_id}")
-    
-    db = SessionLocal()
+    # Всё тело обёрнуто в try/except, а ack вызывается в любом случае: иначе
+    # «ядовитое» сообщение (битый JSON или упавшая операция) не подтверждается,
+    # RabbitMQ шлёт его снова → бесконечный цикл переотправки и падений.
     try:
-        if action == "create_vm":
-            process_vm_task(db, task_id)
-        elif action == "attach_network":
-            process_attach_network(db, task_id, data.get("network_name"))
-        elif action == "delete_vm":
-            task = db.query(VMTask).filter(VMTask.id == task_id).first()
-            if task:
-                k8s.delete_vm(task.name)
-        elif action == "delete_cluster_env":
-            cluster = db.query(Cluster).filter(Cluster.id == task_id).first()
-            if cluster:
-                k8s.delete_cluster_env(str(cluster.id))
+        data = json.loads(body)
+        task_id = data.get("task_id")
+        action = data.get("action")
+        logger.info(f"Received task: {action} for task_id {task_id}")
+
+        db = SessionLocal()
+        try:
+            if action == "create_vm":
+                process_vm_task(db, task_id)
+            elif action == "attach_network":
+                process_attach_network(db, task_id, data.get("network_name"))
+            elif action == "delete_vm":
+                task = db.query(VMTask).filter(VMTask.id == task_id).first()
+                if task:
+                    k8s.delete_vm(task.name)
+            elif action == "delete_cluster_env":
+                cluster = db.query(Cluster).filter(Cluster.id == task_id).first()
+                if cluster:
+                    k8s.delete_cluster_env(str(cluster.id))
+            else:
+                logger.warning(f"Unknown action: {action}")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Failed to process message ({body[:200]!r}): {e}")
     finally:
-        db.close()
-    
-    ch.basic_ack(delivery_tag=method.delivery_tag)
+        # Подтверждаем сообщение всегда — не зацикливаемся на сбойных задачах.
+        ch.basic_ack(delivery_tag=method.delivery_tag)
 
 def apply_disk_throttling_daemon():
     """Фоновый демон для динамического применения ограничений на дисковый ввод-вывод (cgroups v2)"""

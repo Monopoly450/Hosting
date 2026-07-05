@@ -14,22 +14,8 @@ router = APIRouter()
 logger = logging.getLogger("app.api.databases")
 
 def resolve_ip(ips: list) -> Optional[str]:
-    for ip in ips:
-        if (
-            not ip.startswith("10.244.") and 
-            not ip.startswith("10.42.") and 
-            not ip.startswith("10.0.2.") and 
-            not ip.startswith("127.0.") and 
-            ":" not in ip
-        ):
-            return ip
-    for ip in ips:
-        if (ip.startswith("10.42.") or ip.startswith("10.244.")) and ":" not in ip:
-            return ip
-    for ip in ips:
-        if ":" not in ip:
-            return ip
-    return ips[0] if ips else None
+    from app.core.netutils import pick_external_ip
+    return pick_external_ip(ips)
 
 def get_vm_ip_by_name(vm_name: str) -> Optional[str]:
     try:

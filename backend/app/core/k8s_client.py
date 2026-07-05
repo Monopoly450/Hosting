@@ -774,10 +774,11 @@ class K8sClient:
         except Exception:
             pass
 
-        # Фолбэк на IP, если не удалось получить ID из БД
+        # Фолбэк на IP, если не удалось получить ID из БД (единая фильтрация с databases)
         if ssh_port is None:
+            from app.core.netutils import is_internal_ip
             for ip in ips:
-                if "." in ip and not ip.startswith("10.244.") and not ip.startswith("127."):
+                if "." in ip and not is_internal_ip(ip):
                     try:
                         last_octet = int(ip.split(".")[-1])
                         ssh_port = 22000 + last_octet

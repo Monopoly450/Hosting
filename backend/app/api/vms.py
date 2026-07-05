@@ -926,9 +926,18 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         from app.db import SessionLocal
         from app.models.models import VMTask
         from app.queue_client import publish_task
-        
+
+        # Свой cloud-init полностью заменяет сгенерированный, поэтому SSH-ключ
+        # в него не попадёт. Не «съедаем» ключ молча — сообщаем об этом явно.
+        if getattr(req, "custom_user_data", None) and getattr(req, "ssh_key", None):
+            raise HTTPException(
+                status_code=400,
+                detail="Свой Cloud-Init скрипт и SSH-ключ нельзя указывать одновременно: "
+                       "пропишите ssh_authorized_keys прямо в своём cloud-config."
+            )
+
         db = SessionLocal()
-        
+
         # Проверяем наличие свободных физических ресурсов на самом хостинге
         import os
         import shutil

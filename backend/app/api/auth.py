@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from collections import defaultdict
 import time
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import SessionLocal
 from app.models.models import User, VMTask, Cluster, UserDatabase, UserBucket, UserVolume, UserMailbox
@@ -70,10 +70,16 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
     """Аутентификация пользователя и выдача сессионного токена"""
     client_ip = request.client.host if request.client else "unknown"
     now = time.time()
-    
-    # Очищаем попытки старше 5 минут (300 сек)
-    _login_failures[client_ip] = [t for t in _login_failures[client_ip] if now - t < 300]
-    
+
+    # Периодически подчищаем весь словарь от устаревших записей, чтобы ключи
+    # неактивных IP не накапливались бесконечно (in-memory, на процесс).
+    for ip in list(_login_failures.keys()):
+        fresh = [t for t in _login_failures[ip] if now - t < 300]
+        if fresh:
+            _login_failures[ip] = fresh
+        else:
+            del _login_failures[ip]
+
     if len(_login_failures[client_ip]) >= 5:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -127,14 +133,15 @@ async def register(req: UserCreateRequest, admin: User = Depends(check_admin), d
 @router.get("/me", response_model=UserQuotaResponse)
 async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Информация о текущем пользователе, его лимитах и текущем потреблении ресурсов"""
-    # Считаем текущее потребление ресурсов пользователя
+    # Считаем текущее потребление ресурсов пользователя.
+    # ВМ со статусом "Error" (неудавшееся создание) не резервируют ресурсы и не учитываются.
     vms_res = await db.execute(select(VMTask).filter_by(owner_id=user.id))
-    vms = vms_res.scalars().all()
-    
+    vms = [vm for vm in vms_res.scalars().all() if vm.status != "Error"]
+
     used_vcpus = sum(vm.cpu_cores for vm in vms)
     used_ram = sum(vm.memory_gb * 1024 for vm in vms) # memory_gb to MB
     used_vms = len(vms)
-    
+
     # Считаем занятое дисковое пространство (диски ВМ + сетевые диски)
     used_storage = sum(vm.disk_gb for vm in vms)
     
@@ -189,10 +196,13 @@ async def delete_user(user_id: int, admin: User = Depends(check_admin), db: Asyn
     if user.username == "admin":
         raise HTTPException(status_code=400, detail="Нельзя удалить системного администратора")
 
-    # 1. Удаляем связанные ресурсы ВМ и кластеры (логически)
-    # На практике реальные K8s ресурсы должны быть удалены. Мы каскадно удаляем их записи в БД.
-    await db.execute(select(VMTask).filter_by(owner_id=user.id))
-    # Для простоты удаляем пользователя из БД
+    # Каскадно удаляем записи всех ресурсов пользователя, иначе внешние ключи
+    # (owner_id) не дадут удалить пользователя и оставят «осиротевшие» строки.
+    # ВНИМАНИЕ: реальные ресурсы в Kubernetes (ВМ, БД-поды, бакеты) при этом
+    # не удаляются — их нужно снять отдельно перед удалением пользователя.
+    for model in (VMTask, UserDatabase, UserBucket, UserVolume, UserMailbox, Cluster):
+        await db.execute(delete(model).where(model.owner_id == user.id))
+
     await db.delete(user)
     await db.commit()
     return {"status": "deleted"}
@@ -219,7 +229,7 @@ async def update_user(user_id: int, req: UserUpdateRequest, admin: User = Depend
 @router.post("/change-password")
 async def change_own_password(req: ChangePasswordRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Смена пароля самим пользователем"""
-    if not verify_password(req.password_hash if hasattr(req, "password_hash") else req.old_password, current_user.password_hash):
+    if not verify_password(req.old_password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="Неверный старый пароль")
     
     current_user.password_hash = hash_password(req.new_password)
