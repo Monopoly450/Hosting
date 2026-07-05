@@ -825,6 +825,14 @@ class K8sClient:
                         del_rule = line.replace("-A ", "iptables -D ")
                         subprocess.run(nsenter_prefix + [del_rule], capture_output=True, timeout=5)
             
+            # Очищаем старые правила INPUT для защиты управляющего контура
+            res_input = subprocess.run(nsenter_prefix + ["iptables -S INPUT"], capture_output=True, text=True, timeout=5)
+            if res_input.returncode == 0:
+                for line in res_input.stdout.splitlines():
+                    if ("br-+" in line or "10.244.0.0/16" in line) and any(port in line for port in ["5432", "5672", "8000", "8001"]):
+                        del_rule = line.replace("-A ", "iptables -D ")
+                        subprocess.run(nsenter_prefix + [del_rule], capture_output=True, timeout=5)
+            
             # Добавляем правила заново
             logger.info("Настройка правил iptables для L3 изоляции мостов Multus с поддержкой локального бриджинга")
             
@@ -835,6 +843,14 @@ class K8sClient:
             # 2. Затем добавляем разрешающее правило для локального трафика внутри одного моста в самую первую позицию (сдвигая REJECT на вторую)
             add_accept = "iptables -I FORWARD -i br-+ -o br-+ -m physdev --physdev-is-bridged -j ACCEPT"
             subprocess.run(nsenter_prefix + [add_accept], capture_output=True, text=True, timeout=5)
+            
+            # 3. Блокируем доступ из ВМ к служебным портам хоста (БД, RabbitMQ, API)
+            logger.info("Блокировка доступа из виртуальных машин к управляющим портам хост-сервера")
+            block_br = "iptables -I INPUT -i br-+ -p tcp -m multiport --dports 5432,5672,15672,8000,8001 -j REJECT --reject-with icmp-port-unreachable"
+            subprocess.run(nsenter_prefix + [block_br], capture_output=True, text=True, timeout=5)
+            
+            block_flannel = "iptables -I INPUT -s 10.244.0.0/16 -p tcp -m multiport --dports 5432,5672,15672,8000,8001 -j REJECT --reject-with icmp-port-unreachable"
+            subprocess.run(nsenter_prefix + [block_flannel], capture_output=True, text=True, timeout=5)
             
             # Сохраняем правила
             subprocess.run(nsenter_prefix + ["netfilter-persistent save"], capture_output=True, text=True, timeout=5)

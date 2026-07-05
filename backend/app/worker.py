@@ -69,6 +69,7 @@ def process_vm_task(db: Session, task_id: int):
             cloud_init_template = task.cloud_init_template
             custom_user_data = task.custom_user_data
             iso_url = task.iso_url
+            ssh_key = task.ssh_key
         
         # Вызываем логику создания ВМ
         from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password

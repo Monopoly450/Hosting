@@ -73,6 +73,7 @@ const App = () => {
   const [isoUrl, setIsoUrl] = useState('');
   const [cloudInitTemplate, setCloudInitTemplate] = useState('');
   const [customUserData, setCustomUserData] = useState('');
+  const [sshKey, setSshKey] = useState('');
 
   // Default values based on OS
   useEffect(() => {
@@ -204,7 +205,8 @@ const App = () => {
         disk_gb: parseInt(diskGb),
         iso_url: osType === 'windows' && isoUrl.trim() ? isoUrl.trim() : undefined,
         cloud_init_template: cloudInitTemplate || undefined,
-        custom_user_data: customUserData.trim() || undefined
+        custom_user_data: customUserData.trim() || undefined,
+        ssh_key: sshKey.trim() || undefined
       };
 
       const response = await fetch('/api/vms', {
@@ -229,6 +231,7 @@ const App = () => {
       setIsoUrl('');
       setCloudInitTemplate('');
       setCustomUserData('');
+      setSshKey('');
       fetchVMs();
       
       setSelectedVMDetailName(payload.name);
@@ -861,6 +864,20 @@ const App = () => {
                               { value: 'wordpress', label: 'WordPress (Apache + MySQL + PHP + WP)' }
                             ]}
                           />
+                        </div>
+
+                        <div className="input-group">
+                          <label className="input-label">Публичный SSH-ключ (для безопасного входа)</label>
+                          <input 
+                            type="text" 
+                            className="form-control" 
+                            placeholder="ssh-rsa AAAA..."
+                            value={sshKey}
+                            onChange={e => setSshKey(e.target.value)}
+                          />
+                          <small style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                            Если указан ключ, парольный вход по SSH будет автоматически заблокирован на создаваемой ВМ.
+                          </small>
                         </div>
 
                         <div className="input-group">

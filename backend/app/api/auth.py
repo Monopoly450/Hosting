@@ -1,11 +1,16 @@
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request
 from pydantic import BaseModel, Field
 from typing import List, Optional
+from collections import defaultdict
+import time
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import SessionLocal
 from app.models.models import User, VMTask, Cluster, UserDatabase, UserBucket, UserVolume, UserMailbox
 from app.core.auth import hash_password, verify_password, create_access_token, get_current_user, check_admin, get_db
+
+# Простая защита от брутфорса: лимит на 5 неудачных попыток входа за 5 минут
+_login_failures = defaultdict(list)
 
 router = APIRouter()
 
@@ -61,16 +66,33 @@ class ChangePasswordRequest(BaseModel):
 # --- ЭНДПОИНТЫ ---
 
 @router.post("/login", response_model=TokenResponse)
-async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Аутентификация пользователя и выдача сессионного токена"""
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    
+    # Очищаем попытки старше 5 минут (300 сек)
+    _login_failures[client_ip] = [t for t in _login_failures[client_ip] if now - t < 300]
+    
+    if len(_login_failures[client_ip]) >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Слишком много неудачных попыток входа. Попробуйте через 5 минут."
+        )
+
     res = await db.execute(select(User).filter_by(username=req.username))
     user = res.scalars().first()
     if not user or not verify_password(req.password, user.password_hash):
+        _login_failures[client_ip].append(now)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверное имя пользователя или пароль"
         )
     
+    # Очищаем попытки при успешном логине
+    if client_ip in _login_failures:
+        del _login_failures[client_ip]
+        
     token = create_access_token({"sub": user.username})
     return {
         "access_token": token,

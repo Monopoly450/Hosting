@@ -178,6 +178,7 @@ class VMTask(Base):
     cloud_init_template = Column(String, nullable=True)
     custom_user_data = Column(Text, nullable=True)
     iso_url = Column(String, nullable=True)
+    ssh_key = Column(String, nullable=True)
     
     # Queue / State
     status = Column(String, default="Pending") # Pending, Provisioning, Running, Error

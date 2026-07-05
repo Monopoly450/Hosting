@@ -77,6 +77,7 @@ class VMCreationRequest(BaseModel):
     network_drives: Optional[str] = Field(None, description="Сетевые диски (NFS/PVC через запятую)")
     cloud_init_template: Optional[str] = Field(None, description="Предустановленный шаблон (lamp, docker, nodejs, wordpress)")
     custom_user_data: Optional[str] = Field(None, description="Собственный cloud-init userdata")
+    ssh_key: Optional[str] = Field(None, description="Публичный SSH-ключ для беспарольного входа")
 
 class VMResizeRequest(BaseModel):
     cpu_cores: int = Field(..., ge=1, le=16)
@@ -219,6 +220,24 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     if template_commands:
         runcmd_yaml += "\n" + "\n".join([f"  - {cmd}" for cmd in template_commands])
 
+    ssh_pwauth_val = "True"
+    users_yaml = "users:\n  - default"
+    ssh_enable_commands = """  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true
+  - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf || true"""
+  
+    if getattr(req, "ssh_key", None):
+        ssh_pwauth_val = "False"
+        users_yaml = f"""users:
+  - default
+  - name: root
+    ssh_authorized_keys:
+      - {req.ssh_key}
+  - name: {default_user}
+    ssh_authorized_keys:
+      - {req.ssh_key}"""
+        ssh_enable_commands = """  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config || true
+  - sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config.d/*.conf || true"""
+
     manifest = {
         "apiVersion": "kubevirt.io/v1",
         "kind": "VirtualMachine",
@@ -302,15 +321,14 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
                             "name": "cloudinit",
                             "cloudInitNoCloud": {
                                 "userData": req.custom_user_data if req.custom_user_data else f"""#cloud-config
-ssh_pwauth: True
+ssh_pwauth: {ssh_pwauth_val}
 disable_root: false
 chpasswd:
   list: |
     root:{password}
     {default_user}:{password}
   expire: False
-users:
-  - default
+{users_yaml}
 {packages_yaml}{mounts_yaml}
 write_files:
   - path: /etc/netplan/99-dhcp.yaml
@@ -331,8 +349,7 @@ runcmd:
   - echo "root:{password}" | chpasswd
   - echo "{default_user}:{password}" | chpasswd
   - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
-  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true
-  - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf || true
+{ssh_enable_commands}
   - systemctl restart ssh || systemctl restart sshd || true
   - (netplan apply || systemctl restart systemd-networkd || nmcli con reload) || true
   - systemctl daemon-reload || true
@@ -1027,6 +1044,7 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
             cloud_init_template=req.cloud_init_template,
             custom_user_data=req.custom_user_data,
             iso_url=req.iso_url,
+            ssh_key=req.ssh_key,
             owner_id=current_user.id,
             status="Pending"
         )
