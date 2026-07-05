@@ -5,7 +5,6 @@ import Portal from './Portal';
 
 const HostStats = ({ onMetricsLoaded }) => {
   const [metrics, setMetrics] = useState(null);
-  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [selectedStorageTab, setSelectedStorageTab] = useState(null);
@@ -75,17 +74,6 @@ const HostStats = ({ onMetricsLoaded }) => {
       }
       
       if (onMetricsLoaded) onMetricsLoaded(data);
-
-      setHistory(prev => {
-        const newPoint = {
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          cpu: data.cpu.usage_percent,
-          memory: data.memory.usage_percent
-        };
-        const updated = [...prev, newPoint];
-        if (updated.length > 20) updated.shift();
-        return updated;
-      });
     } catch (err) {
       console.error(err);
       setError(true);
@@ -314,39 +302,7 @@ const HostStats = ({ onMetricsLoaded }) => {
         )}
       </div>
       
-      {/* Real-time chart (live polling) */}
-      {history.length > 1 && (
-        <div style={{ marginBottom: '24px' }}>
-          <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-heading)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Activity size={16} /> Мониторинг в реальном времени
-          </h4>
-          <div style={{ height: '180px', width: '100%' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={history} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--accent-primary)" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="var(--accent-primary)" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorMem" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--status-success)" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="var(--status-success)" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="time" hide />
-                <YAxis domain={[0, 100]} tickLine={false} axisLine={false} style={{ fontSize: '11px', fill: 'var(--text-muted)' }} />
-                <Tooltip 
-                  contentStyle={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)' }}
-                  labelStyle={{ color: 'var(--text-secondary)', marginBottom: '4px' }}
-                  itemStyle={{ fontSize: '0.9rem', fontWeight: 500 }}
-                />
-                <Area type="monotone" dataKey="cpu" name="CPU Load %" stroke="var(--accent-primary)" fillOpacity={1} fill="url(#colorCpu)" strokeWidth={2} />
-                <Area type="monotone" dataKey="memory" name="RAM Usage %" stroke="var(--status-success)" fillOpacity={1} fill="url(#colorMem)" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
+
 
       {/* Prometheus Historical Chart */}
       <div style={{ marginBottom: '24px', padding: '20px', background: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
