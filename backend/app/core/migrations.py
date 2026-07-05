@@ -41,6 +41,11 @@ MIGRATION_STATEMENTS = [
     "ALTER TABLE user_volumes ADD COLUMN IF NOT EXISTS owner_id INTEGER;",
     "ALTER TABLE user_mailboxes ADD COLUMN IF NOT EXISTS owner_id INTEGER;",
     "ALTER TABLE clusters ADD COLUMN IF NOT EXISTS owner_id INTEGER;",
+    # SSH bastion / jump host для внешних серверов
+    "ALTER TABLE external_servers ADD COLUMN IF NOT EXISTS bastion_host VARCHAR;",
+    "ALTER TABLE external_servers ADD COLUMN IF NOT EXISTS bastion_port INTEGER DEFAULT 22;",
+    "ALTER TABLE external_servers ADD COLUMN IF NOT EXISTS bastion_username VARCHAR;",
+    "ALTER TABLE external_servers ADD COLUMN IF NOT EXISTS bastion_password VARCHAR;",
 ]
 
 

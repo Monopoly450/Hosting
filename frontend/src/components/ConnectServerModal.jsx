@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Server, ShieldAlert, Key } from 'lucide-react';
+import { X, Server, ShieldAlert, Key, Network, ArrowRight } from 'lucide-react';
 
 const ConnectServerModal = ({ onClose, onSuccess }) => {
   const [name, setName] = useState('');
@@ -9,9 +9,20 @@ const ConnectServerModal = ({ onClose, onSuccess }) => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Бастион (jump host)
+  const [useBastion, setUseBastion] = useState(false);
+  const [bastionHost, setBastionHost] = useState('');
+  const [bastionPort, setBastionPort] = useState(22);
+  const [bastionUsername, setBastionUsername] = useState('root');
+  const [bastionPassword, setBastionPassword] = useState('');
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name.trim() || !host.trim() || !password.trim()) return;
+    if (useBastion && (!bastionHost.trim() || !bastionUsername.trim() || !bastionPassword.trim())) {
+      alert('Для бастиона укажите хост, пользователя и пароль.');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -20,7 +31,13 @@ const ConnectServerModal = ({ onClose, onSuccess }) => {
         host: host.trim(),
         port: parseInt(port),
         username: username.trim(),
-        password: password
+        password: password,
+        ...(useBastion ? {
+          bastion_host: bastionHost.trim(),
+          bastion_port: parseInt(bastionPort),
+          bastion_username: bastionUsername.trim(),
+          bastion_password: bastionPassword,
+        } : {})
       };
 
       const response = await fetch('/api/external-servers', {
@@ -137,10 +154,10 @@ const ConnectServerModal = ({ onClose, onSuccess }) => {
               </div>
               <div className="input-group">
                 <label className="input-label" htmlFor="server-pass">Пароль SSH</label>
-                <input 
+                <input
                   id="server-pass"
-                  type="password" 
-                  className="form-control" 
+                  type="password"
+                  className="form-control"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -148,6 +165,61 @@ const ConnectServerModal = ({ onClose, onSuccess }) => {
                   disabled={loading}
                 />
               </div>
+            </div>
+
+            {/* Бастион (jump host) */}
+            <div style={{
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-md)',
+              padding: '16px',
+              background: 'var(--bg-surface-hover)',
+            }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none' }}>
+                <input
+                  type="checkbox"
+                  checked={useBastion}
+                  onChange={(e) => setUseBastion(e.target.checked)}
+                  disabled={loading}
+                  style={{ width: '18px', height: '18px', accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+                />
+                <Network size={18} style={{ color: 'var(--accent-primary)' }} />
+                <div>
+                  <div style={{ fontWeight: 600, color: 'var(--text-heading)', fontSize: '0.9rem' }}>Подключение через бастион (jump host)</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Панель зайдёт на сервер не напрямую, а через промежуточный SSH-хост.</div>
+                </div>
+              </label>
+
+              {useBastion && (
+                <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px', animation: 'fadeInUp var(--transition-normal) both' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                    <span>Панель</span> <ArrowRight size={14} /> <strong style={{ color: 'var(--accent-primary)' }}>Бастион</strong> <ArrowRight size={14} /> <span>{host || 'целевой сервер'}</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: '15px' }}>
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                      <label className="input-label" htmlFor="bastion-host">Хост бастиона</label>
+                      <input id="bastion-host" type="text" className="form-control" placeholder="bastion.example.com"
+                        value={bastionHost} onChange={(e) => setBastionHost(e.target.value)} disabled={loading} required={useBastion} />
+                    </div>
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                      <label className="input-label" htmlFor="bastion-port">Порт</label>
+                      <input id="bastion-port" type="number" className="form-control"
+                        value={bastionPort} onChange={(e) => setBastionPort(parseInt(e.target.value))} disabled={loading} required={useBastion} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                      <label className="input-label" htmlFor="bastion-user">Пользователь бастиона</label>
+                      <input id="bastion-user" type="text" className="form-control"
+                        value={bastionUsername} onChange={(e) => setBastionUsername(e.target.value)} disabled={loading} required={useBastion} />
+                    </div>
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                      <label className="input-label" htmlFor="bastion-pass">Пароль бастиона</label>
+                      <input id="bastion-pass" type="password" className="form-control" placeholder="••••••••"
+                        value={bastionPassword} onChange={(e) => setBastionPassword(e.target.value)} disabled={loading} required={useBastion} />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -167,7 +239,7 @@ const ConnectServerModal = ({ onClose, onSuccess }) => {
             >
               {loading ? (
                 <>
-                  <span className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px', borderColor: '#000' }} />
+                  <span className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px', borderColor: 'rgba(255,255,255,0.4)', borderTopColor: '#fff' }} />
                   Тестирование SSH...
                 </>
               ) : (

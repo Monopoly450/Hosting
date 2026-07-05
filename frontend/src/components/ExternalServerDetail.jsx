@@ -182,6 +182,9 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
             <div>Ядро: <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{data.kernel}</strong></div>
             <div>Время работы: <strong style={{ color: 'var(--text-primary)' }}>{data.uptime}</strong></div>
             <div>SSH: <strong style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>{data.username}@{data.host}:{data.port}</strong></div>
+            {data.use_bastion && (
+              <div>Бастион: <strong style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>{data.bastion_host}</strong> <span style={{ color: 'var(--text-muted)' }}>(jump host)</span></div>
+            )}
           </div>
 
           {/* Средняя панель: Ресурсы (Диаграммы/Шкалы) */}

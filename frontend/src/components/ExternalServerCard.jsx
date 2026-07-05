@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Terminal, Trash2, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { Terminal, Trash2, ShieldCheck, ShieldAlert, Network } from 'lucide-react';
 
 const ExternalServerCard = ({ server, onClick, onDeleteSuccess }) => {
   const [deleting, setDeleting] = useState(false);
@@ -51,6 +51,11 @@ const ExternalServerCard = ({ server, onClick, onDeleteSuccess }) => {
               <span className="vm-name">{server.name}</span>
             </div>
             <span className="vm-template" style={{ fontFamily: 'var(--font-mono)' }}>IP: {server.host}:{server.port}</span>
+            {server.use_bastion && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', fontWeight: 600, color: 'var(--accent-primary)', background: 'var(--accent-primary-light)', padding: '2px 8px', borderRadius: 'var(--radius-pill)', width: 'fit-content', marginTop: '2px' }}>
+                <Network size={11} /> через бастион {server.bastion_host}
+              </span>
+            )}
           </div>
           <span className={`status-badge ${server.status === 'Online' ? 'running' : 'stopped'}`}>
             <span className="status-dot"></span>

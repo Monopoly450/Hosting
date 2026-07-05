@@ -89,7 +89,13 @@ class ExternalServer(Base):
     host = Column(String, nullable=False)
     port = Column(Integer, default=22)
     username = Column(String, default="root")
-    password = Column(String, nullable=False)
+    password = Column(String, nullable=False)  # encrypted (app.core.crypto)
+
+    # Optional SSH bastion / jump host — панель ходит на target через этот сервер
+    bastion_host = Column(String, nullable=True)
+    bastion_port = Column(Integer, default=22)
+    bastion_username = Column(String, nullable=True)
+    bastion_password = Column(String, nullable=True)  # encrypted (app.core.crypto)
 
 class SystemState(Base):
     __tablename__ = "system_state"

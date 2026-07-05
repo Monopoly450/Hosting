@@ -5,29 +5,83 @@ import re
 logger = logging.getLogger("app.ssh_inspector")
 
 class SSHInspector:
-    def __init__(self, host: str, username: str, password: str = None, port: int = 22):
+    def __init__(self, host: str, username: str, password: str = None, port: int = 22,
+                 bastion_host: str = None, bastion_port: int = 22,
+                 bastion_username: str = None, bastion_password: str = None):
         self.host = host
         self.username = username
         self.password = password
         self.port = port
+        # Опциональный jump host (бастион)
+        self.bastion_host = bastion_host
+        self.bastion_port = bastion_port or 22
+        self.bastion_username = bastion_username
+        self.bastion_password = bastion_password
 
-    def test_connection(self) -> bool:
-        """Проверяет возможность подключения к серверу по SSH с таймаутом 5 секунд"""
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    @property
+    def uses_bastion(self) -> bool:
+        return bool(self.bastion_host and self.bastion_username)
+
+    def open(self, timeout: int = 8):
+        """Открывает SSH-соединение к целевому серверу, при необходимости — через бастион.
+
+        Возвращает кортеж (target_client, jump_client|None). Оба клиента нужно закрыть
+        через close_clients(), чтобы туннель бастиона не оставался висеть."""
+        jump = None
+        sock = None
+        if self.uses_bastion:
+            jump = paramiko.SSHClient()
+            jump.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            jump.connect(
+                hostname=self.bastion_host,
+                port=self.bastion_port,
+                username=self.bastion_username,
+                password=self.bastion_password,
+                timeout=timeout,
+                banner_timeout=timeout,
+            )
+            transport = jump.get_transport()
+            # Прокладываем канал direct-tcpip с бастиона до целевого хоста
+            sock = transport.open_channel(
+                "direct-tcpip", (self.host, self.port), ("127.0.0.1", 0)
+            )
+
+        target = paramiko.SSHClient()
+        target.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
-            ssh.connect(
+            target.connect(
                 hostname=self.host,
                 port=self.port,
                 username=self.username,
                 password=self.password,
-                timeout=5,
-                banner_timeout=5
+                timeout=timeout,
+                banner_timeout=timeout,
+                sock=sock,
             )
-            ssh.close()
+        except Exception:
+            if jump is not None:
+                jump.close()
+            raise
+        return target, jump
+
+    @staticmethod
+    def close_clients(target, jump):
+        for client in (target, jump):
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+
+    def test_connection(self) -> bool:
+        """Проверяет возможность подключения к серверу по SSH (через бастион, если задан)"""
+        try:
+            target, jump = self.open(timeout=6)
+            self.close_clients(target, jump)
             return True
         except Exception as e:
-            logger.warning(f"Тест подключения SSH к {self.host} не удался: {e}")
+            via = f" через бастион {self.bastion_host}" if self.uses_bastion else ""
+            logger.warning(f"Тест подключения SSH к {self.host}{via} не удался: {e}")
             return False
 
     def execute_command(self, client: paramiko.SSHClient, command: str) -> str:
@@ -45,18 +99,9 @@ class SSHInspector:
             return ""
 
     def inspect(self) -> dict:
-        """Подключается к удаленному хосту и собирает полную системную информацию"""
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
+        """Подключается к удаленному хосту (через бастион, если задан) и собирает системную информацию"""
         try:
-            ssh.connect(
-                hostname=self.host,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                timeout=5
-            )
+            ssh, jump = self.open(timeout=8)
         except Exception as e:
             logger.error(f"Не удалось подключиться к {self.host}: {e}")
             return {"status": "Offline", "error": str(e)}
@@ -208,4 +253,4 @@ class SSHInspector:
             logger.error(f"Ошибка парсинга метрик с {self.host}: {e}")
             return {"status": "Online", "error": f"Ошибка сбора метрик: {str(e)}"}
         finally:
-            ssh.close()
+            self.close_clients(ssh, jump)
