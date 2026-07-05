@@ -296,9 +296,9 @@ kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEV
 # Настройка параметров KubeVirt (включаем горячее подключение дисков HotplugVolumes, снимки WorkloadSnapshots и эмуляцию при необходимости)
 log "Настройка конфигурации KubeVirt (Feature Gates)..."
 if [ "$KVM_SUPPORTED" = false ]; then
-    kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true,"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes","WorkloadSnapshots"]}}}}'
+    kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true,"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes","WorkloadSnapshots","Snapshot"]}}}}'
 else
-    kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes","WorkloadSnapshots"]}}}}'
+    kubectl patch kubevirt kubevirt -n kubevirt --type=merge -p '{"spec":{"configuration":{"developerConfiguration":{"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes","WorkloadSnapshots","Snapshot"]}}}}'
 fi
 
 # Ждем развертывания KubeVirt
