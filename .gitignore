@@ -28,3 +28,6 @@ data/
 mail-config/*
 !mail-config/postfix-main.cf
 !mail-config/dovecot.cf
+
+# Tests
+.pytest_cache/

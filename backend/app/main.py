@@ -30,33 +30,14 @@ app.mount("/static/images", StaticFiles(directory=IMAGES_DIR), name="static-imag
 @app.on_event("startup")
 async def startup_event():
     from app.core.database import engine, Base
+    from app.core.migrations import apply_migrations, encrypt_legacy_secrets
     from app.models.models import SystemState, AWSSecurityGroup, AWSS3Bucket, AWSIAMUser
-    from sqlalchemy import select, text
-    
+    from sqlalchemy import select
+
     logger.info("Инициализация таблиц базы данных...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        try:
-            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS iso_url VARCHAR;"))
-            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS owner_id INTEGER;"))
-            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS cluster_id INTEGER;"))
-            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS disk_read_mbs INTEGER DEFAULT 0;"))
-            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS disk_write_mbs INTEGER DEFAULT 0;"))
-            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS disk_read_iops INTEGER DEFAULT 0;"))
-            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS disk_write_iops INTEGER DEFAULT 0;"))
-            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS ports_config VARCHAR;"))
-            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS firewall_rules VARCHAR;"))
-            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS cloud_init_template VARCHAR;"))
-            await conn.execute(text("ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS custom_user_data TEXT;"))
-            
-            # Миграция owner_id для других таблиц
-            await conn.execute(text("ALTER TABLE user_databases ADD COLUMN IF NOT EXISTS owner_id INTEGER;"))
-            await conn.execute(text("ALTER TABLE user_buckets ADD COLUMN IF NOT EXISTS owner_id INTEGER;"))
-            await conn.execute(text("ALTER TABLE user_volumes ADD COLUMN IF NOT EXISTS owner_id INTEGER;"))
-            await conn.execute(text("ALTER TABLE user_mailboxes ADD COLUMN IF NOT EXISTS owner_id INTEGER;"))
-            await conn.execute(text("ALTER TABLE clusters ADD COLUMN IF NOT EXISTS owner_id INTEGER;"))
-        except Exception as alter_err:
-            logger.warning(f"Could not run ALTER TABLE migrations: {alter_err}")
+        await apply_migrations(conn)
     logger.info("Таблицы базы данных успешно проверены/созданы.")
     
     # Заполнение начальными данными при пустой БД
@@ -129,8 +110,14 @@ async def startup_event():
                 max_storage_gb=999999
             ))
             logger.info("Сид: Добавлен дефолтный администратор 'admin'.")
-        
+
         await db.commit()
+
+        # 6. Разовое шифрование секретов, оставшихся в открытом виде от старых версий
+        try:
+            await encrypt_legacy_secrets(db)
+        except Exception as enc_err:
+            logger.warning(f"Не удалось зашифровать старые секреты: {enc_err}")
 
 
 # Настройка CORS

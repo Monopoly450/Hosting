@@ -1493,11 +1493,12 @@ async def migrate_vm(name: str, target_server_id: str = Query(...), k8s: K8sClie
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
+            from app.core.crypto import decrypt_secret
             ssh.connect(
-                target_server.host, 
-                port=target_server.port, 
-                username=target_server.username, 
-                password=target_server.password,
+                target_server.host,
+                port=target_server.port,
+                username=target_server.username,
+                password=decrypt_secret(target_server.password),
                 timeout=10
             )
             

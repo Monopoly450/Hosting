@@ -9,6 +9,7 @@ from minio import Minio
 from app.db import SessionLocal
 from app.models.models import User, UserBucket
 from app.core.auth import get_current_user
+from app.core.crypto import encrypt_secret, decrypt_secret
 
 router = APIRouter()
 logger = logging.getLogger("app.api.s3")
@@ -135,7 +136,7 @@ def create_bucket(req: BucketCreateRequest, current_user: User = Depends(get_cur
         new_bucket = UserBucket(
             bucket_name=full_bucket_name,
             access_key=access_key,
-            secret_key=secret_key,
+            secret_key=encrypt_secret(secret_key),
             owner_id=current_user.id
         )
         db.add(new_bucket)
@@ -146,7 +147,7 @@ def create_bucket(req: BucketCreateRequest, current_user: User = Depends(get_cur
             id=new_bucket.id,
             bucket_name=new_bucket.bucket_name,
             access_key=new_bucket.access_key,
-            secret_key=new_bucket.secret_key,
+            secret_key=secret_key,
             status="Active",
             owner_username=current_user.username
         )
@@ -175,7 +176,7 @@ def list_buckets(current_user: User = Depends(get_current_user)):
                 id=b.id,
                 bucket_name=b.bucket_name,
                 access_key=b.access_key,
-                secret_key=b.secret_key,
+                secret_key=decrypt_secret(b.secret_key),
                 status="Active",
                 owner_username=owner_name
             ))

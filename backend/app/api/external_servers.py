@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
+from app.core.crypto import encrypt_secret, decrypt_secret
 from app.models.models import ExternalServer
 from app.services.ssh_inspector import SSHInspector
 
@@ -63,7 +64,7 @@ async def list_servers(db: AsyncSession = Depends(get_db)):
         "host": s.host,
         "port": s.port,
         "username": s.username,
-        "password": s.password
+        "password": decrypt_secret(s.password)
     } for s in servers]
     
     if not servers_list:
@@ -107,9 +108,9 @@ async def connect_server(server_in: ExternalServerCreate, db: AsyncSession = Dep
         host=server_in.host,
         port=server_in.port,
         username=server_in.username,
-        password=server_in.password
+        password=encrypt_secret(server_in.password)
     )
-    
+
     db.add(new_server)
     await db.commit()
     
@@ -155,7 +156,7 @@ async def get_server_details(server_id: str, db: AsyncSession = Depends(get_db))
         host=server.host,
         port=server.port,
         username=server.username,
-        password=server.password
+        password=decrypt_secret(server.password)
     )
     
     metrics = inspector.inspect()
@@ -193,7 +194,7 @@ async def execute_ssh_command(server_id: str, req: CommandExecuteRequest, db: As
             hostname=server.host,
             port=server.port,
             username=server.username,
-            password=server.password,
+            password=decrypt_secret(server.password),
             timeout=15
         )
         

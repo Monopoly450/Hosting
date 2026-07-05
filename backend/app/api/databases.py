@@ -1,17 +1,14 @@
-import os
 import re
 import string
 import secrets
 import logging
-import psycopg2
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-import pymysql
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from app.db import SessionLocal
 from app.models.models import User, UserDatabase, VMTask
 from app.core.auth import get_current_user
+from app.core.crypto import encrypt_secret, decrypt_secret
 
 router = APIRouter()
 logger = logging.getLogger("app.api.databases")
@@ -44,45 +41,6 @@ def get_vm_ip_by_name(vm_name: str) -> Optional[str]:
     except Exception as e:
         logger.error(f"Failed to get VM IP for {vm_name}: {e}")
     return None
-
-def update_mysql_user_host(db_user: str, new_host: str):
-    try:
-        conn = pymysql.connect(
-            host="127.0.0.1",
-            user="root",
-            password=os.getenv("MARIADB_ROOT_PASSWORD", "mariadb-root-secret-2026"),
-            port=3306
-        )
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT Host FROM mysql.user WHERE User = %s;", (db_user,))
-            row = cursor.fetchone()
-            if row:
-                old_host = row[0]
-                if old_host != new_host:
-                    cursor.execute(f"RENAME USER '{db_user}'@'{old_host}' TO '{db_user}'@'{new_host}';")
-                    cursor.execute("FLUSH PRIVILEGES;")
-        conn.close()
-    except Exception as e:
-        logger.error(f"Failed to update MariaDB user host for {db_user} to {new_host}: {e}")
-        raise e
-
-def update_postgres_role_login(db_user: str, allow_login: bool):
-    try:
-        conn = psycopg2.connect(
-            dbname="postgres",
-            user="postgres",
-            password=os.getenv("POSTGRES_PASSWORD", "postgres"),
-            host="127.0.0.1",
-            port=5432
-        )
-        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-        with conn.cursor() as cursor:
-            login_clause = "LOGIN" if allow_login else "NOLOGIN"
-            cursor.execute(f'ALTER ROLE "{db_user}" {login_clause};')
-        conn.close()
-    except Exception as e:
-        logger.error(f"Failed to update Postgres role login for {db_user}: {e}")
-        raise e
 
 class DatabaseCreateRequest(BaseModel):
     name: str = Field(..., description="Имя базы данных (a-z, 0-9, _)")
@@ -157,7 +115,7 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
             db_name=req.name,
             db_type=req.engine,
             db_user=db_user,
-            db_password=db_password,
+            db_password=encrypt_secret(db_password),
             owner_id=current_user.id,
             status="Active"
         )
@@ -170,7 +128,7 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
             db_name=new_db.db_name,
             engine=new_db.db_type,
             db_user=new_db.db_user,
-            db_password=new_db.db_password,
+            db_password=db_password,
             status="Pending",  # Первоначальный статус запуска пода
             owner_username=current_user.username,
             associated_vm_id=None,
@@ -216,7 +174,7 @@ def list_databases(current_user: User = Depends(get_current_user)):
                 db_name=d.db_name,
                 engine=d.db_type,
                 db_user=d.db_user,
-                db_password=d.db_password,
+                db_password=decrypt_secret(d.db_password),
                 status=real_status,
                 owner_username=owner_name,
                 associated_vm_id=d.associated_vm_id,

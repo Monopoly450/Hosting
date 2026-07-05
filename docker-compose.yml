@@ -5,7 +5,8 @@ services:
     image: postgres:15-alpine
     container_name: aegis-db
     ports:
-      - "5432:5432"
+      # Только localhost: снаружи системная БД не нужна (бэкенд работает в host-сети)
+      - "127.0.0.1:5432:5432"
     environment:
       - POSTGRES_DB=aegis
       - POSTGRES_USER=postgres
@@ -23,11 +24,12 @@ services:
     image: rabbitmq:3-management-alpine
     container_name: hosting-rabbitmq
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      # Только localhost: очередью пользуются только backend и worker на этом же хосте
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
     environment:
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-guest}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-guest}
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
       interval: 10s
@@ -63,7 +65,10 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5432/aegis}
       - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@localhost:5672/}
       - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - AEGIS_SECRET_KEY=${AEGIS_SECRET_KEY:-}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin-secret-2026}
       - STORAGE_CLASS=${STORAGE_CLASS:-local-path}
     logging:
       driver: "json-file"
@@ -98,6 +103,8 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5432/aegis}
       - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@localhost:5672/}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - AEGIS_SECRET_KEY=${AEGIS_SECRET_KEY:-}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
       - STORAGE_CLASS=${STORAGE_CLASS:-local-path}
     logging:
       driver: "json-file"
@@ -146,7 +153,8 @@ services:
     image: mariadb:10.11-jammy
     container_name: aegis-mariadb
     ports:
-      - "3306:3306"
+      # Только localhost: пользовательские БД теперь живут в изолированных K8s-подах
+      - "127.0.0.1:3306:3306"
     environment:
       - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD:-mariadb-root-secret-2026}
     volumes:
@@ -162,8 +170,10 @@ services:
     image: minio/minio:latest
     container_name: aegis-minio
     ports:
+      # S3 API остаётся публичным: к нему подключаются ВМ и внешние клиенты
       - "9000:9000"
-      - "9001:9001"
+      # Консоль администратора MinIO — только localhost (доступ через SSH-туннель)
+      - "127.0.0.1:9001:9001"
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin-secret-2026}
