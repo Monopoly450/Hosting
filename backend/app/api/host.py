@@ -119,12 +119,25 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                     db_vms = db.query(VMTask).all()
                     
                     # Удаляем только не создающиеся (не Pending/Provisioning) записи, которых нет в K8s
+                    # Если Pending/Provisioning висит дольше 5 минут и ВМ нет в K8s - это зависшая задача, удаляем её
+                    import datetime
+                    now_utc = datetime.datetime.utcnow()
                     for vm in db_vms:
-                        if vm.status not in ["Pending", "Provisioning"] and vm.name not in k8s_vm_map:
+                        is_stuck_pending = (
+                            vm.status in ["Pending", "Provisioning"] and
+                            vm.name not in k8s_vm_map and
+                            (vm.created_at is None or (now_utc - vm.created_at).total_seconds() > 300)
+                        )
+                        if vm.name not in k8s_vm_map and (vm.status not in ["Pending", "Provisioning"] or is_stuck_pending):
                             # Безопасно отвязываем базы данных и сетевые диски
                             db.query(UserDatabase).filter(UserDatabase.associated_vm_id == vm.id).update({"associated_vm_id": None})
                             db.query(UserVolume).filter(UserVolume.attached_vm_id == vm.id).update({"attached_vm_id": None})
                             db.delete(vm)
+                        elif vm.name in k8s_vm_map:
+                            # Обновляем статус в БД на актуальный из K8s
+                            k8s_status = k8s_vm_map[vm.name].get("status", "Stopped")
+                            if vm.status != k8s_status:
+                                vm.status = k8s_status
                     db.commit()
 
                     # Воссоздаем записи для ВМ, которые есть в K8s, но отсутствуют в БД (после случайного удаления)

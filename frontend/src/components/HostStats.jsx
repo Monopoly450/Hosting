@@ -307,7 +307,7 @@ const HostStats = ({ onMetricsLoaded }) => {
             </div>
             <div className="stat-box-meta">
               <span>Общая емкость пула: {metrics.lvm.total_gb} ГБ | Занято: {metrics.lvm.used_gb} ГБ</span>
-              <span>Зарезервировано ВМ: {metrics.lvm.reserved_gb ?? (metrics.lvm_reserved ? metrics.lvm_reserved.disk_gb : 0)} ГБ</span>
+              <span>Зарезервировано сетевыми дисками: {metrics.lvm.reserved_gb ?? 0} ГБ</span>
               <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>Свободно (доступно): {metrics.lvm.free_gb} ГБ</span>
             </div>
           </div>

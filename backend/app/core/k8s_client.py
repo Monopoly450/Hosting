@@ -70,6 +70,9 @@ class K8sClient:
             
             result = []
             for vm in vms.get("items", []):
+                # Пропускаем ВМ в процессе удаления, чтобы они не висели в резервах
+                if vm.get("metadata", {}).get("deletionTimestamp"):
+                    continue
                 name = vm["metadata"]["name"]
                 vmi = vmi_map.get(name)
                 
