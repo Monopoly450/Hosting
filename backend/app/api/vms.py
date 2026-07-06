@@ -120,25 +120,32 @@ DEFAULT_CENTOS_IMAGE = "https://cloud.centos.org/centos/9-stream/x86_64/images/C
 DEFAULT_DEBIAN_IMAGE = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
 DEFAULT_PROXMOX_ISO = "https://download.proxmox.com/iso/proxmox-ve_9.2-1.iso"
 
+# Централизованная карта Linux-образов: os_type -> (URL облачного образа, логин по умолчанию).
+# Все образы поддерживают cloud-init (пароль/сеть настраиваются автоматически).
+LINUX_CLOUD_IMAGES = {
+    "ubuntu":    (DEFAULT_UBUNTU_IMAGE, "ubuntu"),
+    "debian":    (DEFAULT_DEBIAN_IMAGE, "debian"),
+    "centos":    (DEFAULT_CENTOS_IMAGE, "cloud-user"),
+    "bitrix":    (DEFAULT_CENTOS_IMAGE, "cloud-user"),
+    "almalinux": ("https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2", "almalinux"),
+    "rocky":     ("https://download.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2", "rocky"),
+    "fedora":    ("https://download.fedoraproject.org/pub/fedora/linux/releases/40/Cloud/x86_64/images/Fedora-Cloud-Base-40-1.14.x86_64.qcow2", "fedora"),
+    "opensuse":  ("https://download.opensuse.org/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2", "opensuse"),
+    "arch":      ("https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2", "arch"),
+    "alpine":    ("https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/generic_alpine-3.21.3-x86_64-bios-cloudinit-r0.qcow2", "alpine"),
+}
+
+
+def default_user_for(os_type: str) -> str:
+    """Логин по умолчанию для облачного образа данной ОС."""
+    return LINUX_CLOUD_IMAGES.get(os_type, (None, "ubuntu"))[1]
+
+
 def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
-    # Определение базового образа и логина
-    default_user = "ubuntu"
+    # Определение базового образа и логина (из централизованной карты)
     access_mode = "ReadWriteMany" if "nfs" in settings.STORAGE_CLASS.lower() else "ReadWriteOnce"
-    
-    if req.os_type == "centos" or req.os_type == "bitrix":
-        default_user = "cloud-user"
-    elif req.os_type == "debian":
-        default_user = "debian"
-        
-    image_url = req.iso_url
-    if not image_url:
-        if req.os_type == "centos":
-            image_url = DEFAULT_CENTOS_IMAGE
-        elif req.os_type == "debian":
-            image_url = DEFAULT_DEBIAN_IMAGE
-        else:
-            image_url = DEFAULT_UBUNTU_IMAGE
-        
+    default_image, default_user = LINUX_CLOUD_IMAGES.get(req.os_type, (DEFAULT_UBUNTU_IMAGE, "ubuntu"))
+    image_url = req.iso_url or default_image
 
     # Обработка шаблонов cloud-init
     template_packages = []
@@ -1301,12 +1308,19 @@ def delete_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_us
             db_vm = db.query(VMTask).filter(VMTask.name == name).first()
             if db_vm:
                 from app.models.models import AppDeployment, UserDatabase, UserVolume
-                # Отвязываем ресурсы от удаляемой ВМ во избежание ошибок внешних ключей
-                db.query(AppDeployment).filter(AppDeployment.vm_id == db_vm.id).update({"vm_id": None})
+                # Отвязываем БД от ВМ (сама БД — отдельный ресурс, не удаляем)
                 db.query(UserDatabase).filter(UserDatabase.associated_vm_id == db_vm.id).update({"associated_vm_id": None})
-                db.query(UserVolume).filter(UserVolume.attached_vm_id == db_vm.id).update({"attached_vm_id": None})
+                # Если ВМ была частью деплоя приложения — удаляем и запись деплоя
+                db.query(AppDeployment).filter(AppDeployment.vm_id == db_vm.id).delete()
+                # Каскад: удаляем привязанные к ВМ сетевые диски (PVC + запись)
+                for vol in db.query(UserVolume).filter(UserVolume.attached_vm_id == db_vm.id).all():
+                    try:
+                        client.delete_pvc(vol.name)
+                    except Exception as e:
+                        logger.warning(f"Не удалось удалить PVC {vol.name} при удалении ВМ {name}: {e}")
+                    db.delete(vol)
                 db.flush()
-                
+
                 db.delete(db_vm)
                 db.commit()
         finally:

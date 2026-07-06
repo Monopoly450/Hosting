@@ -48,6 +48,26 @@ const OS_VERSIONS = {
   ],
   bitrix: [
     { label: 'BitrixVM (CentOS 9)', value: 'https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2' }
+  ],
+  almalinux: [
+    { label: 'AlmaLinux 9', value: 'https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2' },
+    { label: 'AlmaLinux 8', value: 'https://repo.almalinux.org/almalinux/8/cloud/x86_64/images/AlmaLinux-8-GenericCloud-latest.x86_64.qcow2' }
+  ],
+  rocky: [
+    { label: 'Rocky Linux 9', value: 'https://download.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2' },
+    { label: 'Rocky Linux 8', value: 'https://download.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud.latest.x86_64.qcow2' }
+  ],
+  fedora: [
+    { label: 'Fedora 40', value: 'https://download.fedoraproject.org/pub/fedora/linux/releases/40/Cloud/x86_64/images/Fedora-Cloud-Base-40-1.14.x86_64.qcow2' }
+  ],
+  opensuse: [
+    { label: 'openSUSE Leap 15.6', value: 'https://download.opensuse.org/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2' }
+  ],
+  arch: [
+    { label: 'Arch Linux (latest)', value: 'https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2' }
+  ],
+  alpine: [
+    { label: 'Alpine Linux 3.21', value: 'https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/generic_alpine-3.21.3-x86_64-bios-cloudinit-r0.qcow2' }
   ]
 };
 
@@ -101,7 +121,13 @@ const App = () => {
     debian: OS_VERSIONS.debian[0].value,
     windows: OS_VERSIONS.windows[0].value,
     proxmox: OS_VERSIONS.proxmox[0].value,
-    bitrix: OS_VERSIONS.bitrix[0].value
+    bitrix: OS_VERSIONS.bitrix[0].value,
+    almalinux: OS_VERSIONS.almalinux[0].value,
+    rocky: OS_VERSIONS.rocky[0].value,
+    fedora: OS_VERSIONS.fedora[0].value,
+    opensuse: OS_VERSIONS.opensuse[0].value,
+    arch: OS_VERSIONS.arch[0].value,
+    alpine: OS_VERSIONS.alpine[0].value
   });
   const [selectedCustomImage, setSelectedCustomImage] = useState('');
   const [packages, setPackages] = useState("");
@@ -847,6 +873,42 @@ const App = () => {
                               <div className="os-card-icon" style={{ color: '#e57000' }}><Layers size={24} /></div>
                               <div className="os-card-title">Proxmox VE</div>
                               <div className="os-card-version">{OS_VERSIONS.proxmox.find(v => v.value === selectedVersions.proxmox)?.label.split(' ')[2] || '8.2'}</div>
+                            </div>
+
+                            <div className={`os-card ${osType === 'almalinux' ? 'selected' : ''}`} onClick={() => setOsType('almalinux')}>
+                              <div className="os-card-icon" style={{ color: '#0a3d91' }}><Server size={24} /></div>
+                              <div className="os-card-title">AlmaLinux</div>
+                              <div className="os-card-version">Версия 9 <ChevronDown size={14} /></div>
+                            </div>
+
+                            <div className={`os-card ${osType === 'rocky' ? 'selected' : ''}`} onClick={() => setOsType('rocky')}>
+                              <div className="os-card-icon" style={{ color: '#10b981' }}><Server size={24} /></div>
+                              <div className="os-card-title">Rocky Linux</div>
+                              <div className="os-card-version">Версия 9 <ChevronDown size={14} /></div>
+                            </div>
+
+                            <div className={`os-card ${osType === 'fedora' ? 'selected' : ''}`} onClick={() => setOsType('fedora')}>
+                              <div className="os-card-icon" style={{ color: '#3c6eb4' }}><Server size={24} /></div>
+                              <div className="os-card-title">Fedora</div>
+                              <div className="os-card-version">Версия 40</div>
+                            </div>
+
+                            <div className={`os-card ${osType === 'opensuse' ? 'selected' : ''}`} onClick={() => setOsType('opensuse')}>
+                              <div className="os-card-icon" style={{ color: '#73ba25' }}><Server size={24} /></div>
+                              <div className="os-card-title">openSUSE Leap</div>
+                              <div className="os-card-version">15.6</div>
+                            </div>
+
+                            <div className={`os-card ${osType === 'arch' ? 'selected' : ''}`} onClick={() => setOsType('arch')}>
+                              <div className="os-card-icon" style={{ color: '#1793d1' }}><Server size={24} /></div>
+                              <div className="os-card-title">Arch Linux</div>
+                              <div className="os-card-version">rolling</div>
+                            </div>
+
+                            <div className={`os-card ${osType === 'alpine' ? 'selected' : ''}`} onClick={() => setOsType('alpine')}>
+                              <div className="os-card-icon" style={{ color: '#0d597f' }}><Server size={24} /></div>
+                              <div className="os-card-title">Alpine Linux</div>
+                              <div className="os-card-version">3.21</div>
                             </div>
                           </div>
                         </div>

@@ -73,18 +73,17 @@ def process_vm_task(db: Session, task_id: int):
             static_ip = task.static_ip
         
         # Вызываем логику создания ВМ
-        from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password
-        
+        from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password, default_user_for
+
         generated_password = generate_random_password()
-        
-        if task.os_type in ["ubuntu", "centos", "debian", "bitrix", "custom"]:
-            manifest = generate_linux_manifest(FakeReq(), generated_password)
-            username = "cloud-user" if task.os_type in ["centos", "bitrix"] else ("debian" if task.os_type == "debian" else "ubuntu")
-        elif task.os_type in ["windows", "proxmox"]:
+
+        # Windows и Proxmox ставятся с ISO; всё остальное — Linux-образ с cloud-init
+        if task.os_type in ["windows", "proxmox"]:
             manifest = generate_windows_manifest(FakeReq())
             username = "Administrator"
         else:
-            raise Exception("Неверный тип ОС.")
+            manifest = generate_linux_manifest(FakeReq(), generated_password)
+            username = default_user_for(task.os_type)
 
         # Добавляем сеть кластера если есть
         if multus_network:
@@ -149,20 +148,18 @@ def process_clone_task(db: Session, task_id: int, source_name: str):
             ssh_key = task.ssh_key
             static_ip = task.static_ip
 
-        from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password
+        from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password, default_user_for
 
         generated_password = generate_random_password()
 
-        if task.os_type in ["ubuntu", "centos", "debian", "bitrix", "custom"]:
-            manifest = generate_linux_manifest(FakeReq(), generated_password)
-            username = "cloud-user" if task.os_type in ["centos", "bitrix"] else ("debian" if task.os_type == "debian" else "ubuntu")
-            disk_suffix = "disk"
-        elif task.os_type in ["windows", "proxmox"]:
+        if task.os_type in ["windows", "proxmox"]:
             manifest = generate_windows_manifest(FakeReq())
             username = "Administrator"
             disk_suffix = "hd"
         else:
-            raise Exception("Неверный тип ОС.")
+            manifest = generate_linux_manifest(FakeReq(), generated_password)
+            username = default_user_for(task.os_type)
+            disk_suffix = "disk"
 
         # Подменяем источник ОС-диска на клон PVC исходной ВМ
         src_pvc = f"{source_name}-{disk_suffix}"
