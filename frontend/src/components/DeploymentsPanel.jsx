@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Rocket, Plus, Trash2, X, Github, GitBranch, ExternalLink, Copy, Check, Server, Cpu, Terminal, Package, RefreshCw } from 'lucide-react';
+import { Rocket, Plus, Trash2, X, Github, GitBranch, ExternalLink, Copy, Check, Server, Cpu, Terminal, Package, RefreshCw, Activity, Settings, Calendar, Globe, Layers, Shield } from 'lucide-react';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip } from 'recharts';
 import CustomSelect from './CustomSelect';
 
 const STACKS = [
@@ -21,12 +22,16 @@ export default function DeploymentsPanel() {
     const [submitting, setSubmitting] = useState(false);
     const [copied, setCopied] = useState(null);
 
-    // Логи
-    const [showLogsId, setShowLogsId] = useState(null);
+    // Подробная консоль деплоя
+    const [selectedDep, setSelectedDep] = useState(null);
+    const [consoleTab, setConsoleTab] = useState('overview'); // 'overview' | 'logs' | 'metrics' | 'settings'
     const [logsContent, setLogsContent] = useState('');
     const [loadingLogs, setLoadingLogs] = useState(false);
+    const [metricsHistory, setMetricsHistory] = useState([]);
+    const [loadingMetrics, setLoadingMetrics] = useState(false);
+    const [redeploying, setRedeploying] = useState(false);
 
-    // Форма
+    // Форма создания
     const [name, setName] = useState('');
     const [repoUrl, setRepoUrl] = useState('');
     const [branch, setBranch] = useState('main');
@@ -46,7 +51,14 @@ export default function DeploymentsPanel() {
         try {
             const res = await fetch('/api/deployments', { headers: headers() });
             if (!res.ok) throw new Error((await res.json()).detail || 'Ошибка загрузки деплоев');
-            setDeps(await res.json());
+            const data = await res.json();
+            setDeps(data);
+            
+            // Если сейчас открыта панель управления конкретным деплоем, обновим объект в стейте
+            if (selectedDep) {
+                const fresh = data.find(d => d.id === selectedDep.id);
+                if (fresh) setSelectedDep(fresh);
+            }
             setError('');
         } catch (e) {
             setError(e.message);
@@ -59,7 +71,7 @@ export default function DeploymentsPanel() {
         fetchDeps();
         const t = setInterval(fetchDeps, 5000);
         return () => clearInterval(t);
-    }, []);
+    }, [selectedDep]);
 
     const onStackChange = (v) => {
         setStack(v);
@@ -97,29 +109,39 @@ export default function DeploymentsPanel() {
     };
 
     const handleDelete = async (id) => {
-        if (!confirm('Удалить деплой вместе с его виртуальной машиной?')) return;
+        if (!confirm('Удалить деплой вместе с его выделенной виртуальной машиной? Все данные приложения будут безвозвратно стерты.')) return;
         try {
             const res = await fetch(`/api/deployments/${id}`, { method: 'DELETE', headers: headers() });
             if (!res.ok) throw new Error((await res.json()).detail || 'Ошибка удаления');
+            setSelectedDep(null);
             fetchDeps();
         } catch (e) {
             alert(`Ошибка: ${e.message}`);
         }
     };
 
-    const copy = (text, key) => {
-        navigator.clipboard.writeText(text);
-        setCopied(key);
-        setTimeout(() => setCopied(c => (c === key ? null : c)), 1400);
+    const handleRedeploy = async (id) => {
+        if (!confirm('Пересобрать и перезапустить приложение? Система скачает свежий код из выбранной ветки GitHub.')) return;
+        setRedeploying(true);
+        try {
+            const res = await fetch(`/api/deployments/${id}/redeploy`, { method: 'POST', headers: headers() });
+            if (!res.ok) throw new Error((await res.json()).detail || 'Ошибка запуска передеплоя');
+            alert('Сборка запущена! Прогресс сборки можно смотреть во вкладке "Логи".');
+            setConsoleTab('logs');
+            fetchLogs(id);
+        } catch (e) {
+            alert(`Ошибка: ${e.message}`);
+        } finally {
+            setRedeploying(false);
+        }
     };
 
     const fetchLogs = async (id) => {
-        setShowLogsId(id);
         setLoadingLogs(true);
-        setLogsContent('Загрузка логов с виртуальной машины по SSH...');
+        setLogsContent('Подключение к виртуальной машине по SSH для получения логов...');
         try {
             const res = await fetch(`/api/deployments/${id}/logs`, { headers: headers() });
-            if (!res.ok) throw new Error((await res.json()).detail || 'Ошибка загрузки логов');
+            if (!res.ok) throw new Error((await res.json()).detail || 'Ошибка получения логов');
             const data = await res.json();
             setLogsContent(data.logs || 'Логи пусты.');
         } catch (e) {
@@ -127,6 +149,48 @@ export default function DeploymentsPanel() {
         } finally {
             setLoadingLogs(false);
         }
+    };
+
+    const fetchMetrics = async (vmName) => {
+        if (!vmName) return;
+        setLoadingMetrics(true);
+        try {
+            const res = await fetch(`/api/vms/${vmName}/metrics/history`, { headers: headers() });
+            if (!res.ok) throw new Error('Ошибка получения истории метрик');
+            const data = await res.json();
+            const formatted = data.map(item => ({
+                time: new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                cpu: parseFloat(item.cpu_usage_percent.toFixed(1)),
+                memory: parseFloat(item.memory_usage_percent.toFixed(1)),
+            }));
+            setMetricsHistory(formatted);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoadingMetrics(false);
+        }
+    };
+
+    const openConsole = (dep) => {
+        setSelectedDep(dep);
+        setConsoleTab('overview');
+        setLogsContent('');
+        setMetricsHistory([]);
+    };
+
+    const onTabChange = (tab) => {
+        setConsoleTab(tab);
+        if (tab === 'logs' && selectedDep) {
+            fetchLogs(selectedDep.id);
+        } else if (tab === 'metrics' && selectedDep) {
+            fetchMetrics(selectedDep.vm_name);
+        }
+    };
+
+    const copy = (text, key) => {
+        navigator.clipboard.writeText(text);
+        setCopied(key);
+        setTimeout(() => setCopied(c => (c === key ? null : c)), 1400);
     };
 
     const statusBadge = (d) => {
@@ -182,9 +246,6 @@ export default function DeploymentsPanel() {
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
                                     <GitBranch size={13} /> {d.branch} · порт {d.app_port}
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
-                                    <Server size={13} /> ВМ: {d.vm_name || '—'} {d.ip ? `(${d.ip})` : ''}
-                                </div>
                             </div>
 
                             {d.app_url && (
@@ -194,21 +255,12 @@ export default function DeploymentsPanel() {
                                 </a>
                             )}
 
-                            {d.ssh_command && (
-                                <div className="copy-field">
-                                    <code>{d.ssh_command}</code>
-                                    <button className="btn-icon" onClick={() => copy(d.ssh_command, `ssh-${d.id}`)} title="Копировать SSH">
-                                        {copied === `ssh-${d.id}` ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
-                                    </button>
-                                </div>
-                            )}
-
                             <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '6px', alignItems: 'center' }}>
-                                <button className="btn btn-secondary btn-sm" onClick={() => fetchLogs(d.id)} style={{ padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                    <Terminal size={13} /> Логи
+                                <button className="btn btn-primary btn-sm" onClick={() => openConsole(d)} style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Terminal size={14} /> Управление
                                 </button>
                                 <button className="btn btn-danger btn-sm" onClick={() => handleDelete(d.id)} style={{ marginLeft: 'auto' }}>
-                                    <Trash2 size={13} /> Удалить
+                                    <Trash2 size={13} />
                                 </button>
                             </div>
                         </div>
@@ -216,39 +268,221 @@ export default function DeploymentsPanel() {
                 </div>
             )}
 
-            {showLogsId && (
-                <div className="slide-over-overlay" onClick={() => setShowLogsId(null)}>
-                    <div className="slide-over-content" style={{ maxWidth: '800px', width: '90%' }} onClick={e => e.stopPropagation()}>
-                        <div className="slide-over-header">
-                            <h2>Логи развертывания и приложения</h2>
-                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                <button className="btn btn-secondary btn-sm" onClick={() => fetchLogs(showLogsId)} disabled={loadingLogs} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                    <RefreshCw size={14} className={loadingLogs ? 'spinner' : ''} /> Обновить
-                                </button>
-                                <button className="btn-close" onClick={() => setShowLogsId(null)} type="button"><X size={18} /></button>
+            {/* ПОДРОБНАЯ ПАНЕЛЬ КОНСОЛИ ДЕПЛОЯ (Drawer/Slide-over) */}
+            {selectedDep && (
+                <div className="slide-over-overlay" onClick={() => setSelectedDep(null)}>
+                    <div className="slide-over-content" style={{ maxWidth: '850px', width: '90%' }} onClick={e => e.stopPropagation()}>
+                        
+                        {/* Header */}
+                        <div className="slide-over-header" style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px' }}>
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <h2 style={{ margin: 0 }}>{selectedDep.name}</h2>
+                                    {statusBadge(selectedDep)}
+                                </div>
+                                <p className="text-muted" style={{ fontSize: '0.8rem', margin: '4px 0 0 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Github size={14} /> <a href={selectedDep.repo_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)' }}>{selectedDep.repo_url}</a>
+                                    · <GitBranch size={14} /> <strong>{selectedDep.branch}</strong>
+                                </p>
                             </div>
+                            <button className="btn-close" onClick={() => setSelectedDep(null)} type="button"><X size={18} /></button>
                         </div>
-                        <div className="slide-over-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden', background: '#090d16', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
-                            <pre style={{
-                                flex: 1,
-                                overflow: 'auto',
-                                margin: 0,
-                                padding: '20px',
-                                fontFamily: 'var(--font-mono)',
-                                fontSize: '0.82rem',
-                                color: '#38bdf8',
-                                lineHeight: '1.5',
-                                whiteSpace: 'pre-wrap',
-                                wordBreak: 'break-all',
-                                textAlign: 'left'
-                            }}>
-                                {logsContent}
-                            </pre>
+
+                        {/* Tabs Navigation */}
+                        <div style={{ display: 'flex', gap: '6px', borderBottom: '1px solid var(--border-subtle)', padding: '0 24px', background: 'var(--bg-surface-hover)' }}>
+                            <button className={`tab-btn ${consoleTab === 'overview' ? 'active' : ''}`} onClick={() => onTabChange('overview')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 16px', background: 'none', border: 'none', borderBottom: consoleTab === 'overview' ? '2px solid var(--accent-primary)' : '2px solid transparent', color: consoleTab === 'overview' ? 'var(--text-heading)' : 'var(--text-muted)', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}>
+                                <Server size={14} /> Обзор
+                            </button>
+                            <button className={`tab-btn ${consoleTab === 'logs' ? 'active' : ''}`} onClick={() => onTabChange('logs')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 16px', background: 'none', border: 'none', borderBottom: consoleTab === 'logs' ? '2px solid var(--accent-primary)' : '2px solid transparent', color: consoleTab === 'logs' ? 'var(--text-heading)' : 'var(--text-muted)', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}>
+                                <Terminal size={14} /> Логи сборки & работы
+                            </button>
+                            <button className={`tab-btn ${consoleTab === 'metrics' ? 'active' : ''}`} onClick={() => onTabChange('metrics')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 16px', background: 'none', border: 'none', borderBottom: consoleTab === 'metrics' ? '2px solid var(--accent-primary)' : '2px solid transparent', color: consoleTab === 'metrics' ? 'var(--text-heading)' : 'var(--text-muted)', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}>
+                                <Activity size={14} /> Нагрузка (Prometheus)
+                            </button>
+                            <button className={`tab-btn ${consoleTab === 'settings' ? 'active' : ''}`} onClick={() => onTabChange('settings')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '12px 16px', background: 'none', border: 'none', borderBottom: consoleTab === 'settings' ? '2px solid var(--accent-primary)' : '2px solid transparent', color: consoleTab === 'settings' ? 'var(--text-heading)' : 'var(--text-muted)', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}>
+                                <Settings size={14} /> Управление
+                            </button>
+                        </div>
+
+                        {/* Tab Content */}
+                        <div className="slide-over-body" style={{ flex: 1, padding: '24px', overflowY: 'auto' }}>
+                            
+                            {/* OVERVIEW TAB */}
+                            {consoleTab === 'overview' && (
+                                <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '24px' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                        <div className="glass-card" style={{ padding: '16px' }}>
+                                            <h3 className="section-title" style={{ fontSize: '0.95rem', margin: '0 0 12px 0' }}><Globe size={16}/> Ссылка приложения</h3>
+                                            {selectedDep.app_url ? (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                    <a href={selectedDep.app_url} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ width: '100%', justifyContent: 'space-between', padding: '10px 14px' }}>
+                                                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-primary)', fontWeight: 600 }}><ExternalLink size={16} /> Открыть сайт</span>
+                                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{selectedDep.app_url}</span>
+                                                    </a>
+                                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Внешнее подключение проброшено автоматически на выделенный порт приложения.</span>
+                                                </div>
+                                            ) : (
+                                                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Генерируется... Приложение еще не готово или выключено.</span>
+                                            )}
+                                        </div>
+
+                                        <div className="glass-card" style={{ padding: '16px' }}>
+                                            <h3 className="section-title" style={{ fontSize: '0.95rem', margin: '0 0 12px 0' }}><Terminal size={16}/> SSH Подключение к ВМ</h3>
+                                            {selectedDep.ssh_command ? (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                    <div className="copy-field" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                                                        <code style={{ fontSize: '0.8rem' }}>{selectedDep.ssh_command}</code>
+                                                        <button className="btn-icon" onClick={() => copy(selectedDep.ssh_command, 'ssh-console')} title="Копировать">
+                                                            {copied === 'ssh-console' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                                                        </button>
+                                                    </div>
+                                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Подключение по SSH к ВМ деплоя через jump-сервер хостинга.</span>
+                                                </div>
+                                            ) : (
+                                                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Генерируется... Виртуальная машина еще не создана.</span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Sidebar Info */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                        <div className="glass-card" style={{ padding: '16px', background: 'var(--card-bg-subtle)' }}>
+                                            <h3 className="section-title" style={{ fontSize: '0.9rem', margin: '0 0 12px 0' }}><Layers size={14}/> Спецификация ВМ</h3>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.85rem' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: 'var(--text-secondary)' }}>Имя ВМ:</span>
+                                                    <span style={{ fontWeight: 600 }}>{selectedDep.vm_name || '—'}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: 'var(--text-secondary)' }}>Статус ВМ:</span>
+                                                    <span style={{ fontWeight: 600, color: selectedDep.vm_status === 'Running' ? 'var(--status-success)' : 'var(--text-muted)' }}>{selectedDep.vm_status || '—'}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: 'var(--text-secondary)' }}>IP ВМ:</span>
+                                                    <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{selectedDep.ip || '—'}</span>
+                                                </div>
+                                                <hr style={{ border: 'none', borderBottom: '1px solid var(--border-subtle)', margin: '4px 0' }} />
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: 'var(--text-secondary)' }}>Стек:</span>
+                                                    <span style={{ fontWeight: 600 }}>{selectedDep.stack_label}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <span style={{ color: 'var(--text-secondary)' }}>Порт (int):</span>
+                                                    <span style={{ fontWeight: 600 }}>{selectedDep.app_port}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* LOGS TAB */}
+                            {consoleTab === 'logs' && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', height: '480px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Включает логи клонирования Git, установки пакетов и работы запущенного контейнера/службы.</span>
+                                        <button className="btn btn-secondary btn-sm" onClick={() => fetchLogs(selectedDep.id)} disabled={loadingLogs} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <RefreshCw size={14} className={loadingLogs ? 'spinner' : ''} /> Обновить
+                                        </button>
+                                    </div>
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#090d16', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                                        <pre style={{
+                                            flex: 1,
+                                            overflow: 'auto',
+                                            margin: 0,
+                                            padding: '16px',
+                                            fontFamily: 'var(--font-mono)',
+                                            fontSize: '0.8rem',
+                                            color: '#38bdf8',
+                                            lineHeight: '1.5',
+                                            whiteSpace: 'pre-wrap',
+                                            wordBreak: 'break-all',
+                                            textAlign: 'left'
+                                        }}>
+                                            {logsContent}
+                                        </pre>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* METRICS (PROMETHEUS) TAB */}
+                            {consoleTab === 'metrics' && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>История нагрузки CPU и памяти на выделенной виртуальной машине (данные из Prometheus).</span>
+                                        <button className="btn btn-secondary btn-sm" onClick={() => fetchMetrics(selectedDep.vm_name)} disabled={loadingMetrics} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <RefreshCw size={14} className={loadingMetrics ? 'spinner' : ''} /> Обновить
+                                        </button>
+                                    </div>
+                                    <div className="glass-card" style={{ padding: '20px' }}>
+                                        {loadingMetrics ? (
+                                            <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}><div className="spinner spinner-lg" /></div>
+                                        ) : metricsHistory.length === 0 ? (
+                                            <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px 0' }}>История метрик пуста (возможно, ВМ только запустилась).</div>
+                                        ) : (
+                                            <div style={{ height: '320px', width: '100%' }}>
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <AreaChart data={metricsHistory} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                                                        <defs>
+                                                            <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                                                                <stop offset="5%" stopColor="var(--accent-primary)" stopOpacity={0.3}/>
+                                                                <stop offset="95%" stopColor="var(--accent-primary)" stopOpacity={0}/>
+                                                            </linearGradient>
+                                                            <linearGradient id="colorMem" x1="0" y1="0" x2="0" y2="1">
+                                                                <stop offset="5%" stopColor="var(--status-success)" stopOpacity={0.3}/>
+                                                                <stop offset="95%" stopColor="var(--status-success)" stopOpacity={0}/>
+                                                            </linearGradient>
+                                                        </defs>
+                                                        <XAxis dataKey="time" style={{ fontSize: '9px', fill: 'var(--text-muted)' }} />
+                                                        <YAxis domain={[0, 100]} tickLine={false} axisLine={false} style={{ fontSize: '10px', fill: 'var(--text-muted)' }} />
+                                                        <RechartsTooltip 
+                                                            contentStyle={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}
+                                                            labelStyle={{ color: 'var(--text-secondary)', marginBottom: '4px', fontSize: '0.8rem' }}
+                                                            itemStyle={{ fontSize: '0.85rem', fontWeight: 500 }}
+                                                        />
+                                                        <Area type="monotone" dataKey="cpu" name="CPU Нагрузка %" stroke="var(--accent-primary)" fillOpacity={1} fill="url(#colorCpu)" strokeWidth={2} />
+                                                        <Area type="monotone" dataKey="memory" name="ОЗУ Загрузка %" stroke="var(--status-success)" fillOpacity={1} fill="url(#colorMem)" strokeWidth={2} />
+                                                    </AreaChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* SETTINGS / MANAGE TAB */}
+                            {consoleTab === 'settings' && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                    <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid var(--accent-primary)' }}>
+                                        <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', color: 'var(--text-heading)' }}>Переразвернуть приложение</h3>
+                                        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0 0 16px 0', lineHeight: '1.4' }}>
+                                            Система подключится к ВМ деплоя по SSH, выполнит команду <code>git pull</code> из вашей ветки, скачает свежие коммиты и перезапустит контейнеры или системную службу приложения. Удобно для обновления бота или сайта при отправке изменений в GitHub.
+                                        </p>
+                                        <button className="btn btn-primary" onClick={() => handleRedeploy(selectedDep.id)} disabled={redeploying} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <RefreshCw size={15} className={redeploying ? 'spinner' : ''} />
+                                            {redeploying ? 'Переразвертывание...' : 'Переразвернуть из GitHub'}
+                                        </button>
+                                    </div>
+
+                                    <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid var(--status-danger)' }}>
+                                        <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', color: 'var(--status-danger)' }}>Опасная зона</h3>
+                                        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0 0 16px 0', lineHeight: '1.4' }}>
+                                            Удаление деплоя полностью сотрет эту виртуальную машину со всеми локальными данными, базами данных и файлами вашего бота/приложения. Отменить это действие невозможно.
+                                        </p>
+                                        <button className="btn btn-danger" onClick={() => handleDelete(selectedDep.id)} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <Trash2 size={15} />
+                                            Удалить деплой и ВМ
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
                         </div>
                     </div>
                 </div>
             )}
 
+            {/* СОЗДАНИЕ НОВОГО ДЕПЛОЯ */}
             {showCreate && (
                 <div className="slide-over-overlay" onClick={() => setShowCreate(false)}>
                     <div className="slide-over-content" onClick={e => e.stopPropagation()}>
