@@ -597,7 +597,8 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             </table>
 
             {/* Команды */}
-            {vm.os_type === 'windows' ? (
+            {/* RDP Commands */}
+            {(vm.os_type === 'windows' || (vm.os_type === 'custom' && portsConfig.some(p => p.int_port === 3389))) && (
               <>
                 <div style={{ marginTop: '8px' }}>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Адрес локального RDP (внутри сети):</div>
@@ -619,7 +620,10 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                   </div>
                 </div>
               </>
-            ) : (
+            )}
+
+            {/* SSH Commands */}
+            {!['windows', 'proxmox'].includes(vm.os_type) && !portsConfig.some(p => p.int_port === 3389) && (
               <>
                 <div style={{ marginTop: '8px' }}>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда локального SSH (внутри сети):</div>
