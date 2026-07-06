@@ -21,6 +21,11 @@ export default function DeploymentsPanel() {
     const [submitting, setSubmitting] = useState(false);
     const [copied, setCopied] = useState(null);
 
+    // Логи
+    const [showLogsId, setShowLogsId] = useState(null);
+    const [logsContent, setLogsContent] = useState('');
+    const [loadingLogs, setLoadingLogs] = useState(false);
+
     // Форма
     const [name, setName] = useState('');
     const [repoUrl, setRepoUrl] = useState('');
@@ -108,6 +113,22 @@ export default function DeploymentsPanel() {
         setTimeout(() => setCopied(c => (c === key ? null : c)), 1400);
     };
 
+    const fetchLogs = async (id) => {
+        setShowLogsId(id);
+        setLoadingLogs(true);
+        setLogsContent('Загрузка логов с виртуальной машины по SSH...');
+        try {
+            const res = await fetch(`/api/deployments/${id}/logs`, { headers: headers() });
+            if (!res.ok) throw new Error((await res.json()).detail || 'Ошибка загрузки логов');
+            const data = await res.json();
+            setLogsContent(data.logs || 'Логи пусты.');
+        } catch (e) {
+            setLogsContent(`Ошибка: ${e.message}`);
+        } finally {
+            setLoadingLogs(false);
+        }
+    };
+
     const statusBadge = (d) => {
         if (d.status === 'Running') return <span className="badge badge-success"><span className="status-dot" /> Работает</span>;
         if (d.status === 'Error') return <span className="badge badge-danger"><span className="status-dot" /> Ошибка</span>;
@@ -182,13 +203,49 @@ export default function DeploymentsPanel() {
                                 </div>
                             )}
 
-                            <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '6px' }}>
+                            <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '6px', alignItems: 'center' }}>
+                                <button className="btn btn-secondary btn-sm" onClick={() => fetchLogs(d.id)} style={{ padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <Terminal size={13} /> Логи
+                                </button>
                                 <button className="btn btn-danger btn-sm" onClick={() => handleDelete(d.id)} style={{ marginLeft: 'auto' }}>
                                     <Trash2 size={13} /> Удалить
                                 </button>
                             </div>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {showLogsId && (
+                <div className="slide-over-overlay" onClick={() => setShowLogsId(null)}>
+                    <div className="slide-over-content" style={{ maxWidth: '800px', width: '90%' }} onClick={e => e.stopPropagation()}>
+                        <div className="slide-over-header">
+                            <h2>Логи развертывания и приложения</h2>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                <button className="btn btn-secondary btn-sm" onClick={() => fetchLogs(showLogsId)} disabled={loadingLogs} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <RefreshCw size={14} className={loadingLogs ? 'spinner' : ''} /> Обновить
+                                </button>
+                                <button className="btn-close" onClick={() => setShowLogsId(null)} type="button"><X size={18} /></button>
+                            </div>
+                        </div>
+                        <div className="slide-over-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '0', overflow: 'hidden', background: '#090d16', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                            <pre style={{
+                                flex: 1,
+                                overflow: 'auto',
+                                margin: 0,
+                                padding: '20px',
+                                fontFamily: 'var(--font-mono)',
+                                fontSize: '0.82rem',
+                                color: '#38bdf8',
+                                lineHeight: '1.5',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-all',
+                                textAlign: 'left'
+                            }}>
+                                {logsContent}
+                            </pre>
+                        </div>
+                    </div>
                 </div>
             )}
 

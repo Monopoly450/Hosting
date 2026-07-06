@@ -343,3 +343,86 @@ def delete_deployment(dep_id: int, current_user: User = Depends(get_current_user
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+@router.get("/{dep_id}/logs")
+def get_deployment_logs(dep_id: int, current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        dep = db.query(AppDeployment).filter(AppDeployment.id == dep_id).first()
+        if not dep:
+            raise HTTPException(status_code=404, detail="Деплой не найден.")
+        if current_user.role != "admin" and dep.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещён.")
+
+        if not dep.vm_name:
+            return {"logs": "Виртуальная машина еще не создана."}
+
+        # Получаем данные ВМ из KubeVirt
+        from app.core.k8s_client import K8sClient
+        from app.core.netutils import pick_external_ip
+        try:
+            k8s = K8sClient()
+            vm = k8s.get_vm(dep.vm_name)
+        except Exception as e:
+            return {"logs": f"Не удалось получить информацию о ВМ: {e}"}
+
+        if vm.get("status") != "Running":
+            return {"logs": f"Виртуальная машина не запущена. Текущий статус: {vm.get('status', 'Unknown')}"}
+
+        # Получаем IP
+        ips = vm.get("ips", [])
+        ip = pick_external_ip(ips)
+        if not ip:
+            return {"logs": "У виртуальной машины еще нет IP адреса. Ожидайте запуска."}
+
+        # Получаем пароль из секрета
+        credentials = vm.get("credentials", {})
+        username = credentials.get("username", "ubuntu")
+        password = credentials.get("password")
+        if not password or password == "N/A":
+            return {"logs": "Не найдены учетные данные для подключения по SSH."}
+
+        # Подключаемся по SSH и читаем логи
+        import paramiko
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            ssh.connect(hostname=ip, port=22, username=username, password=password, timeout=5)
+        except Exception as e:
+            return {"logs": f"Не удалось подключиться к ВМ по SSH для чтения логов: {e}\n(Возможно, система еще запускается и настраивает сетевые интерфейсы. Подождите 1-2 минуты.)"}
+
+        try:
+            # 1. Читаем логи сборки (cloud-init)
+            stdin, stdout, stderr = ssh.exec_command("cat /var/log/cloud-init-output.log", timeout=5)
+            build_logs = stdout.read().decode("utf-8", errors="replace")
+            
+            # 2. Читаем логи самого приложения в зависимости от стека
+            app_logs = ""
+            if dep.stack == "compose":
+                _, out, _ = ssh.exec_command("cd /opt/app && (docker compose logs --tail=100 || docker-compose logs --tail=100)", timeout=5)
+                app_logs = out.read().decode("utf-8", errors="replace")
+            elif dep.stack == "dockerfile":
+                _, out, _ = ssh.exec_command(f"docker logs --tail=100 {dep.name}-app", timeout=5)
+                app_logs = out.read().decode("utf-8", errors="replace")
+            elif dep.stack in ("node", "python", "custom"):
+                _, out, _ = ssh.exec_command(f"journalctl -u {dep.name}-app -n 100 --no-pager", timeout=5)
+                app_logs = out.read().decode("utf-8", errors="replace")
+            elif dep.stack == "static":
+                _, out, _ = ssh.exec_command("tail -n 100 /var/log/nginx/error.log", timeout=5)
+                app_logs = out.read().decode("utf-8", errors="replace")
+
+            full_logs = "=== ЛОГИ СБОРКИ И НАСТРОЙКИ (CLOUD-INIT) ===\n"
+            full_logs += build_logs or "Логи сборки пусты или еще не записаны.\n"
+            
+            if app_logs.strip():
+                full_logs += "\n\n=== ЛОГИ ЗАПУСКА ПРИЛОЖЕНИЯ ===\n"
+                full_logs += app_logs
+
+            return {"logs": full_logs}
+        except Exception as e:
+            return {"logs": f"Ошибка чтения логов из ВМ: {e}"}
+        finally:
+            ssh.close()
+    finally:
+        db.close()
