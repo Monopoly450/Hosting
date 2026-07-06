@@ -561,8 +561,15 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               <tbody>
                 <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                   <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Локальный IP (Bridge)</td>
-                  <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                    {bridgeIp || (['windows', 'proxmox', 'custom'].includes(vm.os_type) ? <span style={{fontSize:'0.75rem', color:'var(--text-muted)'}}>Ожидание QEMU Guest Agent</span> : 'N/A')}
+                  <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                    {(() => {
+                      if (bridgeIp) return bridgeIp;
+                      const hasAgent = vm.ips && vm.ips.some(ip => ip.startsWith('10.0.2.'));
+                      if (['windows', 'proxmox', 'custom'].includes(vm.os_type)) {
+                        return hasAgent ? 'N/A' : <span style={{fontSize:'0.75rem', color:'var(--text-muted)'}}>Ожидание QEMU Guest Agent</span>;
+                      }
+                      return 'N/A';
+                    })()}
                   </td>
                 </tr>
                 {!['windows', 'proxmox', 'custom'].includes(vm.os_type) && (
