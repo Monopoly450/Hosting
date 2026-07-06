@@ -122,22 +122,22 @@ DEFAULT_PROXMOX_ISO = "https://enterprise.proxmox.com/iso/proxmox-ve_9.2-1.iso"
 
 def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     # Определение базового образа и логина
-    image_url = DEFAULT_UBUNTU_IMAGE
     default_user = "ubuntu"
     access_mode = "ReadWriteMany" if "nfs" in settings.STORAGE_CLASS.lower() else "ReadWriteOnce"
     
-    if req.os_type == "centos":
-        image_url = DEFAULT_CENTOS_IMAGE
+    if req.os_type == "centos" or req.os_type == "bitrix":
         default_user = "cloud-user"
     elif req.os_type == "debian":
-        image_url = DEFAULT_DEBIAN_IMAGE
         default_user = "debian"
-    elif req.os_type == "bitrix":
-        image_url = DEFAULT_CENTOS_IMAGE
-        default_user = "cloud-user"
-    elif req.os_type == "custom" and req.custom_image:
-        host_ip = get_host_ip()
-        image_url = f"http://{host_ip}:8000/static/images/{req.custom_image}"
+        
+    image_url = req.iso_url
+    if not image_url:
+        if req.os_type == "centos":
+            image_url = DEFAULT_CENTOS_IMAGE
+        elif req.os_type == "debian":
+            image_url = DEFAULT_DEBIAN_IMAGE
+        else:
+            image_url = DEFAULT_UBUNTU_IMAGE
         
 
     # Обработка шаблонов cloud-init

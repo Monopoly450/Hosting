@@ -21,6 +21,35 @@ import VolumesPanel from './components/VolumesPanel';
 import MailPanel from './components/MailPanel';
 import CustomSelect from './components/CustomSelect';
 
+const OS_VERSIONS = {
+  ubuntu: [
+    { label: 'Ubuntu 24.04 LTS', value: 'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img' },
+    { label: 'Ubuntu 22.04 LTS', value: 'https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img' },
+    { label: 'Ubuntu 20.04 LTS', value: 'https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img' }
+  ],
+  centos: [
+    { label: 'CentOS Stream 9', value: 'https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2' },
+    { label: 'CentOS Stream 10', value: 'https://cloud.centos.org/centos/10-stream/x86_64/images/CentOS-Stream-GenericCloud-10-latest.x86_64.qcow2' }
+  ],
+  debian: [
+    { label: 'Debian 12 (Bookworm)', value: 'https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2' },
+    { label: 'Debian 11 (Bullseye)', value: 'https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-generic-amd64.qcow2' }
+  ],
+  windows: [
+    { label: 'Windows Server 2022', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195280' },
+    { label: 'Windows Server 2019', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195279' },
+    { label: 'Windows Server 2016', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195278' }
+  ],
+  proxmox: [
+    { label: 'Proxmox VE 8.2', value: 'https://download.proxmox.com/iso/proxmox-ve_8.2-1.iso' },
+    { label: 'Proxmox VE 8.1', value: 'https://download.proxmox.com/iso/proxmox-ve_8.1-1.iso' },
+    { label: 'Proxmox VE 7.4', value: 'https://download.proxmox.com/iso/proxmox-ve_7.4-1.iso' }
+  ],
+  bitrix: [
+    { label: 'BitrixVM (CentOS 9)', value: 'https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2' }
+  ]
+};
+
 const App = () => {
   const [authenticated, setAuthenticated] = useState(!!localStorage.getItem('aegis_admin_token'));
   const [usernameInput, setUsernameInput] = useState('admin');
@@ -64,7 +93,15 @@ const App = () => {
 
   // VM Creation Form
   const [name, setName] = useState('');
-  const [osType, setOsType] = useState('ubuntu'); // 'ubuntu' | 'windows' | 'custom'
+  const [osType, setOsType] = useState('ubuntu'); // 'ubuntu' | 'windows'
+  const [selectedVersions, setSelectedVersions] = useState({
+    ubuntu: OS_VERSIONS.ubuntu[0].value,
+    centos: OS_VERSIONS.centos[0].value,
+    debian: OS_VERSIONS.debian[0].value,
+    windows: OS_VERSIONS.windows[0].value,
+    proxmox: OS_VERSIONS.proxmox[0].value,
+    bitrix: OS_VERSIONS.bitrix[0].value
+  });
   const [selectedCustomImage, setSelectedCustomImage] = useState('');
   const [packages, setPackages] = useState("");
   const [networkDrives, setNetworkDrives] = useState("");
@@ -208,7 +245,7 @@ const App = () => {
         cpu_cores: parseInt(cpuCores),
         memory_gb: parseInt(memoryGb),
         disk_gb: parseInt(diskGb),
-        iso_url: (osType === 'windows' || osType === 'proxmox') && isoUrl.trim() ? isoUrl.trim() : undefined,
+        iso_url: selectedVersions[osType] || undefined,
         cloud_init_template: cloudInitTemplate || undefined,
         custom_user_data: customUserData.trim() || undefined,
         ssh_key: sshKey.trim() || undefined
@@ -437,15 +474,7 @@ const App = () => {
             Балансировщик
           </button>
 
-          {userRole === 'admin' && (
-            <button 
-              className={`nav-item ${activeTab === 'images' && !selectedVMDetailName ? 'active' : ''}`}
-              onClick={() => navigateToTab('images')}
-            >
-              <FolderOpen size={18} />
-              Образы ОС
-            </button>
-          )}
+
 
           <button 
             className={`nav-item ${activeTab === 'databases' && !selectedVMDetailName ? 'active' : ''}`}
@@ -783,34 +812,28 @@ const App = () => {
                         <div className="input-group">
                           <label className="input-label">Операционная система</label>
                           <div className="os-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
-                            <div className={`os-card ${osType === 'none' ? 'selected' : ''}`} onClick={() => setOsType('none')}>
-                              <div className="os-card-icon" style={{ color: '#94a3b8' }}><Info size={24} /></div>
-                              <div className="os-card-title">Без ОС</div>
-                              <div className="os-card-version">Отдадим быстрее</div>
-                            </div>
-                            
                             <div className={`os-card ${osType === 'ubuntu' ? 'selected' : ''}`} onClick={() => setOsType('ubuntu')}>
                               <div className="os-card-icon" style={{ color: '#f97316' }}><Server size={24} /></div>
                               <div className="os-card-title">Ubuntu</div>
-                              <div className="os-card-version">Ubuntu 24.04 <ChevronDown size={14} /></div>
+                              <div className="os-card-version">{OS_VERSIONS.ubuntu.find(v => v.value === selectedVersions.ubuntu)?.label.split(' ')[1] || '24.04'}</div>
                             </div>
                             
                             <div className={`os-card ${osType === 'centos' ? 'selected' : ''}`} onClick={() => setOsType('centos')}>
                               <div className="os-card-icon" style={{ color: '#84cc16' }}><Server size={24} /></div>
                               <div className="os-card-title">CentOS</div>
-                              <div className="os-card-version">CentOS 10 <ChevronDown size={14} /></div>
+                              <div className="os-card-version">{OS_VERSIONS.centos.find(v => v.value === selectedVersions.centos)?.label.split(' ')[2] || '9'}</div>
                             </div>
                             
                             <div className={`os-card ${osType === 'debian' ? 'selected' : ''}`} onClick={() => setOsType('debian')}>
                               <div className="os-card-icon" style={{ color: '#ef4444' }}><Server size={24} /></div>
                               <div className="os-card-title">Debian</div>
-                              <div className="os-card-version">Debian 13 <ChevronDown size={14} /></div>
+                              <div className="os-card-version">{OS_VERSIONS.debian.find(v => v.value === selectedVersions.debian)?.label.split(' ')[1] || '12'}</div>
                             </div>
                             
                             <div className={`os-card ${osType === 'windows' ? 'selected' : ''}`} onClick={() => setOsType('windows')}>
                               <div className="os-card-icon" style={{ color: '#0078d4' }}><Server size={24} /></div>
                               <div className="os-card-title">Windows Server</div>
-                              <div className="os-card-version">Windows 2022</div>
+                              <div className="os-card-version">{OS_VERSIONS.windows.find(v => v.value === selectedVersions.windows)?.label.split(' ').slice(1).join(' ') || '2022'}</div>
                             </div>
 
                             <div className={`os-card ${osType === 'bitrix' ? 'selected' : ''}`} onClick={() => setOsType('bitrix')}>
@@ -822,31 +845,23 @@ const App = () => {
                             <div className={`os-card ${osType === 'proxmox' ? 'selected' : ''}`} onClick={() => setOsType('proxmox')}>
                               <div className="os-card-icon" style={{ color: '#e57000' }}><Layers size={24} /></div>
                               <div className="os-card-title">Proxmox VE</div>
-                              <div className="os-card-version">8.2 (nested)</div>
-                            </div>
-
-                            <div className={`os-card ${osType === 'custom' ? 'selected' : ''}`} style={{ borderColor: osType === 'custom' ? '#6366f1' : 'transparent', backgroundColor: osType === 'custom' ? 'var(--bg-surface-hover)' : 'var(--bg-surface)' }} onClick={() => setOsType('custom')}>
-                              <div className="os-card-icon" style={{ color: '#6366f1' }}><Info size={24} /></div>
-                              <div className="os-card-title">Свой образ</div>
-                              <div className="os-card-version" style={{ opacity: 0 }}>...</div>
+                              <div className="os-card-version">{OS_VERSIONS.proxmox.find(v => v.value === selectedVersions.proxmox)?.label.split(' ')[2] || '8.2'}</div>
                             </div>
                           </div>
                         </div>
 
-                        {osType === 'custom' && (
-                          <div className="input-group">
-                            <label className="input-label">Выберите загруженный образ</label>
+                        {OS_VERSIONS[osType] && OS_VERSIONS[osType].length > 1 && (
+                          <div className="input-group" style={{ marginTop: '4px' }}>
+                            <label className="input-label">Версия операционной системы</label>
                             <CustomSelect 
-                              value={selectedCustomImage}
-                              onChange={(e) => setSelectedCustomImage(e.target.value)}
-                              placeholder="Выберите загруженный образ"
-                              options={customImages.map(img => ({
-                                value: img.filename,
-                                label: `${img.filename} (${img.size_gb > 1 ? `${img.size_gb} GB` : `${img.size_mb} MB`})`
-                              }))}
+                              value={selectedVersions[osType]}
+                              onChange={(e) => setSelectedVersions(prev => ({ ...prev, [osType]: e.target.value }))}
+                              options={OS_VERSIONS[osType].map(v => ({ value: v.value, label: v.label }))}
                             />
                           </div>
                         )}
+
+
 
                         <div className="input-group">
                           <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Package size={16}/> Пакеты для установки (через запятую)</label>
@@ -947,7 +962,7 @@ const App = () => {
                         <button type="button" className="btn btn-secondary" onClick={() => setShowCreateVM(false)}>
                           Отмена
                         </button>
-                        <button type="submit" className="btn btn-primary" disabled={formLoading || (osType === 'custom' && customImages.length === 0)}>
+                        <button type="submit" className="btn btn-primary" disabled={formLoading}>
                           {formLoading ? <span className="spinner" /> : 'Создать'}
                         </button>
                       </div>
