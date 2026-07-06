@@ -863,75 +863,79 @@ const App = () => {
 
 
 
-                        <div className="input-group">
-                          <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Package size={16}/> Пакеты для установки (через запятую)</label>
-                          <input 
-                            type="text" 
-                            className="form-control" 
-                            placeholder="Например: nginx, docker.io, mc, htop"
-                            value={packages}
-                            onChange={(e) => setPackages(e.target.value)}
-                          />
-                          <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Установятся автоматически при первом запуске (только для Linux).</span>
-                        </div>
+                        {!['windows', 'proxmox'].includes(osType) && (
+                          <>
+                            <div className="input-group">
+                              <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Package size={16}/> Пакеты для установки (через запятую)</label>
+                              <input 
+                                type="text" 
+                                className="form-control" 
+                                placeholder="Например: nginx, docker.io, mc, htop"
+                                value={packages}
+                                onChange={(e) => setPackages(e.target.value)}
+                              />
+                              <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Установятся автоматически при первом запуске (только для Linux).</span>
+                            </div>
 
-                        <div className="input-group">
-                          <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><HardDrive size={16}/> Сетевые диски (NFS / PVC)</label>
-                          <input 
-                            type="text" 
-                            className="form-control" 
-                            placeholder="Например: 192.168.1.10:/shared или pvc-name"
-                            value={networkDrives}
-                            onChange={(e) => setNetworkDrives(e.target.value)}
-                          />
-                          <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Сетевая шара будет смонтирована в /mnt/network_drive.</span>
-                        </div>
+                            <div className="input-group">
+                              <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><HardDrive size={16}/> Сетевые диски (NFS / PVC)</label>
+                              <input 
+                                type="text" 
+                                className="form-control" 
+                                placeholder="Например: 192.168.1.10:/shared или pvc-name"
+                                value={networkDrives}
+                                onChange={(e) => setNetworkDrives(e.target.value)}
+                              />
+                              <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Сетевая шара будет смонтирована в /mnt/network_drive.</span>
+                            </div>
 
-                        <div className="input-group">
-                          <label className="input-label">Шаблон окружения (Cloud-Init)</label>
-                          <CustomSelect 
-                            value={cloudInitTemplate} 
-                            onChange={e => setCloudInitTemplate(e.target.value)}
-                            placeholder="Без шаблона (Чистая ОС)"
-                            options={[
-                              { value: '', label: 'Без шаблона (Чистая ОС)' },
-                              { value: 'lamp', label: 'LAMP (Apache + PHP + MariaDB)' },
-                              { value: 'lemp', label: 'LEMP (Nginx + PHP-FPM + MariaDB)' },
-                              { value: 'docker', label: 'Docker (Engine + Compose)' },
-                              { value: 'portainer', label: 'Portainer (Docker + веб-UI :9000)' },
-                              { value: 'nodejs', label: 'Node.js 20 LTS (+ pm2)' },
-                              { value: 'python', label: 'Python 3 (pip + venv + gunicorn)' },
-                              { value: 'postgresql', label: 'PostgreSQL сервер' },
-                              { value: 'redis', label: 'Redis сервер' },
-                              { value: 'wordpress', label: 'WordPress (Apache + MariaDB + PHP)' }
-                            ]}
-                          />
-                        </div>
+                            <div className="input-group">
+                              <label className="input-label">Шаблон окружения (Cloud-Init)</label>
+                              <CustomSelect 
+                                value={cloudInitTemplate} 
+                                onChange={e => setCloudInitTemplate(e.target.value)}
+                                placeholder="Без шаблона (Чистая ОС)"
+                                options={[
+                                  { value: '', label: 'Без шаблона (Чистая ОС)' },
+                                  { value: 'lamp', label: 'LAMP (Apache + PHP + MariaDB)' },
+                                  { value: 'lemp', label: 'LEMP (Nginx + PHP-FPM + MariaDB)' },
+                                  { value: 'docker', label: 'Docker (Engine + Compose)' },
+                                  { value: 'portainer', label: 'Portainer (Docker + веб-UI :9000)' },
+                                  { value: 'nodejs', label: 'Node.js 20 LTS (+ pm2)' },
+                                  { value: 'python', label: 'Python 3 (pip + venv + gunicorn)' },
+                                  { value: 'postgresql', label: 'PostgreSQL сервер' },
+                                  { value: 'redis', label: 'Redis сервер' },
+                                  { value: 'wordpress', label: 'WordPress (Apache + MariaDB + PHP)' }
+                                ]}
+                              />
+                            </div>
 
-                        <div className="input-group">
-                          <label className="input-label">Публичный SSH-ключ (для безопасного входа)</label>
-                          <input 
-                            type="text" 
-                            className="form-control" 
-                            placeholder="ssh-rsa AAAA..."
-                            value={sshKey}
-                            onChange={e => setSshKey(e.target.value)}
-                          />
-                          <small style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                            Если указан ключ, парольный вход по SSH будет автоматически заблокирован на создаваемой ВМ.
-                          </small>
-                        </div>
+                            <div className="input-group">
+                              <label className="input-label">Публичный SSH-ключ (для безопасного входа)</label>
+                              <input 
+                                type="text" 
+                                className="form-control" 
+                                placeholder="ssh-rsa AAAA..."
+                                value={sshKey}
+                                onChange={e => setSshKey(e.target.value)}
+                              />
+                              <small style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                                Если указан ключ, парольный вход по SSH будет автоматически заблокирован на создаваемой ВМ.
+                              </small>
+                            </div>
 
-                        <div className="input-group">
-                          <label className="input-label">Кастомный скрипт Cloud-Init (userData)</label>
-                          <textarea 
-                            className="form-control" 
-                            placeholder="#cloud-config..."
-                            value={customUserData}
-                            onChange={e => setCustomUserData(e.target.value)}
-                            style={{ height: '80px', minHeight: '60px', resize: 'vertical' }}
-                          />
-                        </div>
+                            <div className="input-group">
+                              <label className="input-label">Кастомный скрипт Cloud-Init (userData)</label>
+                              <textarea 
+                                className="form-control" 
+                                placeholder="#cloud-config..."
+                                value={customUserData}
+                                onChange={e => setCustomUserData(e.target.value)}
+                                style={{ height: '80px', minHeight: '60px', resize: 'vertical' }}
+                              />
+                            </div>
+                          </>
+                        )}
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '8px' }}>
                           <div>
