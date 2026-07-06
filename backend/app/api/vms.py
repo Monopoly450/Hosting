@@ -1300,6 +1300,13 @@ def delete_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_us
         try:
             db_vm = db.query(VMTask).filter(VMTask.name == name).first()
             if db_vm:
+                from app.models.models import AppDeployment, UserDatabase, UserVolume
+                # Отвязываем ресурсы от удаляемой ВМ во избежание ошибок внешних ключей
+                db.query(AppDeployment).filter(AppDeployment.vm_id == db_vm.id).update({"vm_id": None})
+                db.query(UserDatabase).filter(UserDatabase.associated_vm_id == db_vm.id).update({"associated_vm_id": None})
+                db.query(UserVolume).filter(UserVolume.attached_vm_id == db_vm.id).update({"attached_vm_id": None})
+                db.flush()
+                
                 db.delete(db_vm)
                 db.commit()
         finally:

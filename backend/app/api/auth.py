@@ -6,7 +6,7 @@ import time
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import SessionLocal
-from app.models.models import User, VMTask, Cluster, UserDatabase, UserBucket, UserVolume, UserMailbox
+from app.models.models import User, VMTask, Cluster, UserDatabase, UserBucket, UserVolume, UserMailbox, AppDeployment
 from app.core.auth import hash_password, verify_password, create_access_token, get_current_user, check_admin, get_db
 
 # Простая защита от брутфорса: лимит на 5 неудачных попыток входа за 5 минут
@@ -200,7 +200,7 @@ async def delete_user(user_id: int, admin: User = Depends(check_admin), db: Asyn
     # (owner_id) не дадут удалить пользователя и оставят «осиротевшие» строки.
     # ВНИМАНИЕ: реальные ресурсы в Kubernetes (ВМ, БД-поды, бакеты) при этом
     # не удаляются — их нужно снять отдельно перед удалением пользователя.
-    for model in (VMTask, UserDatabase, UserBucket, UserVolume, UserMailbox, Cluster):
+    for model in (VMTask, UserDatabase, UserBucket, UserVolume, UserMailbox, Cluster, AppDeployment):
         await db.execute(delete(model).where(model.owner_id == user.id))
 
     await db.delete(user)

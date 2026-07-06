@@ -324,6 +324,7 @@ def delete_deployment(dep_id: int, current_user: User = Depends(get_current_user
             raise HTTPException(status_code=403, detail="Доступ запрещён.")
 
         # Удаляем выделенную ВМ (через очередь) и запись VMTask
+        vm_id_to_delete = dep.vm_id
         if dep.vm_name:
             try:
                 from app.queue_client import publish_task
@@ -331,11 +332,17 @@ def delete_deployment(dep_id: int, current_user: User = Depends(get_current_user
                     publish_task("vm_tasks", {"task_id": dep.vm_id, "action": "delete_vm"})
             except Exception as e:
                 logger.error(f"Failed to queue VM delete for deployment {dep.name}: {e}")
-            vmt = db.query(VMTask).filter(VMTask.id == dep.vm_id).first()
+
+        # Сначала удаляем сам деплой
+        db.delete(dep)
+        db.flush()
+
+        # Затем безопасно удаляем запись ВМ
+        if vm_id_to_delete:
+            vmt = db.query(VMTask).filter(VMTask.id == vm_id_to_delete).first()
             if vmt:
                 db.delete(vmt)
 
-        db.delete(dep)
         db.commit()
         return {"status": "deleted"}
     except HTTPException:
