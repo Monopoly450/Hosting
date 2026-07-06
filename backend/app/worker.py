@@ -351,12 +351,57 @@ def apply_disk_throttling_daemon():
             
         time.sleep(10)
 
+def apply_firewall_reconcile_daemon():
+    """Следит за IP каждой запущенной ВМ и переустанавливает проброс портов,
+    когда IP меняется (в т.ч. после перезагрузки ВМ). Внешние порты стабильны
+    (считаются от ID ВМ), поэтому адрес host:port для пользователя не меняется."""
+    logger.info("Starting firewall reconcile daemon thread...")
+    last_ip = {}  # vm_name -> последний применённый IP
+    while True:
+        try:
+            from .api.vms import reconcile_vm_firewall_rules
+            from .core.netutils import pick_external_ip
+            db = SessionLocal()
+            try:
+                vms_in_db = db.query(VMTask).all()
+                live_names = set()
+                for vm in vms_in_db:
+                    try:
+                        info = k8s.get_vm(vm.name)
+                        if info.get("status") != "Running":
+                            continue
+                        ips = info.get("ips", [])
+                        ip = pick_external_ip(ips) if ips else None
+                        if not ip:
+                            continue
+                        live_names.add(vm.name)
+                        # Переустанавливаем правила только при изменении IP — без лишней «дёрготни»
+                        if last_ip.get(vm.name) != ip:
+                            reconcile_vm_firewall_rules(ip, vm.id, vm.ports_config, vm.firewall_rules, vm.os_type)
+                            last_ip[vm.name] = ip
+                            logger.info(f"Firewall re-applied for {vm.name} -> {ip}")
+                    except Exception as ve:
+                        logger.error(f"Firewall reconcile for VM {vm.name}: {ve}")
+                # Забываем IP выключенных/удалённых ВМ, чтобы при новом старте правила переустановились
+                for gone in [n for n in last_ip if n not in live_names]:
+                    del last_ip[gone]
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Error in firewall reconcile daemon loop: {e}")
+        time.sleep(15)
+
+
 def main():
     logger.info("Starting worker...")
-    
+
     # Запуск фонового демона для ограничения дисков (cgroups v2)
     throttling_thread = threading.Thread(target=apply_disk_throttling_daemon, daemon=True)
     throttling_thread.start()
+
+    # Демон переустановки проброса портов при смене IP ВМ (после перезагрузок)
+    firewall_thread = threading.Thread(target=apply_firewall_reconcile_daemon, daemon=True)
+    firewall_thread.start()
     
     while True:
         try:

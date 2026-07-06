@@ -870,10 +870,15 @@ const App = () => {
                             placeholder="Без шаблона (Чистая ОС)"
                             options={[
                               { value: '', label: 'Без шаблона (Чистая ОС)' },
-                              { value: 'lamp', label: 'LAMP (Nginx, PHP, MariaDB)' },
-                              { value: 'docker', label: 'Docker Environment (Engine + CLI)' },
-                              { value: 'nodejs', label: 'Node.js Environment (Node.js LTS)' },
-                              { value: 'wordpress', label: 'WordPress (Apache + MySQL + PHP + WP)' }
+                              { value: 'lamp', label: 'LAMP (Apache + PHP + MariaDB)' },
+                              { value: 'lemp', label: 'LEMP (Nginx + PHP-FPM + MariaDB)' },
+                              { value: 'docker', label: 'Docker (Engine + Compose)' },
+                              { value: 'portainer', label: 'Portainer (Docker + веб-UI :9000)' },
+                              { value: 'nodejs', label: 'Node.js 20 LTS (+ pm2)' },
+                              { value: 'python', label: 'Python 3 (pip + venv + gunicorn)' },
+                              { value: 'postgresql', label: 'PostgreSQL сервер' },
+                              { value: 'redis', label: 'Redis сервер' },
+                              { value: 'wordpress', label: 'WordPress (Apache + MariaDB + PHP)' }
                             ]}
                           />
                         </div>

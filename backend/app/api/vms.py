@@ -137,30 +137,70 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     # Обработка шаблонов cloud-init
     template_packages = []
     template_commands = []
-    if req.cloud_init_template == "lamp":
+    tmpl = req.cloud_init_template
+    if tmpl == "lamp":
+        # Apache + MariaDB + PHP
         template_packages.extend(["apache2", "mariadb-server", "php", "libapache2-mod-php", "php-mysql"])
         template_commands.extend([
             "systemctl enable --now apache2",
-            "systemctl enable --now mariadb"
+            "systemctl enable --now mariadb",
         ])
-    elif req.cloud_init_template == "docker":
+    elif tmpl == "lemp":
+        # Nginx + MariaDB + PHP-FPM
+        template_packages.extend(["nginx", "mariadb-server", "php-fpm", "php-mysql"])
         template_commands.extend([
-            "curl -fsSL https://get.docker.com -o get-docker.sh",
-            "sh get-docker.sh",
-            "systemctl enable --now docker"
+            "systemctl enable --now nginx",
+            "systemctl enable --now mariadb",
+            "systemctl enable --now php*-fpm || systemctl enable --now php-fpm || true",
         ])
-    elif req.cloud_init_template == "nodejs":
+    elif tmpl == "docker":
+        # Docker Engine + Compose plugin
+        template_packages.extend(["docker.io", "docker-compose-v2"])
         template_commands.extend([
-            "curl -fsSL https://deb.nodesource.com/setup_18.x | bash -",
-            "apt-get install -y nodejs"
+            "systemctl enable --now docker",
         ])
-    elif req.cloud_init_template == "wordpress":
-        template_packages.extend(["apache2", "mariadb-server", "php", "php-mysql", "php-gd", "php-xml", "php-mbstring"])
+    elif tmpl == "portainer":
+        # Docker + Portainer (веб-UI управления контейнерами на порту 9000)
+        template_packages.extend(["docker.io"])
+        template_commands.extend([
+            "systemctl enable --now docker",
+            "docker volume create portainer_data",
+            "docker run -d -p 9000:9000 --name portainer --restart=always -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data portainer/portainer-ce:latest",
+        ])
+    elif tmpl == "nodejs":
+        # Node.js 20 LTS + pm2
+        template_commands.extend([
+            "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -",
+            "DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs",
+            "npm install -g pm2 || true",
+        ])
+    elif tmpl == "python":
+        # Python 3 + pip + venv (окружение для Flask/FastAPI/Django)
+        template_packages.extend(["python3", "python3-pip", "python3-venv", "python3-dev", "build-essential"])
+        template_commands.extend([
+            "pip3 install --break-system-packages virtualenv gunicorn 2>/dev/null || pip3 install virtualenv gunicorn || true",
+        ])
+    elif tmpl == "postgresql":
+        # PostgreSQL сервер (слушает локально; порт 5432)
+        template_packages.extend(["postgresql", "postgresql-contrib"])
+        template_commands.extend([
+            "systemctl enable --now postgresql",
+        ])
+    elif tmpl == "redis":
+        # Redis сервер (порт 6379)
+        template_packages.extend(["redis-server"])
+        template_commands.extend([
+            "systemctl enable --now redis-server",
+        ])
+    elif tmpl == "wordpress":
+        # Готовый WordPress на Apache + MariaDB + PHP
+        template_packages.extend(["apache2", "mariadb-server", "php", "php-mysql", "php-gd", "php-xml", "php-mbstring", "php-curl", "wget", "tar"])
         template_commands.extend([
             "systemctl enable --now apache2 mariadb",
-            "wget https://wordpress.org/latest.tar.gz -O /tmp/wp.tar.gz",
+            "wget -q https://wordpress.org/latest.tar.gz -O /tmp/wp.tar.gz",
             "tar -xzf /tmp/wp.tar.gz -C /var/www/html/ --strip-components=1",
-            "chown -R www-data:www-data /var/www/html/"
+            "chown -R www-data:www-data /var/www/html/",
+            "a2enmod rewrite && systemctl restart apache2 || true",
         ])
 
     # Обработка пакетов
@@ -288,6 +328,8 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
                                 {
                                     "name": "default",
                                     "masquerade": {},
+                                    # Стабильный MAC (детерминирован от имени) — не меняется при перезагрузке
+                                    "macAddress": generate_mac_address(req.name),
                                     "ports": [
                                         {"port": 22},
                                         {"port": 80},
@@ -482,6 +524,8 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                                 {
                                     "name": "default",
                                     "masquerade": {},
+                                    # Стабильный MAC (детерминирован от имени) — не меняется при перезагрузке
+                                    "macAddress": generate_mac_address(req.name),
                                     "ports": [
                                         {"port": 3389},
                                         {"port": 22},
