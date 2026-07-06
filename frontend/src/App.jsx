@@ -59,7 +59,7 @@ const OS_VERSIONS = {
     { label: 'Rocky Linux 8', value: 'https://download.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud.latest.x86_64.qcow2' }
   ],
   fedora: [
-    { label: 'Fedora 40', value: 'https://download.fedoraproject.org/pub/fedora/linux/releases/40/Cloud/x86_64/images/Fedora-Cloud-Base-40-1.14.x86_64.qcow2' }
+    { label: 'Fedora 41', value: 'https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2' }
   ],
   opensuse: [
     { label: 'openSUSE Leap 15.6', value: 'https://download.opensuse.org/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2' }

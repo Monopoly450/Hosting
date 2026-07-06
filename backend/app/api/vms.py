@@ -129,7 +129,7 @@ LINUX_CLOUD_IMAGES = {
     "bitrix":    (DEFAULT_CENTOS_IMAGE, "cloud-user"),
     "almalinux": ("https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2", "almalinux"),
     "rocky":     ("https://download.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2", "rocky"),
-    "fedora":    ("https://download.fedoraproject.org/pub/fedora/linux/releases/40/Cloud/x86_64/images/Fedora-Cloud-Base-40-1.14.x86_64.qcow2", "fedora"),
+    "fedora":    ("https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2", "fedora"),
     "opensuse":  ("https://download.opensuse.org/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2", "opensuse"),
     "arch":      ("https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2", "arch"),
     "alpine":    ("https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/generic_alpine-3.21.3-x86_64-bios-cloudinit-r0.qcow2", "alpine"),
