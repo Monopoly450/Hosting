@@ -269,7 +269,8 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     ssh_pwauth_val = "True"
     users_yaml = "users:\n  - default"
     ssh_enable_commands = """  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true
-  - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf || true"""
+  - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf || true
+  - echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config || true"""
   
     if getattr(req, "ssh_key", None):
         ssh_pwauth_val = "False"
