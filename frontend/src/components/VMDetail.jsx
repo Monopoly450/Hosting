@@ -403,8 +403,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
   const getBridgeIp = () => {
     if (!vm || !vm.ips || vm.ips.length === 0) return null;
-    const bridgeIp = vm.ips.find(ip => !ip.startsWith('10.244.') && !ip.startsWith('10.42.') && !ip.startsWith('10.0.2.') && !ip.startsWith('127.0.') && !ip.includes(':'));
-    return bridgeIp || vm.ips[0] || null;
+    return vm.ips.find(ip => !ip.startsWith('10.244.') && !ip.startsWith('10.42.') && !ip.startsWith('10.0.2.') && !ip.startsWith('127.0.') && !ip.includes(':')) || null;
   };
 
   if (loading && !vm) {
