@@ -562,25 +562,25 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               <tbody>
                 <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                   <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Локальный IP (Bridge)</td>
-                  <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{bridgeIp || 'N/A'}</td>
+                  <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                    {bridgeIp || (['windows', 'proxmox', 'custom'].includes(vm.os_type) ? <span style={{fontSize:'0.75rem', color:'var(--text-muted)'}}>Ожидание QEMU Guest Agent</span> : 'N/A')}
+                  </td>
                 </tr>
                 <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                   <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Pod IP (Internal)</td>
                   <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{sshIp || 'N/A'}</td>
                 </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Пользователь</td>
-                  <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                    {['windows', 'proxmox', 'custom'].includes(vm.os_type) ? 'Задается при установке' : (vm.credentials?.username || 'root')}
-                  </td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Пароль</td>
-                  <td style={{ padding: '12px 0', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
-                    {['windows', 'proxmox', 'custom'].includes(vm.os_type) ? (
-                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Вводится вручную в VNC</span>
-                    ) : (
-                      <>
+                {!['windows', 'proxmox', 'custom'].includes(vm.os_type) && (
+                  <>
+                    <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Пользователь</td>
+                      <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                        {vm.credentials?.username || 'root'}
+                      </td>
+                    </tr>
+                    <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Пароль</td>
+                      <td style={{ padding: '12px 0', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{showPassword ? (vm.credentials?.password || 'N/A') : '••••••••'}</span>
                         <button className="btn-icon-only" onClick={() => setShowPassword(!showPassword)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }} title={showPassword ? 'Скрыть пароль' : 'Показать пароль'}>
                           {showPassword ? <EyeOff size={14} color="var(--text-muted)" /> : <Eye size={14} color="var(--text-muted)" />}
@@ -590,10 +590,10 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                             {copiedField === 'tablePass' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} color="var(--text-muted)" />}
                           </button>
                         )}
-                      </>
-                    )}
-                  </td>
-                </tr>
+                      </td>
+                    </tr>
+                  </>
+                )}
               </tbody>
             </table>
 
