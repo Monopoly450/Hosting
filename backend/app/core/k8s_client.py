@@ -695,6 +695,19 @@ class K8sClient:
                     if ip_addr not in ips:
                         ips.append(ip_addr)
                         
+            # Всегда добавляем реальный Pod IP (из Kubernetes Pod), так как он нужен для проброса портов на хосте
+            try:
+                pods = self.core_api.list_namespaced_pod(
+                    namespace=namespace,
+                    label_selector=f"kubevirt.io/domain={name}"
+                )
+                if pods.items:
+                    pod_ip = pods.items[0].status.pod_ip
+                    if pod_ip and pod_ip not in ips:
+                        ips.append(pod_ip)
+            except Exception as e:
+                logger.error(f"Error getting pod IP for VM {name}: {e}")
+                        
             # Сортируем IP, чтобы лучший (наиболее внешний/маршрутизируемый) шел первым (в ips[0])
             if ips:
                 from app.core.netutils import pick_external_ip
