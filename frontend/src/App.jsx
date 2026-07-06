@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -15,6 +15,7 @@ import ClusterPanel from './components/ClusterPanel';
 import BalancerPanel from './components/BalancerPanel';
 import UsersAdminPanel from './components/UsersAdminPanel';
 import DatabasesPanel from './components/DatabasesPanel';
+import DeploymentsPanel from './components/DeploymentsPanel';
 import S3Panel from './components/S3Panel';
 import VolumesPanel from './components/VolumesPanel';
 import MailPanel from './components/MailPanel';
@@ -307,6 +308,7 @@ const App = () => {
       case 'balancer': return 'Балансировщик ресурсов';
       case 'images': return 'Образы дисков';
       case 'databases': return 'Управляемые базы данных';
+      case 'deployments': return 'Деплой приложений';
       case 's3': return 'S3 Объектное хранилище';
       case 'volumes': return 'Сетевые диски';
       case 'mail': return 'Почтовый хостинг';
@@ -449,7 +451,15 @@ const App = () => {
             Базы данных
           </button>
 
-          <button 
+          <button
+            className={`nav-item ${activeTab === 'deployments' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => navigateToTab('deployments')}
+          >
+            <Rocket size={18} />
+            Деплой приложений
+          </button>
+
+          <button
             className={`nav-item ${activeTab === 's3' && !selectedVMDetailName ? 'active' : ''}`}
             onClick={() => navigateToTab('s3')}
           >
@@ -687,6 +697,8 @@ const App = () => {
             <ImageManager onImagesChanged={setCustomImages} />
           ) : activeTab === 'databases' ? (
             <DatabasesPanel />
+          ) : activeTab === 'deployments' ? (
+            <DeploymentsPanel />
           ) : activeTab === 's3' ? (
             <S3Panel />
           ) : activeTab === 'volumes' ? (

@@ -187,3 +187,23 @@ class VMTask(Base):
     
     cluster = relationship("Cluster", back_populates="vms")
     owner = relationship("User", back_populates="vms")
+
+
+class AppDeployment(Base):
+    __tablename__ = "app_deployments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    repo_url = Column(String, nullable=False)
+    branch = Column(String, default="main")
+    stack = Column(String, default="compose")  # compose | dockerfile | node | python | static | custom
+    app_port = Column(Integer, default=3000)   # порт, который слушает приложение внутри ВМ
+    run_command = Column(Text, nullable=True)   # своя команда запуска (для custom и переопределений)
+
+    # Привязанная выделенная ВМ
+    vm_id = Column(Integer, ForeignKey("vm_tasks.id"), nullable=True)
+    vm_name = Column(String, nullable=True)
+
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    status = Column(String, default="Deploying")  # Deploying | Running | Error
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

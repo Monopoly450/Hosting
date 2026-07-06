@@ -1,0 +1,343 @@
+import re
+import json
+import logging
+from typing import List, Optional
+
+from fastapi import APIRouter, HTTPException, Depends, status
+from pydantic import BaseModel, Field
+
+from app.db import SessionLocal
+from app.models.models import User, VMTask, AppDeployment
+from app.core.auth import get_current_user
+
+router = APIRouter()
+logger = logging.getLogger("app.api.deployments")
+
+STACKS = {"compose", "dockerfile", "node", "python", "static", "custom"}
+
+# Стеки, для которых показываем понятные подписи на фронте
+STACK_LABELS = {
+    "compose": "Docker Compose",
+    "dockerfile": "Dockerfile",
+    "node": "Node.js",
+    "python": "Python",
+    "static": "Статический сайт",
+    "custom": "Своя команда",
+}
+
+
+class DeploymentCreate(BaseModel):
+    name: str = Field(..., pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", description="Имя деплоя (латиница, цифры, дефис)")
+    repo_url: str = Field(..., description="URL Git-репозитория (https)")
+    branch: str = Field("main", description="Ветка")
+    stack: str = Field("compose", description="Тип стека")
+    app_port: int = Field(3000, ge=1, le=65535, description="Порт приложения внутри ВМ")
+    run_command: Optional[str] = Field(None, description="Команда запуска (для custom/переопределения)")
+    cpu_cores: int = Field(2, ge=1, le=16)
+    memory_gb: int = Field(2, ge=1, le=64)
+    disk_gb: int = Field(20, ge=10, le=500)
+
+
+class DeploymentResponse(BaseModel):
+    id: int
+    name: str
+    repo_url: str
+    branch: str
+    stack: str
+    stack_label: str
+    app_port: int
+    run_command: Optional[str] = None
+    vm_name: Optional[str] = None
+    status: str
+    vm_status: Optional[str] = None
+    ip: Optional[str] = None
+    app_url: Optional[str] = None
+    ssh_command: Optional[str] = None
+    owner_username: str
+
+
+_GIT_URL_RE = re.compile(r"^https://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+$")
+
+
+def _validate_repo(url: str):
+    if not _GIT_URL_RE.match(url) or " " in url:
+        raise HTTPException(status_code=400, detail="Укажите корректный https-URL репозитория (например, https://github.com/user/repo).")
+
+
+def build_deploy_cloud_init(name: str, repo_url: str, branch: str, stack: str,
+                            app_port: int, run_command: Optional[str], password: str) -> str:
+    """Собирает полный #cloud-config: базовая настройка (пароль, сеть, guest-agent)
+    + клонирование репозитория и запуск приложения по выбранному стеку."""
+    default_user = "ubuntu"
+    app_dir = "/opt/app"
+    rc = (run_command or "").strip()
+
+    # Пакеты и шаги запуска под каждый стек
+    if stack == "compose":
+        pkgs = ["git", "docker.io", "docker-compose-v2"]
+        deploy_steps = [
+            f"cd {app_dir} && (docker compose up -d --build || docker-compose up -d --build) || true",
+        ]
+    elif stack == "dockerfile":
+        pkgs = ["git", "docker.io"]
+        deploy_steps = [
+            f"cd {app_dir} && docker build -t {name}-app . || true",
+            f"docker rm -f {name}-app 2>/dev/null || true",
+            f"docker run -d --restart always --name {name}-app -p {app_port}:{app_port} {name}-app || true",
+        ]
+    elif stack == "node":
+        pkgs = ["git", "nodejs", "npm"]
+        start_cmd = rc or "npm start"
+        deploy_steps = [
+            f"cd {app_dir} && (npm ci || npm install) || true",
+            _systemd_service(name, app_dir, start_cmd, app_port),
+        ]
+    elif stack == "python":
+        pkgs = ["git", "python3", "python3-pip", "python3-venv"]
+        start_cmd = rc or "python3 app.py"
+        deploy_steps = [
+            f"cd {app_dir} && python3 -m venv .venv && . .venv/bin/activate && (pip install -r requirements.txt || true)",
+            _systemd_service(name, app_dir, f"/opt/app/.venv/bin/{start_cmd}" if start_cmd.startswith(('python', 'gunicorn', 'uvicorn', 'flask')) else start_cmd, app_port),
+        ]
+    elif stack == "static":
+        pkgs = ["git", "nginx"]
+        deploy_steps = [
+            f"rm -rf /var/www/html && ln -s {app_dir} /var/www/html || true",
+            f"sed -i 's/listen 80/listen {app_port}/' /etc/nginx/sites-enabled/default 2>/dev/null || true",
+            "systemctl restart nginx || true",
+        ]
+    else:  # custom
+        pkgs = ["git", "docker.io"]
+        deploy_steps = [f"cd {app_dir} && ({rc or 'echo no run command'}) || true"]
+
+    packages_yaml = "\n".join(f"  - {p}" for p in pkgs)
+    clone_cmd = f"git clone --depth 1 --branch {branch} {repo_url} {app_dir} || git clone --depth 1 {repo_url} {app_dir}"
+    deploy_yaml = "\n".join(f"  - {step}" for step in deploy_steps)
+
+    return f"""#cloud-config
+ssh_pwauth: True
+disable_root: false
+chpasswd:
+  list: |
+    root:{password}
+    {default_user}:{password}
+  expire: False
+users:
+  - default
+packages:
+{packages_yaml}
+write_files:
+  - path: /etc/netplan/99-dhcp.yaml
+    content: |
+      network:
+        version: 2
+        ethernets:
+          all-eth:
+            match:
+              name: "e*"
+            dhcp4: true
+runcmd:
+  - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
+  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true
+  - systemctl restart ssh || systemctl restart sshd || true
+  - (netplan apply || systemctl restart systemd-networkd) || true
+  - while ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; do sleep 2; done
+  - apt-get update || true
+  - systemctl enable --now docker 2>/dev/null || true
+  - usermod -aG docker {default_user} 2>/dev/null || true
+  - {clone_cmd}
+{deploy_yaml}
+  - (apt-get install -y qemu-guest-agent && systemctl enable --now qemu-guest-agent) || true
+"""
+
+
+def _systemd_service(name: str, workdir: str, exec_cmd: str, app_port: int) -> str:
+    """Однострочный runcmd, который создаёт и запускает systemd-сервис приложения."""
+    unit = (
+        "[Unit]\\nDescription=App {n}\\nAfter=network.target\\n\\n"
+        "[Service]\\nWorkingDirectory={wd}\\nEnvironment=PORT={p}\\n"
+        "ExecStart=/bin/bash -lc '{cmd}'\\nRestart=always\\nUser=root\\n\\n"
+        "[Install]\\nWantedBy=multi-user.target"
+    ).format(n=name, wd=workdir, p=app_port, cmd=exec_cmd.replace("'", "'\\''"))
+    return (
+        f"printf '{unit}' > /etc/systemd/system/{name}-app.service && "
+        f"systemctl daemon-reload && systemctl enable --now {name}-app.service || true"
+    )
+
+
+def _get_host() -> str:
+    import os
+    return os.getenv("AEGIS_HOST_IP") or os.getenv("HOST_IP") or "127.0.0.1"
+
+
+def _enrich(dep: AppDeployment, owner_name: str) -> DeploymentResponse:
+    """Дополняет запись деплоя живым статусом ВМ, IP и внешним URL."""
+    vm_status = None
+    ip = None
+    app_url = None
+    ssh_command = None
+    ext_app_port = None
+    if dep.vm_name:
+        try:
+            from app.core.k8s_client import K8sClient
+            from app.core.netutils import pick_external_ip
+            vm = K8sClient().get_vm(dep.vm_name)
+            vm_status = vm.get("status")
+            ips = vm.get("ips", [])
+            ip = pick_external_ip(ips) if ips else None
+            ssh_port = vm.get("ssh_port")
+            host = _get_host()
+            if ssh_port:
+                ssh_command = f"ssh ubuntu@{host} -p {ssh_port}"
+            # Внешний порт приложения хранится в ports_config ВМ (int_port == app_port)
+            if dep.vm_id:
+                db2 = SessionLocal()
+                try:
+                    vmt = db2.query(VMTask).filter(VMTask.id == dep.vm_id).first()
+                    if vmt and vmt.ports_config:
+                        for p in json.loads(vmt.ports_config):
+                            if p.get("int_port") == dep.app_port:
+                                ext_app_port = p.get("ext_port")
+                finally:
+                    db2.close()
+            if ext_app_port:
+                app_url = f"http://{host}:{ext_app_port}"
+        except Exception as e:
+            logger.warning(f"enrich deployment {dep.name}: {e}")
+
+    status_val = dep.status
+    if vm_status == "Running" and status_val == "Deploying":
+        status_val = "Running"
+    elif vm_status == "Error":
+        status_val = "Error"
+
+    return DeploymentResponse(
+        id=dep.id, name=dep.name, repo_url=dep.repo_url, branch=dep.branch,
+        stack=dep.stack, stack_label=STACK_LABELS.get(dep.stack, dep.stack),
+        app_port=dep.app_port, run_command=dep.run_command, vm_name=dep.vm_name,
+        status=status_val, vm_status=vm_status, ip=ip, app_url=app_url,
+        ssh_command=ssh_command, owner_username=owner_name,
+    )
+
+
+@router.post("", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
+def create_deployment(req: DeploymentCreate, current_user: User = Depends(get_current_user)):
+    if req.stack not in STACKS:
+        raise HTTPException(status_code=400, detail="Неизвестный тип стека.")
+    if req.stack == "custom" and not (req.run_command and req.run_command.strip()):
+        raise HTTPException(status_code=400, detail="Для стека «Своя команда» укажите команду запуска.")
+    _validate_repo(req.repo_url)
+
+    from app.queue_client import publish_task
+    from app.api.vms import generate_random_password
+
+    db = SessionLocal()
+    try:
+        if db.query(AppDeployment).filter(AppDeployment.name == req.name).first():
+            raise HTTPException(status_code=400, detail="Деплой с таким именем уже существует.")
+        if db.query(VMTask).filter(VMTask.name == req.name).first():
+            raise HTTPException(status_code=400, detail="ВМ с таким именем уже существует.")
+
+        # Квоты студента (деплой создаёт выделенную ВМ)
+        if current_user.role != "admin":
+            owned = db.query(VMTask).filter(VMTask.owner_id == current_user.id).all()
+            if len(owned) + 1 > current_user.max_vms:
+                raise HTTPException(status_code=400, detail=f"Превышена квота на количество ВМ ({current_user.max_vms}).")
+            if sum(v.cpu_cores for v in owned) + req.cpu_cores > current_user.max_vcpus:
+                raise HTTPException(status_code=400, detail=f"Превышена квота на ядра CPU (лимит: {current_user.max_vcpus}).")
+            if sum(v.memory_gb * 1024 for v in owned) + req.memory_gb * 1024 > current_user.max_ram_mb:
+                raise HTTPException(status_code=400, detail=f"Превышена квота на ОЗУ (лимит: {current_user.max_ram_mb} МБ).")
+            if sum(v.disk_gb for v in owned) + req.disk_gb > current_user.max_storage_gb:
+                raise HTTPException(status_code=400, detail=f"Превышена квота на диск (лимит: {current_user.max_storage_gb} ГБ).")
+
+        password = generate_random_password()
+        cloud_init = build_deploy_cloud_init(
+            req.name, req.repo_url, req.branch, req.stack, req.app_port, req.run_command, password
+        )
+
+        vm = VMTask(
+            name=req.name, os_type="ubuntu",
+            cpu_cores=req.cpu_cores, memory_gb=req.memory_gb, disk_gb=req.disk_gb,
+            custom_user_data=cloud_init, owner_id=current_user.id, status="Pending",
+        )
+        db.add(vm)
+        db.commit()
+        db.refresh(vm)
+
+        # Пробрасываем SSH и порт приложения (стабильно, по ID ВМ)
+        ports = [
+            {"ext_port": 22000 + vm.id, "int_port": 22, "name": "SSH"},
+            {"ext_port": 28000 + vm.id, "int_port": req.app_port, "name": "APP"},
+        ]
+        vm.ports_config = json.dumps(ports)
+        db.commit()
+
+        dep = AppDeployment(
+            name=req.name, repo_url=req.repo_url, branch=req.branch, stack=req.stack,
+            app_port=req.app_port, run_command=req.run_command,
+            vm_id=vm.id, vm_name=vm.name, owner_id=current_user.id, status="Deploying",
+        )
+        db.add(dep)
+        db.commit()
+        db.refresh(dep)
+
+        publish_task("vm_tasks", {"task_id": vm.id, "action": "create_vm"})
+        return _enrich(dep, current_user.username)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@router.get("", response_model=List[DeploymentResponse])
+def list_deployments(current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        if current_user.role == "admin":
+            deps = db.query(AppDeployment).all()
+        else:
+            deps = db.query(AppDeployment).filter(AppDeployment.owner_id == current_user.id).all()
+        res = []
+        for d in deps:
+            owner = db.query(User).filter(User.id == d.owner_id).first()
+            res.append(_enrich(d, owner.username if owner else "—"))
+        return res
+    finally:
+        db.close()
+
+
+@router.delete("/{dep_id}", status_code=status.HTTP_200_OK)
+def delete_deployment(dep_id: int, current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        dep = db.query(AppDeployment).filter(AppDeployment.id == dep_id).first()
+        if not dep:
+            raise HTTPException(status_code=404, detail="Деплой не найден.")
+        if current_user.role != "admin" and dep.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещён.")
+
+        # Удаляем выделенную ВМ (через очередь) и запись VMTask
+        if dep.vm_name:
+            try:
+                from app.queue_client import publish_task
+                if dep.vm_id:
+                    publish_task("vm_tasks", {"task_id": dep.vm_id, "action": "delete_vm"})
+            except Exception as e:
+                logger.error(f"Failed to queue VM delete for deployment {dep.name}: {e}")
+            vmt = db.query(VMTask).filter(VMTask.id == dep.vm_id).first()
+            if vmt:
+                db.delete(vmt)
+
+        db.delete(dep)
+        db.commit()
+        return {"status": "deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
