@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket, Boxes } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -16,6 +16,7 @@ import BalancerPanel from './components/BalancerPanel';
 import UsersAdminPanel from './components/UsersAdminPanel';
 import DatabasesPanel from './components/DatabasesPanel';
 import DeploymentsPanel from './components/DeploymentsPanel';
+import KubernetesPanel from './components/KubernetesPanel';
 import S3Panel from './components/S3Panel';
 import VolumesPanel from './components/VolumesPanel';
 import MailPanel from './components/MailPanel';
@@ -377,6 +378,7 @@ const App = () => {
       case 'images': return 'Образы дисков';
       case 'databases': return 'Управляемые базы данных';
       case 'deployments': return 'Деплой приложений';
+      case 'kubernetes': return 'Kubernetes кластер';
       case 's3': return 'S3 Объектное хранилище';
       case 'volumes': return 'Сетевые диски';
       case 'mail': return 'Почтовый хостинг';
@@ -553,12 +555,20 @@ const App = () => {
                 Docker Управление
               </button>
 
-              <button 
+              <button
                 className={`nav-item ${activeTab === 'infra' && !selectedVMDetailName ? 'active' : ''}`}
                 onClick={() => navigateToTab('infra')}
               >
                 <Terminal size={18} />
                 Инфраструктура
+              </button>
+
+              <button
+                className={`nav-item ${activeTab === 'kubernetes' && !selectedVMDetailName ? 'active' : ''}`}
+                onClick={() => navigateToTab('kubernetes')}
+              >
+                <Boxes size={18} />
+                Kubernetes
               </button>
 
               <button 
@@ -767,6 +777,8 @@ const App = () => {
             <MailPanel />
           ) : activeTab === 'docker' ? (
             <DockerPanel />
+          ) : activeTab === 'kubernetes' ? (
+            <KubernetesPanel />
           ) : activeTab === 'infra' ? (
             <InfraPanel />
           ) : activeTab === 'users' ? (

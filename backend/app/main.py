@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api import vms, host, vnc, images, docker_admin, external_servers, infra, clusters, auth, databases, s3, volumes, snapshots, mail, deployments
+from app.api import vms, host, vnc, images, docker_admin, external_servers, infra, clusters, auth, databases, s3, volumes, snapshots, mail, deployments, kubernetes as kubernetes_api
 from app.core.auth import verify_admin_token
 
 # Настройка логирования
@@ -145,6 +145,7 @@ app.include_router(volumes.router, prefix=f"{settings.API_V1_STR}/volumes", tags
 app.include_router(snapshots.router, prefix=f"{settings.API_V1_STR}/snapshots", tags=["snapshots"])
 app.include_router(mail.router, prefix=f"{settings.API_V1_STR}/mail", tags=["mail"])
 app.include_router(deployments.router, prefix=f"{settings.API_V1_STR}/deployments", tags=["deployments"])
+app.include_router(kubernetes_api.router, prefix=f"{settings.API_V1_STR}/kubernetes", tags=["kubernetes"], dependencies=[Depends(verify_admin_token)])
 app.include_router(host.router, prefix=f"{settings.API_V1_STR}/host", tags=["host"], dependencies=[Depends(verify_admin_token)])
 app.include_router(vnc.router, prefix=f"{settings.API_V1_STR}/vnc", tags=["vnc"])
 app.include_router(images.router, prefix=f"{settings.API_V1_STR}/images", tags=["images"])
