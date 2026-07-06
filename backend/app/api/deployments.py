@@ -139,6 +139,8 @@ write_files:
 runcmd:
   - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
   - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true
+  - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf || true
+  - echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config || true
   - systemctl restart ssh || systemctl restart sshd || true
   - (netplan apply || systemctl restart systemd-networkd) || true
   - while ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; do sleep 2; done
