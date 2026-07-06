@@ -565,10 +565,12 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                     {bridgeIp || (['windows', 'proxmox', 'custom'].includes(vm.os_type) ? <span style={{fontSize:'0.75rem', color:'var(--text-muted)'}}>Ожидание QEMU Guest Agent</span> : 'N/A')}
                   </td>
                 </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Pod IP (Internal)</td>
-                  <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{sshIp || 'N/A'}</td>
-                </tr>
+                {!['windows', 'proxmox', 'custom'].includes(vm.os_type) && (
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Pod IP (Internal)</td>
+                    <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{sshIp || 'N/A'}</td>
+                  </tr>
+                )}
                 {!['windows', 'proxmox', 'custom'].includes(vm.os_type) && (
                   <>
                     <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
@@ -657,7 +659,27 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               </>
             )}
 
-            {vm.http_port && (
+            {/* Proxmox Web UI Link */}
+            {vm.os_type === 'proxmox' && (
+              <div style={{ marginTop: '8px' }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Доступ к панели Proxmox (HTTPS):</div>
+                {(() => {
+                  const pObj = portsConfig.find(p => p.int_port === 8006);
+                  const pUrl = pObj ? `https://${window.location.hostname}:${pObj.ext_port}` : null;
+                  return (
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={pUrl || 'Добавьте проброс порта 8006 внизу...'} />
+                      <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(pUrl || '', 'extProxmox')} disabled={!pUrl}>
+                        {copiedField === 'extProxmox' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Default HTTP/HTTPS Web Server Links (not for Proxmox) */}
+            {vm.http_port && vm.os_type !== 'proxmox' && (
               <div style={{ marginTop: '8px' }}>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Доступ к веб-серверу (HTTP/HTTPS):</div>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
