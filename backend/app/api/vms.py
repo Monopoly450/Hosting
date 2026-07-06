@@ -372,12 +372,7 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
                                     "name": "default",
                                     "masquerade": {},
                                     # Стабильный MAC (детерминирован от имени) — не меняется при перезагрузке
-                                    "macAddress": generate_mac_address(req.name),
-                                    "ports": [
-                                        {"port": 22},
-                                        {"port": 80},
-                                        {"port": 443}
-                                    ]
+                                    "macAddress": generate_mac_address(req.name)
                                 }
                             ],
                             "inputs": [
@@ -572,13 +567,7 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                                     "name": "default",
                                     "masquerade": {},
                                     # Стабильный MAC (детерминирован от имени) — не меняется при перезагрузке
-                                    "macAddress": generate_mac_address(req.name),
-                                    "ports": [
-                                        {"port": 3389},
-                                        {"port": 22},
-                                        {"port": 80},
-                                        {"port": 443}
-                                    ]
+                                    "macAddress": generate_mac_address(req.name)
                                 }
                             ],
                             "inputs": [
