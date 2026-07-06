@@ -508,7 +508,8 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
             "name": req.name,
             "namespace": "default",
             "labels": {
-                "hosting.antigravity.io/template": "windows",
+                # Метка отражает реальный тип ОС (windows или proxmox), а не всегда "windows"
+                "hosting.antigravity.io/template": req.os_type if req.os_type in ("windows", "proxmox") else "windows",
                 **({"hosting.antigravity.io/owner": "client-01"} if req.name.startswith("client-") else {})
             }
         },

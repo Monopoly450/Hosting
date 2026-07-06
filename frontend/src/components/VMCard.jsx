@@ -130,6 +130,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
   const getOSIcon = (type) => {
     if (type === 'windows') return '🪟';
     if (type === 'ubuntu') return '🐧';
+    if (type === 'proxmox') return '🧱';
     return '💿';
   };
 
