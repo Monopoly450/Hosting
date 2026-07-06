@@ -118,7 +118,7 @@ DEFAULT_WINDOWS_ISO = "https://go.microsoft.com/fwlink/p/?LinkID=2195280"
 DEFAULT_UBUNTU_IMAGE = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 DEFAULT_CENTOS_IMAGE = "https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2"
 DEFAULT_DEBIAN_IMAGE = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
-DEFAULT_PROXMOX_ISO = "https://enterprise.proxmox.com/iso/proxmox-ve_9.2-1.iso"
+DEFAULT_PROXMOX_ISO = "https://download.proxmox.com/iso/proxmox-ve_9.2-1.iso"
 
 def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     # Определение базового образа и логина
