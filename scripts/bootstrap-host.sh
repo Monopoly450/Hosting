@@ -44,6 +44,37 @@ else
     udevadm control --reload-rules && udevadm trigger || true
 fi
 
+# 2b. Включение вложенной виртуализации (Nested Virtualization)
+# Нужно, чтобы ВНУТРИ гостевых ВМ работал /dev/kvm — например, для Proxmox VE,
+# который сам запускает виртуалки. Работает только на bare-metal хосте
+# (если сам сервер уже виртуалка, вложенность может не завестись).
+if [ "$KVM_SUPPORTED" = true ]; then
+    log "Настройка вложенной виртуализации (nested)..."
+    if grep -q vmx /proc/cpuinfo; then
+        NESTED_MOD="kvm_intel"
+        echo "options kvm_intel nested=1" > /etc/modprobe.d/kvm-nested.conf
+    elif grep -q svm /proc/cpuinfo; then
+        NESTED_MOD="kvm_amd"
+        echo "options kvm_amd nested=1" > /etc/modprobe.d/kvm-nested.conf
+    else
+        NESTED_MOD=""
+        warn "CPU не сообщает о поддержке vmx/svm — вложенная виртуализация недоступна."
+    fi
+
+    if [ -n "$NESTED_MOD" ]; then
+        # Пытаемся включить на лету (может потребовать выгрузки модуля, если он занят)
+        echo Y > "/sys/module/${NESTED_MOD}/parameters/nested" 2>/dev/null || \
+            modprobe -r "$NESTED_MOD" 2>/dev/null && modprobe "$NESTED_MOD" nested=1 2>/dev/null || true
+        NESTED_STATE=$(cat "/sys/module/${NESTED_MOD}/parameters/nested" 2>/dev/null || echo "?")
+        if [ "$NESTED_STATE" = "Y" ] || [ "$NESTED_STATE" = "1" ]; then
+            log "Вложенная виртуализация ВКЛЮЧЕНА (${NESTED_MOD}). Proxmox сможет запускать свои ВМ."
+        else
+            warn "Вложенная виртуализация прописана в /etc/modprobe.d, но не активна (${NESTED_STATE})."
+            warn "Модуль ${NESTED_MOD} занят. Чтобы применить, перезагрузите сервер: sudo reboot"
+        fi
+    fi
+fi
+
 # 3. Определение активного сетевого интерфейса
 log "Определение активного сетевого интерфейса..."
 ACTIVE_IFACE=$(ip route | grep default | awk '{print $5}' | head -n1)

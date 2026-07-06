@@ -86,6 +86,10 @@ const App = () => {
       setCpuCores(4);
       setMemoryGb(4);
       setDiskGb(60);
+    } else if (osType === 'proxmox') {
+      setCpuCores(4);
+      setMemoryGb(6);
+      setDiskGb(60);
     } else {
       setCpuCores(2);
       setMemoryGb(2);
@@ -204,7 +208,7 @@ const App = () => {
         cpu_cores: parseInt(cpuCores),
         memory_gb: parseInt(memoryGb),
         disk_gb: parseInt(diskGb),
-        iso_url: osType === 'windows' && isoUrl.trim() ? isoUrl.trim() : undefined,
+        iso_url: (osType === 'windows' || osType === 'proxmox') && isoUrl.trim() ? isoUrl.trim() : undefined,
         cloud_init_template: cloudInitTemplate || undefined,
         custom_user_data: customUserData.trim() || undefined,
         ssh_key: sshKey.trim() || undefined
@@ -814,7 +818,13 @@ const App = () => {
                               <div className="os-card-title">BitrixVM</div>
                               <div className="os-card-version">CentOS 9</div>
                             </div>
-                            
+
+                            <div className={`os-card ${osType === 'proxmox' ? 'selected' : ''}`} onClick={() => setOsType('proxmox')}>
+                              <div className="os-card-icon" style={{ color: '#e57000' }}><Layers size={24} /></div>
+                              <div className="os-card-title">Proxmox VE</div>
+                              <div className="os-card-version">8.2 (nested)</div>
+                            </div>
+
                             <div className={`os-card ${osType === 'custom' ? 'selected' : ''}`} style={{ borderColor: osType === 'custom' ? '#6366f1' : 'transparent', backgroundColor: osType === 'custom' ? 'var(--bg-surface-hover)' : 'var(--bg-surface)' }} onClick={() => setOsType('custom')}>
                               <div className="os-card-icon" style={{ color: '#6366f1' }}><Info size={24} /></div>
                               <div className="os-card-title">Свой образ</div>

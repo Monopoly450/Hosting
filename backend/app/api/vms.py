@@ -489,8 +489,12 @@ local-hostname: {req.name}
     return manifest
 
 def generate_windows_manifest(req: VMCreationRequest) -> dict:
-    iso_url = req.iso_url or DEFAULT_WINDOWS_ISO
-    # Если Windows создается из кастомного образа ISO
+    # Proxmox ставится из своего ISO, остальное (Windows) — из Windows-ISO
+    if req.os_type == "proxmox":
+        iso_url = req.iso_url or DEFAULT_PROXMOX_ISO
+    else:
+        iso_url = req.iso_url or DEFAULT_WINDOWS_ISO
+    # Если ОС создаётся из кастомного загруженного ISO
     if req.os_type == "custom" and req.custom_image:
         host_ip = get_host_ip()
         iso_url = f"http://{host_ip}:8000/static/images/{req.custom_image}"
