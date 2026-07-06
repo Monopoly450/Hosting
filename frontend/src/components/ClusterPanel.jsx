@@ -227,6 +227,31 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
               </div>
             </div>
 
+            {/* Детали изолированной приватной сети */}
+            <div style={{ background: 'var(--bg-surface-hover)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '16px', marginBottom: '18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, color: 'var(--text-heading)', marginBottom: '12px' }}>
+                <Info size={16} style={{ color: 'var(--accent-primary)' }} /> Изолированная приватная сеть
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+                {[
+                  ['Подсеть', '192.168.100.0/24'],
+                  ['Шлюз', '192.168.100.1'],
+                  ['Тип', 'Multus bridge (L2)'],
+                  ['Машин в сети', String((cluster.vms || []).length)],
+                  ['Всего vCPU', String((cluster.vms || []).reduce((s, v) => s + (v.cpu_cores || 0), 0))],
+                  ['Всего RAM', `${(cluster.vms || []).reduce((s, v) => s + (v.memory_gb || 0), 0)} ГБ`],
+                ].map(([k, v]) => (
+                  <div key={k}>
+                    <div className="text-muted" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>{k}</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-heading)', marginTop: '2px' }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-muted" style={{ fontSize: '0.78rem', marginTop: '12px', lineHeight: 1.5 }}>
+                ВМ этого кластера видят друг друга напрямую по адресам <code>192.168.100.x</code> и полностью изолированы от других кластеров (L3-изоляция мостов через iptables). Доступ в интернет — через NAT хоста.
+              </p>
+            </div>
+
             <div>
               <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-heading)', marginBottom: '12px' }}>Виртуальные машины:</div>
               {cluster.vms && cluster.vms.length > 0 ? (
