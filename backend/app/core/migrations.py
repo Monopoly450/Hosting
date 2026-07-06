@@ -48,6 +48,8 @@ MIGRATION_STATEMENTS = [
     "ALTER TABLE external_servers ADD COLUMN IF NOT EXISTS bastion_password VARCHAR;",
     # SSH-ключи для ВМ
     "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS ssh_key VARCHAR;",
+    # Стабильный IP на мосту br-vms
+    "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS static_ip VARCHAR;",
 ]
 
 

@@ -179,6 +179,7 @@ class VMTask(Base):
     custom_user_data = Column(Text, nullable=True)
     iso_url = Column(String, nullable=True)
     ssh_key = Column(String, nullable=True)
+    static_ip = Column(String, nullable=True)  # стабильный IP на мосту br-vms (172.20.0.x)
     
     # Queue / State
     status = Column(String, default="Pending") # Pending, Provisioning, Running, Error

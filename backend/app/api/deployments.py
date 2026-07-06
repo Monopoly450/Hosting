@@ -270,6 +270,8 @@ def create_deployment(req: DeploymentCreate, current_user: User = Depends(get_cu
             {"ext_port": 28000 + vm.id, "int_port": req.app_port, "name": "APP"},
         ]
         vm.ports_config = json.dumps(ports)
+        from app.api.vms import compute_static_ip
+        vm.static_ip = compute_static_ip(vm.id)
         db.commit()
 
         dep = AppDeployment(

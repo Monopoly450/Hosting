@@ -14,6 +14,12 @@ def generate_mac_address(name: str) -> str:
     # 02:00:00 prefix ensures it's a locally administered unicast MAC
     return f"02:00:00:{h[0:2]}:{h[2:4]}:{h[4:6]}"
 
+
+def compute_static_ip(vm_id: int) -> str:
+    """Детерминированный стабильный IP на мосту br-vms (172.20.0.0/24).
+    Диапазон .30-.229 — не пересекается со шлюзом .1."""
+    return f"172.20.0.{30 + (int(vm_id) % 200)}"
+
 import logging
 from fastapi import APIRouter, HTTPException, Depends, status, Query
 from pydantic import BaseModel, Field
@@ -278,6 +284,43 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
         ssh_enable_commands = """  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config || true
   - sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config.d/*.conf || true"""
 
+    # --- Стабильный IP на мосту br-vms ---
+    # Если у ВМ задан static_ip, добавляем второй интерфейс (bridge на br-vms)
+    # с фиксированным MAC и статическим адресом. Первый интерфейс (pod/masquerade)
+    # остаётся для интернета — это страховка: даже если мост не поднимется, ВМ в сети.
+    static_ip = getattr(req, "static_ip", None)
+    pod_mac = generate_mac_address(req.name)
+    lan_mac = generate_mac_address(req.name + "-lan")
+
+    if static_ip:
+        # Два интерфейса: pod-nic (DHCP, интернет) + lan-nic (статический, стабильный)
+        netplan_content = f"""      network:
+        version: 2
+        ethernets:
+          pod-nic:
+            match:
+              macaddress: "{pod_mac}"
+            dhcp4: true
+            dhcp4-overrides:
+              use-routes: true
+          lan-nic:
+            match:
+              macaddress: "{lan_mac}"
+            dhcp4: false
+            addresses: [{static_ip}/24]"""
+        extra_interface = {"name": "lan", "bridge": {}, "macAddress": lan_mac}
+        extra_network = {"name": "lan", "multus": {"networkName": "bridge-network"}}
+    else:
+        netplan_content = """      network:
+        version: 2
+        ethernets:
+          all-eth:
+            match:
+              name: "e*"
+            dhcp4: true"""
+        extra_interface = None
+        extra_network = None
+
     manifest = {
         "apiVersion": "kubevirt.io/v1",
         "kind": "VirtualMachine",
@@ -375,13 +418,7 @@ chpasswd:
 write_files:
   - path: /etc/netplan/99-dhcp.yaml
     content: |
-      network:
-        version: 2
-        ethernets:
-          all-eth:
-            match:
-              name: "e*"
-            dhcp4: true
+{netplan_content}
   - path: /etc/systemd/system/getty@tty1.service.d/override.conf
     content: |
       [Service]
@@ -443,7 +480,12 @@ local-hostname: {req.name}
     if extra_disks:
         manifest["spec"]["template"]["spec"]["domain"]["devices"]["disks"].extend(extra_disks)
         manifest["spec"]["template"]["spec"]["volumes"].extend(extra_volumes)
-        
+
+    # Инжектим bridge-интерфейс на br-vms для стабильного статического IP
+    if extra_interface and extra_network:
+        manifest["spec"]["template"]["spec"]["domain"]["devices"]["interfaces"].append(extra_interface)
+        manifest["spec"]["template"]["spec"]["networks"].append(extra_network)
+
     return manifest
 
 def generate_windows_manifest(req: VMCreationRequest) -> dict:
@@ -1133,8 +1175,9 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
                 {"ext_port": 44300 + task.id, "int_port": 443, "name": "HTTPS"}
             ]
         task.ports_config = json.dumps(default_ports)
+        task.static_ip = compute_static_ip(task.id)
         db.commit()
-        
+
         # Отправляем в RabbitMQ
         publish_task("vm_tasks", {
             "task_id": task.id,
@@ -1232,6 +1275,7 @@ def clone_vm(name: str, req: VMCloneRequest, current_user: User = Depends(get_cu
                 {"ext_port": 44300 + clone.id, "int_port": 443, "name": "HTTPS"},
             ]
         clone.ports_config = _json.dumps(default_ports)
+        clone.static_ip = compute_static_ip(clone.id)
         db.commit()
 
         publish_task("vm_tasks", {

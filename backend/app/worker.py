@@ -70,6 +70,7 @@ def process_vm_task(db: Session, task_id: int):
             custom_user_data = task.custom_user_data
             iso_url = task.iso_url
             ssh_key = task.ssh_key
+            static_ip = task.static_ip
         
         # Вызываем логику создания ВМ
         from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password
@@ -146,6 +147,7 @@ def process_clone_task(db: Session, task_id: int, source_name: str):
             custom_user_data = task.custom_user_data
             iso_url = task.iso_url
             ssh_key = task.ssh_key
+            static_ip = task.static_ip
 
         from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password
 

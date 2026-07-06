@@ -243,7 +243,9 @@ dhcp-option=option:dns-server,8.8.8.8,1.1.1.1
 EOF
 systemctl restart dnsmasq
 
-# 6. Создание NetworkAttachmentDefinition типа bridge с host-local IPAM
+# 6. Создание NetworkAttachmentDefinition типа bridge БЕЗ IPAM.
+# IP не назначается CNI — каждая ВМ прописывает свой СТАТИЧЕСКИЙ адрес (172.20.0.x)
+# через cloud-init. Так адрес стабилен и не меняется при перезагрузке ВМ.
 cat <<EOF | kubectl apply -f -
 apiVersion: "k8s.cni.cncf.io/v1"
 kind: NetworkAttachmentDefinition
@@ -256,20 +258,11 @@ spec:
       "name": "bridge-network",
       "type": "bridge",
       "bridge": "br-vms",
-      "isGateway": true,
-      "ipam": {
-          "type": "host-local",
-          "subnet": "172.20.0.0/24",
-          "rangeStart": "172.20.0.10",
-          "rangeEnd": "172.20.0.250",
-          "routes": [
-              { "dst": "0.0.0.0/0" }
-          ],
-          "gateway": "172.20.0.1"
-      }
+      "isGateway": false,
+      "ipam": {}
   }'
 EOF
-log "Сетевой мост bridge-network успешно настроен в режиме NAT (172.20.0.0/24)!"
+log "Сетевой мост bridge-network настроен (статические IP через cloud-init)!"
 
 # 7.5 Установка Kubernetes VolumeSnapshot CRDs и Snapshot Controller
 log "Установка VolumeSnapshot CRDs и Snapshot Controller..."
