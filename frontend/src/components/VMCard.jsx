@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Square, RotateCw, Monitor, Cpu, HardDrive, Network, Trash2 } from 'lucide-react';
+import { Play, Square, RotateCw, Monitor, Cpu, HardDrive, Network, Trash2, Copy, X } from 'lucide-react';
 
 const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
   const [metrics, setMetrics] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
+  const [showClone, setShowClone] = useState(false);
+  const [cloneName, setCloneName] = useState('');
+  const [cloning, setCloning] = useState(false);
 
   const getSshIp = () => {
     if (!vm || !vm.ips || vm.ips.length === 0) return null;
@@ -76,6 +79,32 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
       alert(`Ошибка: ${err.message}`);
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleClone = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const target = cloneName.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    if (!target) return;
+    setCloning(true);
+    try {
+      const response = await fetch(`/api/vms/${vm.name}/clone`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_name: target })
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || 'Ошибка клонирования');
+      }
+      setShowClone(false);
+      setCloneName('');
+      if (onActionSuccess) onActionSuccess();
+    } catch (err) {
+      alert(`Ошибка: ${err.message}`);
+    } finally {
+      setCloning(false);
     }
   };
 
@@ -209,7 +238,15 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
           {isReady ? 'Доступно ➔' : vm.status === 'Stopped' ? 'Остановлена' : (vm.status === 'Stopping' ? 'Выключение...' : 'Загрузка...')}
         </span>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button 
+          <button
+            className="btn btn-secondary btn-icon"
+            onClick={(e) => { e.stopPropagation(); setShowClone(true); }}
+            disabled={actionLoading !== null}
+            title="Клонировать ВМ (создать копию)"
+          >
+            <Copy size={14} />
+          </button>
+          <button
             className="btn btn-secondary btn-icon"
             onClick={handleDelete}
             disabled={vm.status !== 'Stopped' || actionLoading !== null}
@@ -253,6 +290,43 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
           )}
         </div>
       </div>
+
+      {showClone && (
+        <div className="modal-overlay" onClick={(e) => { e.stopPropagation(); setShowClone(false); }}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+            <div className="modal-header">
+              <h2>Клонировать «{vm.name}»</h2>
+              <button className="btn-close" onClick={() => setShowClone(false)} type="button"><X size={18} /></button>
+            </div>
+            <form onSubmit={handleClone}>
+              <div style={{ padding: '24px' }}>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label className="input-label">Имя новой ВМ</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="например: web-server-copy"
+                    value={cloneName}
+                    onChange={e => setCloneName(e.target.value)}
+                    autoFocus
+                    required
+                  />
+                  <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '6px' }}>
+                    Будет создана полная копия диска и настроек. Ресурсы (CPU, RAM, диск) — как у исходной ВМ.
+                    Для надёжного клонирования исходную ВМ лучше сначала выключить.
+                  </span>
+                </div>
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowClone(false)} disabled={cloning}>Отмена</button>
+                <button type="submit" className="btn btn-primary" disabled={cloning || !cloneName.trim()}>
+                  {cloning ? <span className="spinner" /> : <><Copy size={15} /> Клонировать</>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

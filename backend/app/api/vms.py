@@ -1104,6 +1104,107 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class VMCloneRequest(BaseModel):
+    new_name: str = Field(..., pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", description="Имя новой (клонированной) ВМ")
+
+
+@router.post("/{name}/clone", status_code=status.HTTP_201_CREATED)
+def clone_vm(name: str, req: VMCloneRequest, current_user: User = Depends(get_current_user)):
+    """Клонировать существующую ВМ в новую локальную ВМ (копия диска + новый инстанс)."""
+    check_vm_ownership(name, current_user)
+
+    from app.db import SessionLocal
+    from app.models.models import VMTask
+    from app.queue_client import publish_task
+    import json as _json
+
+    db = SessionLocal()
+    try:
+        source = db.query(VMTask).filter(VMTask.name == name).first()
+        if not source:
+            raise HTTPException(status_code=404, detail="Исходная ВМ не найдена.")
+
+        new_name = req.new_name
+        if new_name == name:
+            raise HTTPException(status_code=400, detail="Имя клона должно отличаться от исходной ВМ.")
+        if db.query(VMTask).filter(VMTask.name == new_name).first():
+            raise HTTPException(status_code=400, detail="ВМ с таким именем уже существует или создаётся.")
+
+        # Квоты студента: клон занимает столько же ресурсов, сколько исходная ВМ
+        if current_user.role != "admin":
+            owned = db.query(VMTask).filter(VMTask.owner_id == current_user.id).all()
+            if len(owned) + 1 > current_user.max_vms:
+                raise HTTPException(status_code=400, detail=f"Превышена квота на количество ВМ ({current_user.max_vms}).")
+            if sum(v.cpu_cores for v in owned) + source.cpu_cores > current_user.max_vcpus:
+                raise HTTPException(status_code=400, detail=f"Превышена квота на ядра CPU (лимит: {current_user.max_vcpus}).")
+            if sum(v.memory_gb * 1024 for v in owned) + source.memory_gb * 1024 > current_user.max_ram_mb:
+                raise HTTPException(status_code=400, detail=f"Превышена квота на ОЗУ (лимит: {current_user.max_ram_mb} МБ).")
+            if sum(v.disk_gb for v in owned) + source.disk_gb > current_user.max_storage_gb:
+                raise HTTPException(status_code=400, detail=f"Превышена квота на диск (лимит: {current_user.max_storage_gb} ГБ).")
+
+        # Проверяем свободное место на хосте (диск клонируется целиком)
+        import shutil
+        try:
+            _, _, free = shutil.disk_usage("/")
+            free_gb = round(free / (1024**3), 1)
+            if source.disk_gb > free_gb:
+                raise HTTPException(status_code=400, detail=f"Недостаточно места на хосте для копии диска: нужно {source.disk_gb} ГБ, свободно {free_gb} ГБ.")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+        clone = VMTask(
+            name=new_name,
+            os_type=source.os_type,
+            cpu_cores=source.cpu_cores,
+            memory_gb=source.memory_gb,
+            disk_gb=source.disk_gb,
+            custom_image=source.custom_image,
+            packages=source.packages,
+            network_drives=source.network_drives,
+            cloud_init_template=source.cloud_init_template,
+            custom_user_data=source.custom_user_data,
+            iso_url=source.iso_url,
+            ssh_key=source.ssh_key,
+            owner_id=current_user.id,
+            status="Pending",
+        )
+        db.add(clone)
+        db.commit()
+        db.refresh(clone)
+
+        # Стабильные порты по ID клона (как при обычном создании)
+        if clone.os_type == "windows":
+            default_ports = [
+                {"ext_port": 33000 + clone.id, "int_port": 3389, "name": "RDP"},
+                {"ext_port": 22000 + clone.id, "int_port": 22, "name": "SSH"},
+                {"ext_port": 28000 + clone.id, "int_port": 80, "name": "HTTP"},
+            ]
+        else:
+            default_ports = [
+                {"ext_port": 22000 + clone.id, "int_port": 22, "name": "SSH"},
+                {"ext_port": 28000 + clone.id, "int_port": 80, "name": "HTTP"},
+                {"ext_port": 44300 + clone.id, "int_port": 443, "name": "HTTPS"},
+            ]
+        clone.ports_config = _json.dumps(default_ports)
+        db.commit()
+
+        publish_task("vm_tasks", {
+            "task_id": clone.id,
+            "action": "clone_vm",
+            "source_name": name,
+        })
+        return {"status": "cloning", "name": new_name, "task_id": clone.id, "source": name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 @router.delete("/{name}")
 def delete_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(name, current_user)

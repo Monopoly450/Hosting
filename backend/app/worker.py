@@ -121,6 +121,77 @@ def process_vm_task(db: Session, task_id: int):
         task.error_message = str(e)
         db.commit()
 
+def process_clone_task(db: Session, task_id: int, source_name: str):
+    """Клонирует ВМ: создаёт новую с диском-копией исходной (CDI clone из PVC)."""
+    task = db.query(VMTask).filter(VMTask.id == task_id).first()
+    if not task:
+        logger.error(f"Clone task {task_id} not found")
+        return
+
+    try:
+        task.status = "Provisioning"
+        db.commit()
+        logger.info(f"Cloning VM {task.name} from {source_name}...")
+
+        class FakeReq:
+            name = task.name
+            os_type = task.os_type
+            cpu_cores = task.cpu_cores
+            memory_gb = task.memory_gb
+            disk_gb = task.disk_gb
+            custom_image = task.custom_image
+            packages = task.packages
+            network_drives = task.network_drives
+            cloud_init_template = task.cloud_init_template
+            custom_user_data = task.custom_user_data
+            iso_url = task.iso_url
+            ssh_key = task.ssh_key
+
+        from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password
+
+        generated_password = generate_random_password()
+
+        if task.os_type in ["ubuntu", "centos", "debian", "bitrix", "custom"]:
+            manifest = generate_linux_manifest(FakeReq(), generated_password)
+            username = "cloud-user" if task.os_type in ["centos", "bitrix"] else ("debian" if task.os_type == "debian" else "ubuntu")
+            disk_suffix = "disk"
+        elif task.os_type in ["windows", "proxmox"]:
+            manifest = generate_windows_manifest(FakeReq())
+            username = "Administrator"
+            disk_suffix = "hd"
+        else:
+            raise Exception("Неверный тип ОС.")
+
+        # Подменяем источник ОС-диска на клон PVC исходной ВМ
+        src_pvc = f"{source_name}-{disk_suffix}"
+        tgt_dvt = f"{task.name}-{disk_suffix}"
+        swapped = False
+        for dvt in manifest["spec"].get("dataVolumeTemplates", []):
+            if dvt.get("metadata", {}).get("name") == tgt_dvt:
+                dvt["spec"]["source"] = {"pvc": {"namespace": "default", "name": src_pvc}}
+                swapped = True
+        if not swapped:
+            raise Exception(f"Не найден целевой диск {tgt_dvt} для клонирования")
+
+        # Лимиты диска (как при обычном создании)
+        manifest["spec"]["template"]["spec"]["domain"]["ioThreadsPolicy"] = "shared"
+        for disk in manifest["spec"]["template"]["spec"]["domain"]["devices"]["disks"]:
+            if "disk" in disk and disk.get("cache") != "writeback":
+                disk["disk"]["io"] = "native"
+
+        k8s.create_vm_from_manifest(manifest)
+        k8s.create_credentials_secret(task.name, username, generated_password)
+
+        task.status = "Running"
+        db.commit()
+        logger.info(f"VM {task.name} cloned from {source_name} successfully.")
+    except Exception as e:
+        logger.error(f"Error cloning task {task_id} from {source_name}: {e}")
+        task.status = "Error"
+        task.error_message = f"Ошибка клонирования: {e}"
+        db.commit()
+
+
 def process_attach_network(db: Session, task_id: int, network_name: str):
     task = db.query(VMTask).filter(VMTask.id == task_id).first()
     if not task:
@@ -189,6 +260,8 @@ def callback(ch, method, properties, body):
         try:
             if action == "create_vm":
                 process_vm_task(db, task_id)
+            elif action == "clone_vm":
+                process_clone_task(db, task_id, data.get("source_name"))
             elif action == "attach_network":
                 process_attach_network(db, task_id, data.get("network_name"))
             elif action == "delete_vm":
