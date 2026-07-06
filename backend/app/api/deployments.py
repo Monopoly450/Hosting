@@ -426,3 +426,104 @@ def get_deployment_logs(dep_id: int, current_user: User = Depends(get_current_us
             ssh.close()
     finally:
         db.close()
+
+
+@router.post("/{dep_id}/redeploy")
+def redeploy_app(dep_id: int, current_user: User = Depends(get_current_user)):
+    import datetime
+    db = SessionLocal()
+    try:
+        dep = db.query(AppDeployment).filter(AppDeployment.id == dep_id).first()
+        if not dep:
+            raise HTTPException(status_code=404, detail="Деплой не найден.")
+        if current_user.role != "admin" and dep.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещён.")
+
+        if not dep.vm_name:
+            raise HTTPException(status_code=400, detail="Виртуальная машина еще не создана.")
+
+        from app.core.k8s_client import K8sClient
+        from app.core.netutils import pick_external_ip
+        try:
+            k8s = K8sClient()
+            vm = k8s.get_vm(dep.vm_name)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Не удалось получить информацию о ВМ: {e}")
+
+        if vm.get("status") != "Running":
+            raise HTTPException(status_code=400, detail="Виртуальная машина должна быть запущена для передеплоя.")
+
+        ips = vm.get("ips", [])
+        ip = pick_external_ip(ips)
+        if not ip:
+            raise HTTPException(status_code=400, detail="У виртуалки нет IP адреса.")
+
+        credentials = vm.get("credentials", {})
+        username = credentials.get("username", "ubuntu")
+        password = credentials.get("password")
+        if not password or password == "N/A":
+            raise HTTPException(status_code=400, detail="Не найден пароль SSH.")
+
+        import paramiko
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            ssh.connect(hostname=ip, port=22, username=username, password=password, timeout=10)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Ошибка подключения по SSH: {e}")
+
+        try:
+            app_dir = "/opt/app"
+            commands = [
+                f"cd {app_dir} && git fetch --all && git reset --hard origin/{dep.branch}"
+            ]
+            if dep.stack == "compose":
+                commands.append(f"cd {app_dir} && (docker compose up -d --build || docker-compose up -d --build)")
+            elif dep.stack == "dockerfile":
+                commands.extend([
+                    f"cd {app_dir} && docker build -t {dep.name}-app .",
+                    f"docker rm -f {dep.name}-app 2>/dev/null || true",
+                    f"docker run -d --restart always --name {dep.name}-app -p {dep.app_port}:{dep.app_port} {dep.name}-app"
+                ])
+            elif dep.stack == "node":
+                commands.extend([
+                    f"cd {app_dir} && (npm ci || npm install)",
+                    f"systemctl restart {dep.name}-app.service"
+                ])
+            elif dep.stack == "python":
+                commands.extend([
+                    f"cd {app_dir} && . .venv/bin/activate && (pip install -r requirements.txt || true)",
+                    f"systemctl restart {dep.name}-app.service"
+                ])
+            elif dep.stack == "static":
+                commands.append("systemctl restart nginx")
+            else:  # custom
+                rc = (dep.run_command or "").strip()
+                commands.append(f"cd {app_dir} && ({rc or 'echo no run command'})")
+
+            # Выполняем команды последовательно
+            output = ""
+            for cmd in commands:
+                stdin, stdout, stderr = ssh.exec_command(cmd, timeout=30)
+                out = stdout.read().decode("utf-8", errors="replace")
+                err = stderr.read().decode("utf-8", errors="replace")
+                output += f"$ {cmd}\n{out}"
+                if err:
+                    output += f"[ERR]\n{err}"
+            
+            # Пишем лог передеплоя в файл
+            log_header = f"\n\n=== RE-DEPLOY BY USER AT {datetime.datetime.utcnow().isoformat()} ===\n"
+            sanitized_output = output.replace("'", "'\\''")
+            ssh.exec_command(f"echo '{log_header}{sanitized_output}' >> /var/log/cloud-init-output.log")
+
+            dep.status = "Running"
+            db.commit()
+            return {"status": "success", "output": output}
+        except Exception as e:
+            dep.status = "Error"
+            db.commit()
+            raise HTTPException(status_code=500, detail=f"Ошибка выполнения команд передеплоя: {e}")
+        finally:
+            ssh.close()
+    finally:
+        db.close()
