@@ -695,6 +695,14 @@ class K8sClient:
                     if ip_addr not in ips:
                         ips.append(ip_addr)
                         
+            # Сортируем IP, чтобы лучший (наиболее внешний/маршрутизируемый) шел первым (в ips[0])
+            if ips:
+                from app.core.netutils import pick_external_ip
+                best_ip = pick_external_ip(ips)
+                if best_ip and best_ip in ips:
+                    ips.remove(best_ip)
+                    ips.insert(0, best_ip)
+
             # Сохраняем IP в аннотацию, чтобы помнить его после выключения
             if ips:
                 main_ip = ips[0]

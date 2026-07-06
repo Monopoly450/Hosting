@@ -24,9 +24,15 @@ def pick_external_ip(ips):
     если такого нет, берётся первый не-IPv6; иначе — первый из списка."""
     if not ips:
         return None
+    # 1. Сначала ищем настоящий внешний IP (не 10.42, 10.244, 10.0.2, 127)
     for ip in ips:
         if not is_internal_ip(ip):
             return ip
+    # 2. Если все IP внутренние, предпочитаем K8s Pod IP (10.42 или 10.244), т.к. он маршрутизируется с хоста
+    for ip in ips:
+        if (ip.startswith("10.42.") or ip.startswith("10.244.")) and ":" not in ip:
+            return ip
+    # 3. Первый не-IPv6
     for ip in ips:
         if ":" not in ip:
             return ip
