@@ -787,6 +787,20 @@ def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_c
                             create_br = f"ip link show {bridge_name} || (ip link add {bridge_name} type bridge && ip link set {bridge_name} up)"
                             subprocess.run(nsenter_prefix + [create_br], capture_output=True, timeout=5)
                             
+                            # 1. Удаляем конфликтный IP 192.168.100.1 со всех других мостов
+                            get_conflict_devs = "ip -o addr show | grep 192.168.100.1"
+                            res_devs = subprocess.run(nsenter_prefix + [get_conflict_devs], capture_output=True, text=True, timeout=5)
+                            if res_devs.returncode == 0:
+                                for line in res_devs.stdout.splitlines():
+                                    parts = line.split()
+                                    if len(parts) >= 2:
+                                        dev = parts[1].strip()
+                                        if dev and dev != bridge_name:
+                                            del_ip_cmd = f"ip addr del 192.168.100.1/24 dev {dev}"
+                                            subprocess.run(nsenter_prefix + [del_ip_cmd], capture_output=True, timeout=5)
+                                            logger.info(f"Удален конфликтный IP 192.168.100.1 с неактивного моста {dev}")
+                            
+                            # 2. Назначаем IP 192.168.100.1/24 на наш активный мост
                             add_ip = f"ip addr show dev {bridge_name} | grep 192.168.100.1 || ip addr add 192.168.100.1/24 dev {bridge_name}"
                             subprocess.run(nsenter_prefix + [add_ip], capture_output=True, timeout=5)
                             logger.info(f"Сверка моста кластера: настроен хостовый шлюз 192.168.100.1/24 для моста {bridge_name} (ВМ: {db_vm.name})")
