@@ -486,6 +486,11 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             <button className={`btn ${activeTab === 'vnc' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('vnc')} disabled={vm.status !== 'Running'}>
               <Monitor size={14} /> VNC
             </button>
+            {vm.os_type !== 'windows' && (
+              <button className={`btn ${activeTab === 'terminal' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('terminal')} disabled={vm.status !== 'Running'}>
+                <Terminal size={14} /> Терминал
+              </button>
+            )}
             <button className={`btn ${activeTab === 'backups' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('backups')}>
               💾 Бэкапы
             </button>
@@ -506,6 +511,12 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       {activeTab === 'vnc' && (
         <div className="glass-card" style={{ padding: 0, overflow: 'hidden', background: '#000', borderRadius: 'var(--radius-lg)' }}>
           <VncConsole name={vmName} username={vm.credentials?.username} password={vm.credentials?.password} isInline={true} />
+        </div>
+      )}
+
+      {activeTab === 'terminal' && (
+        <div className="glass-card" style={{ padding: 0, overflow: 'hidden', background: '#0b0f19', borderRadius: 'var(--radius-lg)' }}>
+          <SshTerminal name={vmName} />
         </div>
       )}
 
@@ -718,6 +729,49 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               </div>
             )}
           </div>
+        </div>
+
+        {/* RIGHT COLUMN */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          
+          {/* Detailed Storage Stats & Limits */}
+          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h3 className="section-title" style={{ margin: 0 }}><HardDrive size={18}/> Производительность диска и Лимиты</h3>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+              <tbody>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Скорость чтения (текущая)</td>
+                  <td style={{ padding: '12px 0', textAlign: 'right', fontWeight: 600 }}>
+                    {vm.disk_read_speed_kbps > 1024 ? `${(vm.disk_read_speed_kbps / 1024).toFixed(2)} МБ/с` : `${vm.disk_read_speed_kbps || 0} КБ/с`}
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Скорость записи (текущая)</td>
+                  <td style={{ padding: '12px 0', textAlign: 'right', fontWeight: 600 }}>
+                    {vm.disk_write_speed_kbps > 1024 ? `${(vm.disk_write_speed_kbps / 1024).toFixed(2)} МБ/с` : `${vm.disk_write_speed_kbps || 0} КБ/с`}
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>IOPS чтения / записи (текущий)</td>
+                  <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                    {vm.disk_read_iops_realtime || 0} / {vm.disk_write_iops_realtime || 0}
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--card-bg-subtle)' }}>
+                  <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>Лимит чтения / записи (cgroup)</td>
+                  <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>
+                    {vm.disk_read_mbs ? `${vm.disk_read_mbs} МБ/с` : 'Без лимита'} / {vm.disk_write_mbs ? `${vm.disk_write_mbs} МБ/с` : 'Без лимита'}
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--card-bg-subtle)' }}>
+                  <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>Лимит IOPS чтения / записи (cgroup)</td>
+                  <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>
+                    {vm.disk_read_iops ? `${vm.disk_read_iops} IOPS` : 'Без лимита'} / {vm.disk_write_iops ? `${vm.disk_write_iops} IOPS` : 'Без лимита'}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
           {/* Real-time and Historical Metrics */}
           <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -776,59 +830,6 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               </div>
             )}
           </div>
-        </div>
-
-        {/* RIGHT COLUMN */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          
-          {/* Detailed Storage Stats & Limits */}
-          <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <h3 className="section-title" style={{ margin: 0 }}><HardDrive size={18}/> Производительность диска и Лимиты</h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-              <tbody>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Скорость чтения (текущая)</td>
-                  <td style={{ padding: '12px 0', textAlign: 'right', fontWeight: 600 }}>
-                    {vm.disk_read_speed_kbps > 1024 ? `${(vm.disk_read_speed_kbps / 1024).toFixed(2)} МБ/с` : `${vm.disk_read_speed_kbps || 0} КБ/с`}
-                  </td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Скорость записи (текущая)</td>
-                  <td style={{ padding: '12px 0', textAlign: 'right', fontWeight: 600 }}>
-                    {vm.disk_write_speed_kbps > 1024 ? `${(vm.disk_write_speed_kbps / 1024).toFixed(2)} МБ/с` : `${vm.disk_write_speed_kbps || 0} КБ/с`}
-                  </td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>IOPS чтения / записи (текущий)</td>
-                  <td style={{ padding: '12px 0', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-                    {vm.disk_read_iops_realtime || 0} / {vm.disk_write_iops_realtime || 0}
-                  </td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--card-bg-subtle)' }}>
-                  <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>Лимит чтения / записи (cgroup)</td>
-                  <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>
-                    {vm.disk_read_mbs ? `${vm.disk_read_mbs} МБ/с` : 'Без лимита'} / {vm.disk_write_mbs ? `${vm.disk_write_mbs} МБ/с` : 'Без лимита'}
-                  </td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--card-bg-subtle)' }}>
-                  <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>Лимит IOPS чтения / записи (cgroup)</td>
-                  <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>
-                    {vm.disk_read_iops ? `${vm.disk_read_iops} IOPS` : 'Без лимита'} / {vm.disk_write_iops ? `${vm.disk_write_iops} IOPS` : 'Без лимита'}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Terminal */}
-          {vm.status === 'Running' && vm.os_type !== 'windows' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>
-                <Terminal size={16} /> Терминал (SSH Console)
-              </div>
-              <SshTerminal name={vmName} isInline={true} />
-            </div>
-          )}
 
         </div>
       </div>
