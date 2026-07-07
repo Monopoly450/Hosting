@@ -253,7 +253,6 @@ body {
   max-width: 1440px;
   margin: 0 auto;
   width: 100%;
-  animation: fadeIn var(--transition-slow) both;
 }
 
 /* =========================== Cards =========================== */
@@ -296,7 +295,7 @@ body {
 
 .text-muted { color: var(--text-muted); font-size: 0.85rem; }
 
-.panel-container { animation: fadeIn var(--transition-slow) both; }
+.panel-container { }
 
 .panel-header { margin-bottom: 22px; }
 
