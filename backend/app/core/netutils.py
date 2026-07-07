@@ -9,7 +9,7 @@
 #   10.244. / 10.42.  — pod-сети Kubernetes (Calico / flannel в k3s)
 #   10.0.2.           — внутренняя masquerade-сеть KubeVirt
 #   127.              — loopback
-INTERNAL_IP_PREFIXES = ("10.244.", "10.42.", "10.0.2.", "127.")
+INTERNAL_IP_PREFIXES = ("10.244.", "10.42.", "10.0.2.", "127.", "192.168.100.")
 
 
 def is_internal_ip(ip: str) -> bool:
