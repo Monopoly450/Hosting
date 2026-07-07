@@ -660,7 +660,7 @@ class K8sClient:
                 dv_status = dv_obj.get("status", {})
                 phase = dv_status.get("phase")
                 progress = dv_status.get("progress")
-                if phase and phase not in ["Succeeded", "Failed"]:
+                if phase and phase not in ["Succeeded", "Failed", "PVCBound"]:
                     import_phase = phase
                     import_progress = progress or "0%"
                     break
