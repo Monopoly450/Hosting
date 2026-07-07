@@ -131,6 +131,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
     if (type === 'windows') return '🪟';
     if (type === 'ubuntu') return '🐧';
     if (type === 'proxmox') return '🧱';
+    if (type === 'truenas') return '🗄️';
     return '💿';
   };
 

@@ -443,10 +443,18 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: '8px' }}>
                               {[
                                 { id: 'ubuntu', name: 'Ubuntu', desc: '24.04 LTS', color: '#f97316' },
-                                { id: 'centos', name: 'CentOS', desc: 'Stream 9', color: '#84cc16' },
                                 { id: 'debian', name: 'Debian', desc: 'Debian 12', color: '#ef4444' },
-                                { id: 'windows', name: 'Windows', desc: 'Server', color: '#0ea5e9' },
-                                { id: 'bitrix', name: 'BitrixVM', desc: 'CentOS 9', color: '#ec4899' }
+                                { id: 'centos', name: 'CentOS', desc: 'Stream 9', color: '#84cc16' },
+                                { id: 'almalinux', name: 'AlmaLinux', desc: 'v9', color: '#0a3d91' },
+                                { id: 'rocky', name: 'Rocky', desc: 'Linux 9', color: '#10b981' },
+                                { id: 'fedora', name: 'Fedora', desc: 'v41', color: '#3c6eb4' },
+                                { id: 'opensuse', name: 'openSUSE', desc: 'Leap 15.6', color: '#73ba25' },
+                                { id: 'arch', name: 'Arch', desc: 'rolling', color: '#1793d1' },
+                                { id: 'alpine', name: 'Alpine', desc: '3.21', color: '#0d597f' },
+                                { id: 'bitrix', name: 'BitrixVM', desc: 'CentOS 9', color: '#ec4899' },
+                                { id: 'windows', name: 'Windows', desc: 'Server 2022', color: '#0ea5e9' },
+                                { id: 'proxmox', name: 'Proxmox', desc: 'VE 9.2', color: '#e57000' },
+                                { id: 'truenas', name: 'TrueNAS', desc: 'SCALE', color: '#0095d5' }
                               ].map(os => (
                                 <div 
                                   key={os.id}

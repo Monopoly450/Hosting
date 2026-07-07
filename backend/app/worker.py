@@ -78,7 +78,7 @@ def process_vm_task(db: Session, task_id: int):
         generated_password = generate_random_password()
 
         # Windows и Proxmox ставятся с ISO; всё остальное — Linux-образ с cloud-init
-        if task.os_type in ["windows", "proxmox"]:
+        if task.os_type in ["windows", "proxmox", "truenas"]:
             manifest = generate_windows_manifest(FakeReq())
             username = "Administrator"
         else:
@@ -152,7 +152,7 @@ def process_clone_task(db: Session, task_id: int, source_name: str):
 
         generated_password = generate_random_password()
 
-        if task.os_type in ["windows", "proxmox"]:
+        if task.os_type in ["windows", "proxmox", "truenas"]:
             manifest = generate_windows_manifest(FakeReq())
             username = "Administrator"
             disk_suffix = "hd"

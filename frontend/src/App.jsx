@@ -69,6 +69,9 @@ const OS_VERSIONS = {
   ],
   alpine: [
     { label: 'Alpine Linux 3.21', value: 'https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/generic_alpine-3.21.3-x86_64-bios-cloudinit-r0.qcow2' }
+  ],
+  truenas: [
+    { label: 'TrueNAS SCALE 24.04', value: 'https://download.truenas.com/TrueNAS-SCALE-Dragonfish/24.04.2.5/TrueNAS-SCALE-24.04.2.5.iso' }
   ]
 };
 
@@ -128,7 +131,8 @@ const App = () => {
     fedora: OS_VERSIONS.fedora[0].value,
     opensuse: OS_VERSIONS.opensuse[0].value,
     arch: OS_VERSIONS.arch[0].value,
-    alpine: OS_VERSIONS.alpine[0].value
+    alpine: OS_VERSIONS.alpine[0].value,
+    truenas: OS_VERSIONS.truenas[0].value
   });
   const [selectedCustomImage, setSelectedCustomImage] = useState('');
   const [packages, setPackages] = useState("");
@@ -155,6 +159,10 @@ const App = () => {
       setCpuCores(4);
       setMemoryGb(6);
       setDiskGb(60);
+    } else if (osType === 'truenas') {
+      setCpuCores(2);
+      setMemoryGb(8);
+      setDiskGb(40);
     } else {
       setCpuCores(2);
       setMemoryGb(2);
@@ -921,6 +929,12 @@ const App = () => {
                               <div className="os-card-icon" style={{ color: '#0d597f' }}><Server size={24} /></div>
                               <div className="os-card-title">Alpine Linux</div>
                               <div className="os-card-version">3.21</div>
+                            </div>
+
+                            <div className={`os-card ${osType === 'truenas' ? 'selected' : ''}`} onClick={() => setOsType('truenas')}>
+                              <div className="os-card-icon" style={{ color: '#0095d5' }}><HardDrive size={24} /></div>
+                              <div className="os-card-title">TrueNAS</div>
+                              <div className="os-card-version">SCALE (ISO)</div>
                             </div>
                           </div>
                         </div>

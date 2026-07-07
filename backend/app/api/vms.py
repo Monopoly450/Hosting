@@ -119,6 +119,10 @@ DEFAULT_UBUNTU_IMAGE = "https://cloud-images.ubuntu.com/noble/current/noble-serv
 DEFAULT_CENTOS_IMAGE = "https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2"
 DEFAULT_DEBIAN_IMAGE = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
 DEFAULT_PROXMOX_ISO = "https://enterprise.proxmox.com/iso/proxmox-ve_9.2-1.iso"
+DEFAULT_TRUENAS_ISO = "https://download.truenas.com/TrueNAS-SCALE-Dragonfish/24.04.2.5/TrueNAS-SCALE-24.04.2.5.iso"
+
+# Типы ОС, которые ставятся с ISO (пустой диск + загрузка установщика), а не из cloud-образа
+ISO_INSTALL_OS = ("windows", "proxmox", "truenas")
 
 # Централизованная карта Linux-образов: os_type -> (URL облачного образа, логин по умолчанию).
 # Все образы поддерживают cloud-init (пароль/сеть настраиваются автоматически).
@@ -492,9 +496,11 @@ local-hostname: {req.name}
     return manifest
 
 def generate_windows_manifest(req: VMCreationRequest) -> dict:
-    # Proxmox ставится из своего ISO, остальное (Windows) — из Windows-ISO
+    # У каждой ISO-ОС свой установочный образ
     if req.os_type == "proxmox":
         iso_url = req.iso_url or DEFAULT_PROXMOX_ISO
+    elif req.os_type == "truenas":
+        iso_url = req.iso_url or DEFAULT_TRUENAS_ISO
     else:
         iso_url = req.iso_url or DEFAULT_WINDOWS_ISO
     # Если ОС создаётся из кастомного загруженного ISO
@@ -512,7 +518,7 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
             "namespace": "default",
             "labels": {
                 # Метка отражает реальный тип ОС (windows или proxmox), а не всегда "windows"
-                "hosting.antigravity.io/template": req.os_type if req.os_type in ("windows", "proxmox") else "windows",
+                "hosting.antigravity.io/template": req.os_type if req.os_type in ISO_INSTALL_OS else "windows",
                 **({"hosting.antigravity.io/owner": "client-01"} if req.name.startswith("client-") else {})
             }
         },
