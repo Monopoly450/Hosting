@@ -601,7 +601,7 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
 }
 
 /* Elevate main area when a slide-over drawer or modal is open to cover sidebar and header */
-.app-layout:has(.slide-over-overlay, .modal-overlay, .modal-backdrop) .main-area {
+.main-area:has(.slide-over-overlay, .modal-overlay, .modal-backdrop) {
   z-index: 1001;
 }
 
