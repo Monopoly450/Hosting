@@ -58,13 +58,20 @@ def main():
                 
             print(f"Patching VM {name} cluster-net interface (index {idx}) with static MAC: {expected_mac}...")
             
-            patch = [
-                {
-                    "op": "add",
-                    "path": f"/spec/template/spec/domain/devices/interfaces/{idx}/macAddress",
-                    "value": expected_mac
+            interfaces[idx]["macAddress"] = expected_mac
+            patch = {
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "domain": {
+                                "devices": {
+                                    "interfaces": interfaces
+                                }
+                            }
+                        }
+                    }
                 }
-            ]
+            }
             
             try:
                 custom_api.patch_namespaced_custom_object(
