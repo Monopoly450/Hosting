@@ -139,28 +139,59 @@ def attach_vms_to_cluster(cluster_id: int, req: AttachVMRequest, current_user: U
 def list_clusters(current_user: User = Depends(get_current_user)):
     db = SessionLocal()
     try:
+        from app.core.k8s_client import K8sClient
+        client = K8sClient()
+        try:
+            k8s_vms = client.list_vms()
+            k8s_status_map = {vm["name"]: vm["status"] for vm in k8s_vms}
+        except Exception:
+            k8s_status_map = {}
+
         if current_user.role == "admin":
             clusters = db.query(Cluster).all()
         else:
             clusters = db.query(Cluster).filter(Cluster.owner_id == current_user.id).all()
             
-        return [
-            {
-                "id": c.id,
-                "name": c.name,
-                "network_name": c.network_name,
-                "status": c.status,
-                "created_at": c.created_at,
-                "vms": [{
+        result = []
+        for c in clusters:
+            vms_data = []
+            for v in c.vms:
+                real_status = k8s_status_map.get(v.name, v.status or "Stopped")
+                vms_data.append({
                     "name": v.name,
-                    "status": v.status,
+                    "status": real_status,
                     "os_type": v.os_type,
                     "cpu_cores": v.cpu_cores,
                     "memory_gb": v.memory_gb,
                     "disk_gb": v.disk_gb
-                } for v in c.vms]
-            } for c in clusters
-        ]
+                })
+            
+            # Determine overall cluster status based on VMs
+            if not vms_data:
+                cluster_status = "Active"
+            else:
+                norms = [vm["status"].lower() for vm in vms_data]
+                if any(s in ["pending", "provisioning", "starting", "importing"] for s in norms):
+                    cluster_status = "Creating"
+                elif any(s in ["stopping"] for s in norms):
+                    cluster_status = "Updating"
+                elif any(s == "error" for s in norms):
+                    cluster_status = "Error"
+                elif all(s == "stopped" for s in norms):
+                    cluster_status = "Stopped"
+                else:
+                    cluster_status = "Active"
+            
+            result.append({
+                "id": c.id,
+                "name": c.name,
+                "network_name": c.network_name,
+                "status": cluster_status,
+                "created_at": c.created_at,
+                "vms": vms_data
+            })
+            
+        return result
     finally:
         db.close()
 

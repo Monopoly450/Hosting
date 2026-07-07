@@ -433,9 +433,21 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
               <h2 style={{ margin: 0, fontSize: '1.6rem', color: 'var(--text-heading)' }}>{vm.name}</h2>
-              <span className={`badge badge-${vm.status === 'Running' ? 'success' : (vm.status === 'Starting' || vm.status === 'Importing' || vm.status === 'Stopping' || vm.status === 'Scheduled' ? 'warning' : 'danger')}`} style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span className={`badge badge-${vm.status === 'Running' ? 'success' : (['starting', 'importing', 'stopping', 'scheduled', 'pending', 'provisioning'].includes(vm.status?.toLowerCase()) ? 'warning' : 'danger')}`} style={{ padding: '6px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span className="status-dot"></span>
-                {vm.status === 'Running' ? 'Запущена' : (vm.status === 'Stopped' ? 'Остановлена' : (vm.status === 'Starting' ? 'Запуск...' : (vm.status === 'Stopping' ? 'Выключение...' : (vm.status === 'Scheduled' ? 'Планирование...' : vm.status))))}
+                {(() => {
+                  const norm = vm.status?.toLowerCase();
+                  if (norm === 'running') return 'Запущена';
+                  if (norm === 'stopped') return 'Остановлена';
+                  if (norm === 'starting') return 'Запуск...';
+                  if (norm === 'stopping') return 'Выключение...';
+                  if (norm === 'scheduled') return 'Планирование...';
+                  if (norm === 'pending') return 'В очереди...';
+                  if (norm === 'provisioning') return 'Создание...';
+                  if (norm === 'importing') return 'Импорт...';
+                  if (norm === 'error') return 'Ошибка';
+                  return vm.status;
+                })()}
                 {(vm.status === 'Starting' || vm.status === 'Importing') && (
                   <span style={{ marginLeft: '4px', fontWeight: 'bold' }}>
                     {vm.status === 'Importing' ? (vm.import_progress || '0%') : `${startProgress}%`}

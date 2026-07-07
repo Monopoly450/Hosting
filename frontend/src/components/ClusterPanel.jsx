@@ -255,13 +255,33 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
     }
   };
 
+  const getVmStatusLabel = (status) => {
+    const norm = status?.toLowerCase();
+    if (norm === 'running') return 'Запущена';
+    if (norm === 'stopped') return 'Остановлена';
+    if (norm === 'starting') return 'Запуск...';
+    if (norm === 'stopping') return 'Выключение...';
+    if (norm === 'scheduled') return 'Планирование...';
+    if (norm === 'pending') return 'В очереди...';
+    if (norm === 'provisioning') return 'Создание...';
+    if (norm === 'importing') return 'Импорт...';
+    if (norm === 'error') return 'Ошибка';
+    return status || 'Неизвестно';
+  };
+
   const getClusterStatusBadge = (status) => {
     const norm = status?.toLowerCase();
     if (norm === 'active' || norm === 'running' || norm === 'ready') {
       return <span className="status-badge status-running">Активен</span>;
     }
-    if (norm === 'creating' || norm === 'pending' || norm === 'scheduling' || norm === 'scheduled') {
+    if (norm === 'creating' || norm === 'pending' || norm === 'scheduling' || norm === 'scheduled' || norm === 'starting' || norm === 'provisioning') {
       return <span className="status-badge status-pending" style={{ animation: 'pulse 1.5s infinite' }}>Создается</span>;
+    }
+    if (norm === 'updating' || norm === 'stopping') {
+      return <span className="status-badge status-pending">Обновляется</span>;
+    }
+    if (norm === 'stopped') {
+      return <span className="status-badge status-stopped">Остановлен</span>;
     }
     return <span className="status-badge status-stopped">Ошибка</span>;
   };
@@ -364,7 +384,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                           <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{vm.name}</span>
                         </div>
                         <span className={`status-badge status-${vm.status?.toLowerCase()}`} style={{ fontSize: '0.75rem', padding: '2px 8px' }}>
-                          {vm.status === 'Running' ? 'Запущена' : vm.status === 'Stopped' ? 'Остановлена' : vm.status === 'Starting' ? 'Запуск...' : vm.status === 'Stopping' ? 'Выключение...' : vm.status === 'Scheduled' ? 'Планирование...' : vm.status === 'Pending' ? 'Ожидание' : vm.status === 'Provisioning' ? 'Создание' : vm.status}
+                          {getVmStatusLabel(vm.status)}
                         </span>
                       </div>
                       
@@ -756,7 +776,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                 <label className="input-label">Выберите ВМ (зажмите Ctrl/Cmd для выбора нескольких)</label>
                 <select name="vm_names" multiple className="form-control" style={{ height: '180px', marginTop: '8px' }} required>
                   {vms.filter(v => !clusters.some(c => c.vms.some(cv => cv.name === v.name))).map(vm => (
-                    <option key={vm.name} value={vm.name}>{vm.name} ({vm.status === 'Running' ? 'Запущена' : vm.status})</option>
+                    <option key={vm.name} value={vm.name}>{vm.name} ({getVmStatusLabel(vm.status)})</option>
                   ))}
                 </select>
               </div>

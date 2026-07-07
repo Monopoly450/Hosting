@@ -513,7 +513,19 @@ const HostStats = ({ onMetricsLoaded }) => {
                           background: vm.status === 'Running' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
                           color: vm.status === 'Running' ? 'var(--status-success)' : 'var(--status-danger)'
                         }}>
-                          {vm.status === 'Running' ? 'Запущена' : 'Остановлена'}
+                          {(() => {
+                            const norm = vm.status?.toLowerCase();
+                            if (norm === 'running') return 'Запущена';
+                            if (norm === 'stopped') return 'Остановлена';
+                            if (norm === 'starting') return 'Запуск...';
+                            if (norm === 'stopping') return 'Выключение...';
+                            if (norm === 'scheduled') return 'Планирование...';
+                            if (norm === 'pending') return 'В очереди...';
+                            if (norm === 'provisioning') return 'Создание...';
+                            if (norm === 'importing') return 'Импорт...';
+                            if (norm === 'error') return 'Ошибка';
+                            return vm.status || 'Остановлена';
+                          })()}
                         </span>
                       </td>
                       <td style={{ padding: '10px 8px', fontFamily: 'monospace' }}>{vm.node || 'Unknown'}</td>

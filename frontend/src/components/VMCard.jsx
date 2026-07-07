@@ -117,13 +117,16 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
   };
 
   const getStatusLabel = (status) => {
-    if (status === 'Running') return isReady ? 'Запущена' : 'Настройка сети...';
-    if (status === 'Stopped') return 'Остановлена';
-    if (status === 'Provisioning') return 'Создание...';
-    if (status === 'Importing') return `Импорт ${vm.import_progress || ''}`;
-    if (status === 'Starting') return 'Запуск...';
-    if (status === 'Stopping') return 'Выключение...';
-    if (status === 'Scheduled') return 'Планирование...';
+    const norm = status?.toLowerCase();
+    if (norm === 'running') return isReady ? 'Запущена' : 'Настройка сети...';
+    if (norm === 'stopped') return 'Остановлена';
+    if (norm === 'provisioning') return 'Создание...';
+    if (norm === 'importing') return `Импорт ${vm.import_progress || ''}`;
+    if (norm === 'starting') return 'Запуск...';
+    if (norm === 'stopping') return 'Выключение...';
+    if (norm === 'scheduled') return 'Планирование...';
+    if (norm === 'pending') return 'В очереди...';
+    if (norm === 'error') return 'Ошибка';
     return status;
   };
 
