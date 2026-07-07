@@ -771,17 +771,13 @@ def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_c
         nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
         
         # Автонастройка хостового шлюза для существующих кластерных сетей
-        if vm_ip.startswith("192.168.100."):
+        if vm_id:
             try:
                 from app.db.session import SessionLocal
                 from app.models.models import VMTask, Cluster
                 db = SessionLocal()
                 try:
-                    if vm_id:
-                        db_vm = db.query(VMTask).filter(VMTask.id == vm_id).first()
-                    else:
-                        db_vm = db.query(VMTask).filter(VMTask.static_ip == vm_ip).first()
-                    
+                    db_vm = db.query(VMTask).filter(VMTask.id == vm_id).first()
                     if db_vm and db_vm.cluster_id:
                         cluster = db.query(Cluster).filter(Cluster.id == db_vm.cluster_id).first()
                         if cluster and cluster.network_name:
@@ -793,11 +789,11 @@ def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_c
                             
                             add_ip = f"ip addr show dev {bridge_name} | grep 192.168.100.1 || ip addr add 192.168.100.1/24 dev {bridge_name}"
                             subprocess.run(nsenter_prefix + [add_ip], capture_output=True, timeout=5)
-                            logger.info(f"Восстановлен хостовый шлюз 192.168.100.1/24 для моста {bridge_name} (ВМ: {db_vm.name})")
+                            logger.info(f"Сверка моста кластера: настроен хостовый шлюз 192.168.100.1/24 для моста {bridge_name} (ВМ: {db_vm.name})")
                 finally:
                     db.close()
             except Exception as bridge_err:
-                logger.error(f"Не удалось автонастроить хостовый IP для кластерного моста при обработке {vm_ip}: {bridge_err}")
+                logger.error(f"Не удалось автонастроить хостовый IP для кластерного моста {vm_id}: {bridge_err}")
 
         # Очищаем старые правила по IP
         clear_iptables_rules_for_ip(vm_ip)
