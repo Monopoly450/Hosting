@@ -32,6 +32,12 @@ try:
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
+    import hashlib
+
+    def generate_mac_address_cluster(name: str) -> str:
+        h = hashlib.md5(name.encode('utf-8')).hexdigest()
+        return f"02:00:01:{h[0:2]}:{h[2:4]}:{h[4:6]}"
+
     k8s = K8sClient()
 except Exception as e:
     write_crash_log(e)
@@ -98,7 +104,8 @@ def process_vm_task(db: Session, task_id: int):
                 manifest["spec"]["template"]["spec"]["domain"]["devices"]["interfaces"] = []
             manifest["spec"]["template"]["spec"]["domain"]["devices"]["interfaces"].append({
                 "name": "cluster-net",
-                "bridge": {}
+                "bridge": {},
+                "macAddress": generate_mac_address_cluster(task.name)
             })
             
         # Добавляем лимиты диска (Этап 4)
@@ -224,7 +231,8 @@ def process_attach_network(db: Session, task_id: int, network_name: str):
                 spec["domain"]["devices"]["interfaces"] = []
             spec["domain"]["devices"]["interfaces"].append({
                 "name": "cluster-net",
-                "bridge": {}
+                "bridge": {},
+                "macAddress": generate_mac_address_cluster(task.name)
             })
             
             k8s.custom_api.replace_namespaced_custom_object(
