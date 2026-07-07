@@ -312,6 +312,7 @@ const App = () => {
       setCloudInitTemplate('');
       setCustomUserData('');
       setSshKey('');
+      setShowCreateVM(false);
       fetchVMs();
       
       setSelectedVMDetailName(payload.name);
