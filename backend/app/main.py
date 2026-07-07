@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api import vms, host, vnc, images, docker_admin, external_servers, infra, clusters, auth, databases, s3, volumes, snapshots, mail, deployments, kubernetes as kubernetes_api
+from app.api import vms, host, vnc, images, docker_admin, external_servers, infra, clusters, auth, databases, s3, volumes, snapshots, mail, deployments, kubernetes as kubernetes_api, ssh_terminal
 from app.core.auth import verify_admin_token
 
 # Настройка логирования
@@ -148,6 +148,7 @@ app.include_router(deployments.router, prefix=f"{settings.API_V1_STR}/deployment
 app.include_router(kubernetes_api.router, prefix=f"{settings.API_V1_STR}/kubernetes", tags=["kubernetes"], dependencies=[Depends(verify_admin_token)])
 app.include_router(host.router, prefix=f"{settings.API_V1_STR}/host", tags=["host"], dependencies=[Depends(verify_admin_token)])
 app.include_router(vnc.router, prefix=f"{settings.API_V1_STR}/vnc", tags=["vnc"])
+app.include_router(ssh_terminal.router, prefix=f"{settings.API_V1_STR}/ssh-terminal", tags=["ssh-terminal"])
 app.include_router(images.router, prefix=f"{settings.API_V1_STR}/images", tags=["images"])
 app.include_router(docker_admin.router, prefix=f"{settings.API_V1_STR}/docker", tags=["docker"], dependencies=[Depends(verify_admin_token)])
 app.include_router(external_servers.router, prefix=f"{settings.API_V1_STR}/external-servers", tags=["external-servers"], dependencies=[Depends(verify_admin_token)])

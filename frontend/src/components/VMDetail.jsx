@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { X, RefreshCw, Cpu, HardDrive, ShieldAlert, Terminal, Activity, Layers, ListFilter, Play, Square, RotateCw, Monitor, Settings, Trash2, Copy, Check, Eye, EyeOff, AlertTriangle, Key, Shield, Network, Send } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import VncConsole from './VncConsole';
+import SshTerminal from './SshTerminal';
 import BackupList from './BackupList';
 import CustomSelect from './CustomSelect';
 
@@ -485,6 +486,11 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             <button className={`btn ${activeTab === 'vnc' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('vnc')} disabled={vm.status !== 'Running'}>
               <Monitor size={14} /> VNC
             </button>
+            {vm.os_type !== 'windows' && (
+              <button className={`btn ${activeTab === 'terminal' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('terminal')} disabled={vm.status !== 'Running'}>
+                <Terminal size={14} /> Терминал
+              </button>
+            )}
             <button className={`btn ${activeTab === 'backups' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('backups')}>
               💾 Бэкапы
             </button>
@@ -505,6 +511,12 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       {activeTab === 'vnc' && (
         <div className="glass-card" style={{ padding: 0, overflow: 'hidden', background: '#000', borderRadius: 'var(--radius-lg)' }}>
           <VncConsole name={vmName} username={vm.credentials?.username} password={vm.credentials?.password} isInline={true} />
+        </div>
+      )}
+
+      {activeTab === 'terminal' && (
+        <div className="glass-card" style={{ padding: 0, overflow: 'hidden', background: '#0b0f19', borderRadius: 'var(--radius-lg)' }}>
+          <SshTerminal name={vmName} />
         </div>
       )}
 
@@ -818,38 +830,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             </table>
           </div>
 
-          {/* Terminal */}
-          {vm.status === 'Running' && vm.os_type !== 'windows' && (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '240px', background: '#0f172a', borderRadius: 'var(--radius-md)', overflow: 'hidden', padding: '16px', boxShadow: 'var(--shadow-md)' }}>
-              <div style={{ color: '#94a3b8', fontSize: '0.8rem', fontWeight: 600, borderBottom: '1px solid #1e293b', paddingBottom: '8px', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
-                <span>user@{vmName} ~</span>
-                <Terminal size={14} />
-              </div>
-              
-              <div style={{ flex: 1, color: '#f8fafc', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', overflowY: 'auto', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {terminalHistory.map((line, idx) => (
-                  <div key={idx} style={{ color: line.type === 'prompt' ? '#38bdf8' : line.type === 'stderr' ? '#f87171' : line.type === 'info' ? '#94a3b8' : 'inherit', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                    {line.text}
-                  </div>
-                ))}
-                <div ref={terminalEndRef} />
-              </div>
-              
-              <form onSubmit={handleExecuteCommand} style={{ display: 'flex', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', color: '#38bdf8', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
-                  $
-                </div>
-                <input 
-                  type="text" 
-                  value={command} 
-                  onChange={(e) => setCommand(e.target.value)} 
-                  disabled={executing || !sshData} 
-                  placeholder={sshData ? "Enter command..." : "Waiting for SSH connection..."}
-                  style={{ flex: 1, background: 'transparent', border: 'none', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', outline: 'none' }} 
-                />
-              </form>
-            </div>
-          )}
+          {/* Terminal removed: Moved to separate xterm tab */}
 
         </div>
       </div>
