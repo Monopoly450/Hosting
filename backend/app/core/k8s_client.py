@@ -881,6 +881,22 @@ class K8sClient:
 
     def create_network_attachment_definition(self, name: str, namespace="default"):
         """Создает Multus NetworkAttachmentDefinition для приватной сети"""
+        bridge_name = "br-" + name[:11]
+        try:
+            import subprocess
+            nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
+            # Гарантируем наличие моста на хосте
+            create_br = f"ip link show {bridge_name} || (ip link add {bridge_name} type bridge && ip link set {bridge_name} up)"
+            subprocess.run(nsenter_prefix + [create_br], capture_output=True, timeout=5)
+            
+            # Назначаем IP 192.168.100.1/24 на мост хоста (шлюз кластера)
+            add_ip = f"ip addr show dev {bridge_name} | grep 192.168.100.1 || ip addr add 192.168.100.1/24 dev {bridge_name}"
+            subprocess.run(nsenter_prefix + [add_ip], capture_output=True, timeout=5)
+            
+            logger.info(f"Успешно настроен хостовый шлюз 192.168.100.1/24 для моста {bridge_name}")
+        except Exception as bridge_err:
+            logger.error(f"Не удалось инициализировать мост {bridge_name} или прописать IP: {bridge_err}")
+
         manifest = {
             "apiVersion": "k8s.cni.cncf.io/v1",
             "kind": "NetworkAttachmentDefinition",
