@@ -298,65 +298,76 @@ def apply_disk_throttling_daemon():
     logger.info("Starting disk throttling daemon thread...")
     while True:
         try:
+            vms_data = []
             db = SessionLocal()
             try:
                 vms_in_db = db.query(VMTask).all()
                 for vm in vms_in_db:
-                    # Проверяем, заданы ли лимиты
-                    if not (vm.disk_read_mbs or vm.disk_write_mbs or vm.disk_read_iops or vm.disk_write_iops):
+                    # Извлекаем только нужные поля, чтобы закрыть сессию сразу
+                    vms_data.append({
+                        "name": vm.name,
+                        "disk_read_mbs": vm.disk_read_mbs,
+                        "disk_write_mbs": vm.disk_write_mbs,
+                        "disk_read_iops": vm.disk_read_iops,
+                        "disk_write_iops": vm.disk_write_iops
+                    })
+            finally:
+                db.close() # Закрываем транзакцию мгновенно
+
+            for vm in vms_data:
+                # Проверяем, заданы ли лимиты
+                if not (vm["disk_read_mbs"] or vm["disk_write_mbs"] or vm["disk_read_iops"] or vm["disk_write_iops"]):
+                    continue
+                    
+                try:
+                    # Получаем информацию о поде ВМ
+                    pods = k8s.core_api.list_namespaced_pod(namespace="default", label_selector=f"kubevirt.io/created-by={vm['name']}").items
+                    if not pods:
                         continue
                         
-                    try:
-                        # Получаем информацию о поде ВМ
-                        pods = k8s.core_api.list_namespaced_pod(namespace="default", label_selector=f"kubevirt.io/created-by={vm.name}").items
-                        if not pods:
-                            continue
-                            
-                        pod = pods[0]
-                        pod_uid = pod.metadata.uid
-                        if not pod_uid:
-                            continue
-                            
-                        # Переводим дефисы в подчеркивания для соответствия имени systemd slice
-                        pod_uid_systemd = pod_uid.replace("-", "_")
+                    pod = pods[0]
+                    pod_uid = pod.metadata.uid
+                    if not pod_uid:
+                        continue
                         
-                        # Находим мажорный/минорный номера устройства для K3s storage на хосте
-                        import subprocess
-                        nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
-                        stat_res = subprocess.run(nsenter_prefix + ["stat -c '%d' /var/lib/rancher/k3s/storage 2>/dev/null || stat -c '%d' /"], capture_output=True, text=True, timeout=5)
-                        if stat_res.returncode != 0:
-                            continue
-                            
-                        dev_id = int(stat_res.stdout.strip())
-                        major = (dev_id >> 8) & 0xfff
-                        minor = dev_id & 0xff
+                    # Переводим дефисы в подчеркивания для соответствия имени systemd slice
+                    pod_uid_systemd = pod_uid.replace("-", "_")
+                    
+                    # Находим мажорный/минорный номера устройства для K3s storage на хосте
+                    import subprocess
+                    nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
+                    stat_res = subprocess.run(nsenter_prefix + ["stat -c '%d' /var/lib/rancher/k3s/storage 2>/dev/null || stat -c '%d' /"], capture_output=True, text=True, timeout=5)
+                    if stat_res.returncode != 0:
+                        continue
                         
-                        # Строим строку лимита для io.max
-                        rbps = f"{vm.disk_read_mbs * 1024 * 1024}" if vm.disk_read_mbs > 0 else "max"
-                        wbps = f"{vm.disk_write_mbs * 1024 * 1024}" if vm.disk_write_mbs > 0 else "max"
-                        riops = f"{vm.disk_read_iops}" if vm.disk_read_iops > 0 else "max"
-                        wiops = f"{vm.disk_write_iops}" if vm.disk_write_iops > 0 else "max"
-                        
-                        limit_line = f"{major}:{minor} rbps={rbps} wbps={wbps} riops={riops} wiops={wiops}"
-                        
-                        # Ищем директорию слайса пода
-                        find_cmd = f"find /sys/fs/cgroup/kubepods.slice/ -name '*pod{pod_uid_systemd}*.slice' 2>/dev/null"
-                        find_res = subprocess.run(nsenter_prefix + [find_cmd], capture_output=True, text=True, timeout=5)
-                        if find_res.returncode == 0 and find_res.stdout.strip():
-                            pod_slice_paths = find_res.stdout.strip().splitlines()
-                            for slice_path in pod_slice_paths:
-                                # Ищем все файлы io.max внутри cri-containerd-*.scope контейнеров
-                                io_find_cmd = f"find {slice_path} -name 'io.max' 2>/dev/null"
-                                io_res = subprocess.run(nsenter_prefix + [io_find_cmd], capture_output=True, text=True, timeout=5)
-                                if io_res.returncode == 0 and io_res.stdout.strip():
-                                    for io_max_file in io_res.stdout.strip().splitlines():
-                                        # Записываем лимит
-                                        write_cmd = f"echo '{limit_line}' > {io_max_file}"
-                                        subprocess.run(nsenter_prefix + [write_cmd], capture_output=True, timeout=5)
-                    except Exception as pe:
-                        logger.error(f"Error applying disk limits for VM {vm.name}: {pe}")
-            finally:
-                db.close()
+                    dev_id = int(stat_res.stdout.strip())
+                    major = (dev_id >> 8) & 0xfff
+                    minor = dev_id & 0xff
+                    
+                    # Строим строку лимита для io.max
+                    rbps = f"{vm['disk_read_mbs'] * 1024 * 1024}" if vm['disk_read_mbs'] > 0 else "max"
+                    wbps = f"{vm['disk_write_mbs'] * 1024 * 1024}" if vm['disk_write_mbs'] > 0 else "max"
+                    riops = f"{vm['disk_read_iops']}" if vm['disk_read_iops'] > 0 else "max"
+                    wiops = f"{vm['disk_write_iops']}" if vm['disk_write_iops'] > 0 else "max"
+                    
+                    limit_line = f"{major}:{minor} rbps={rbps} wbps={wbps} riops={riops} wiops={wiops}"
+                    
+                    # Ищем директорию слайса пода
+                    find_cmd = f"find /sys/fs/cgroup/kubepods.slice/ -name '*pod{pod_uid_systemd}*.slice' 2>/dev/null"
+                    find_res = subprocess.run(nsenter_prefix + [find_cmd], capture_output=True, text=True, timeout=5)
+                    if find_res.returncode == 0 and find_res.stdout.strip():
+                        pod_slice_paths = find_res.stdout.strip().splitlines()
+                        for slice_path in pod_slice_paths:
+                            # Ищем все файлы io.max внутри cri-containerd-*.scope контейнеров
+                            io_find_cmd = f"find {slice_path} -name 'io.max' 2>/dev/null"
+                            io_res = subprocess.run(nsenter_prefix + [io_find_cmd], capture_output=True, text=True, timeout=5)
+                            if io_res.returncode == 0 and io_res.stdout.strip():
+                                for io_max_file in io_res.stdout.strip().splitlines():
+                                    # Записываем лимит
+                                    write_cmd = f"echo '{limit_line}' > {io_max_file}"
+                                    subprocess.run(nsenter_prefix + [write_cmd], capture_output=True, timeout=5)
+                except Exception as pe:
+                    logger.error(f"Error applying disk limits for VM {vm['name']}: {pe}")
         except Exception as e:
             logger.error(f"Error in disk throttling daemon loop: {e}")
             
@@ -372,32 +383,42 @@ def apply_firewall_reconcile_daemon():
         try:
             from .api.vms import reconcile_vm_firewall_rules
             from .core.netutils import pick_external_ip
+            vms_data = []
             db = SessionLocal()
             try:
                 vms_in_db = db.query(VMTask).all()
-                live_names = set()
                 for vm in vms_in_db:
-                    try:
-                        info = k8s.get_vm(vm.name)
-                        if info.get("status") != "Running":
-                            continue
-                        ips = info.get("ips", [])
-                        ip = pick_external_ip(ips) if ips else None
-                        if not ip:
-                            continue
-                        live_names.add(vm.name)
-                        # Переустанавливаем правила только при изменении IP — без лишней «дёрготни»
-                        if last_ip.get(vm.name) != ip:
-                            reconcile_vm_firewall_rules(ip, vm.id, vm.ports_config, vm.firewall_rules, vm.os_type)
-                            last_ip[vm.name] = ip
-                            logger.info(f"Firewall re-applied for {vm.name} -> {ip}")
-                    except Exception as ve:
-                        logger.error(f"Firewall reconcile for VM {vm.name}: {ve}")
-                # Забываем IP выключенных/удалённых ВМ, чтобы при новом старте правила переустановились
-                for gone in [n for n in last_ip if n not in live_names]:
-                    del last_ip[gone]
+                    vms_data.append({
+                        "id": vm.id,
+                        "name": vm.name,
+                        "ports_config": vm.ports_config,
+                        "firewall_rules": vm.firewall_rules,
+                        "os_type": vm.os_type
+                    })
             finally:
-                db.close()
+                db.close() # Закрываем транзакцию мгновенно
+
+            live_names = set()
+            for vm in vms_data:
+                try:
+                    info = k8s.get_vm(vm["name"])
+                    if info.get("status") != "Running":
+                        continue
+                    ips = info.get("ips", [])
+                    ip = pick_external_ip(ips) if ips else None
+                    if not ip:
+                        continue
+                    live_names.add(vm["name"])
+                    # Переустанавливаем правила только при изменении IP — без лишней «дёрготни»
+                    if last_ip.get(vm["name"]) != ip:
+                        reconcile_vm_firewall_rules(ip, vm["id"], vm["ports_config"], vm["firewall_rules"], vm["os_type"])
+                        last_ip[vm["name"]] = ip
+                        logger.info(f"Firewall re-applied for {vm['name']} -> {ip}")
+                except Exception as ve:
+                    logger.error(f"Firewall reconcile for VM {vm['name']}: {ve}")
+            # Забываем IP выключенных/удалённых ВМ, чтобы при новом старте правила переустановились
+            for gone in [n for n in last_ip if n not in live_names]:
+                del last_ip[gone]
         except Exception as e:
             logger.error(f"Error in firewall reconcile daemon loop: {e}")
         time.sleep(15)
