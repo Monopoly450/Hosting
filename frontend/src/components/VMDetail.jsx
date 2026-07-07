@@ -486,11 +486,6 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             <button className={`btn ${activeTab === 'vnc' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('vnc')} disabled={vm.status !== 'Running'}>
               <Monitor size={14} /> VNC
             </button>
-            {vm.os_type !== 'windows' && (
-              <button className={`btn ${activeTab === 'terminal' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('terminal')} disabled={vm.status !== 'Running'}>
-                <Terminal size={14} /> Терминал
-              </button>
-            )}
             <button className={`btn ${activeTab === 'backups' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('backups')}>
               💾 Бэкапы
             </button>
@@ -514,11 +509,6 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
         </div>
       )}
 
-      {activeTab === 'terminal' && (
-        <div className="glass-card" style={{ padding: 0, overflow: 'hidden', background: '#0b0f19', borderRadius: 'var(--radius-lg)' }}>
-          <SshTerminal name={vmName} />
-        </div>
-      )}
 
       {activeTab === 'backups' && (
         <div className="glass-card">
@@ -830,7 +820,15 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             </table>
           </div>
 
-          {/* Terminal removed: Moved to separate xterm tab */}
+          {/* Terminal */}
+          {vm.status === 'Running' && vm.os_type !== 'windows' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>
+                <Terminal size={16} /> Терминал (SSH Console)
+              </div>
+              <SshTerminal name={vmName} isInline={true} />
+            </div>
+          )}
 
         </div>
       </div>

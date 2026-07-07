@@ -30,7 +30,7 @@ async def ws_to_ssh_loop(websocket: WebSocket, chan: paramiko.Channel):
                 except Exception:
                     pass
                 # Обычный текст (ввод пользователя)
-                await asyncio.to_thread(chan.send, text_data)
+                await asyncio.to_thread(chan.send, text_data.encode('utf-8'))
             elif "bytes" in data:
                 await asyncio.to_thread(chan.send, data["bytes"])
     except Exception as e:
