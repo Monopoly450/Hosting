@@ -779,48 +779,6 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
         {/* RIGHT COLUMN */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           
-          {/* Guest OS Metrics */}
-          {!['windows', 'proxmox', 'custom'].includes(vm.os_type) && (
-            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <h3 className="section-title" style={{ margin: 0 }}><Activity size={18}/> Текущие показатели системы</h3>
-              {!sshData ? (
-                <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                  {vm.status === 'Running' ? <><span className="spinner" style={{ marginBottom: '12px' }}/> <br/> Ожидание агента SSH...</> : 'ВМ выключена'}
-                </div>
-              ) : sshData.error ? (
-                <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                  <span className="spinner" style={{ marginBottom: '12px' }}/> <br/> 
-                  <span style={{ fontSize: '0.85rem' }}>Ожидание загрузки гостевой ОС...</span>
-                  <p style={{ fontSize: '0.75rem', opacity: 0.6, marginTop: '8px' }}>{sshData.error}</p>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '8px' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>CPU Usage ({sshData.cpu?.cores || 1} cores)</span>
-                      <span style={{ fontWeight: 600 }}>{sshData.cpu?.usage_percent || 0}%</span>
-                    </div>
-                    <div className="progress-track"><div className="progress-fill primary" style={{ width: `${sshData.cpu?.usage_percent || 0}%` }} /></div>
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '8px' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>RAM Usage ({sshData.memory?.total_mb || 0} MB)</span>
-                      <span style={{ fontWeight: 600 }}>{sshData.memory?.usage_percent || 0}%</span>
-                    </div>
-                    <div className="progress-track"><div className="progress-fill" style={{ width: `${sshData.memory?.usage_percent || 0}%`, background: 'var(--accent-secondary)' }} /></div>
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '8px' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Disk (/) Usage</span>
-                      <span style={{ fontWeight: 600 }}>{sshData.disk?.usage_percent || 0}%</span>
-                    </div>
-                    <div className="progress-track"><div className="progress-fill warning" style={{ width: `${sshData.disk?.usage_percent || 0}%` }} /></div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Detailed Storage Stats & Limits */}
           <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <h3 className="section-title" style={{ margin: 0 }}><HardDrive size={18}/> Производительность диска и Лимиты</h3>
