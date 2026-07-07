@@ -70,6 +70,10 @@ def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_c
                 custom_image=vm_req.custom_image,
                 packages=vm_req.packages,
                 network_drives=vm_req.network_drives,
+                cloud_init_template=vm_req.cloud_init_template,
+                custom_user_data=vm_req.custom_user_data,
+                iso_url=vm_req.iso_url,
+                ssh_key=vm_req.ssh_key,
                 status="Pending"
             )
             db.add(task)

@@ -284,7 +284,9 @@ const App = () => {
         iso_url: selectedVersions[osType] || undefined,
         cloud_init_template: cloudInitTemplate || undefined,
         custom_user_data: customUserData.trim() || undefined,
-        ssh_key: sshKey.trim() || undefined
+        ssh_key: sshKey.trim() || undefined,
+        packages: packages.trim() || undefined,
+        network_drives: networkDrives.trim() || undefined
       };
 
       const response = await fetch('/api/vms', {

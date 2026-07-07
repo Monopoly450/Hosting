@@ -1,5 +1,59 @@
 import React, { useState, useEffect } from 'react';
-import { Layers, Plus, Server, Activity, ArrowRight, X, Trash, Info, ChevronDown, ChevronUp, HardDrive, Cpu } from 'lucide-react';
+import { Layers, Plus, Server, Activity, ArrowRight, X, Trash, Info, ChevronDown, ChevronUp, HardDrive, Cpu, Package, Key } from 'lucide-react';
+import CustomSelect from './CustomSelect';
+
+const OS_VERSIONS = {
+  ubuntu: [
+    { label: 'Ubuntu 24.04 LTS', value: 'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img' },
+    { label: 'Ubuntu 22.04 LTS', value: 'https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img' },
+    { label: 'Ubuntu 20.04 LTS', value: 'https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img' }
+  ],
+  centos: [
+    { label: 'CentOS Stream 9', value: 'https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2' },
+    { label: 'CentOS Stream 10', value: 'https://cloud.centos.org/centos/10-stream/x86_64/images/CentOS-Stream-GenericCloud-10-latest.x86_64.qcow2' }
+  ],
+  debian: [
+    { label: 'Debian 12 (Bookworm)', value: 'https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2' },
+    { label: 'Debian 11 (Bullseye)', value: 'https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-generic-amd64.qcow2' }
+  ],
+  windows: [
+    { label: 'Windows Server 2022', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195280' },
+    { label: 'Windows Server 2019', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195279' },
+    { label: 'Windows Server 2016', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195278' }
+  ],
+  proxmox: [
+    { label: 'Proxmox VE 9.2', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_9.2-1.iso' },
+    { label: 'Proxmox VE 8.2', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_8.2-1.iso' },
+    { label: 'Proxmox VE 8.1', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_8.1-1.iso' },
+    { label: 'Proxmox VE 7.4', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_7.4-1.iso' }
+  ],
+  bitrix: [
+    { label: 'BitrixVM (CentOS 9)', value: 'https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2' }
+  ],
+  almalinux: [
+    { label: 'AlmaLinux 9', value: 'https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2' },
+    { label: 'AlmaLinux 8', value: 'https://repo.almalinux.org/almalinux/8/cloud/x86_64/images/AlmaLinux-8-GenericCloud-latest.x86_64.qcow2' }
+  ],
+  rocky: [
+    { label: 'Rocky Linux 9', value: 'https://download.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2' },
+    { label: 'Rocky Linux 8', value: 'https://download.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud.latest.x86_64.qcow2' }
+  ],
+  fedora: [
+    { label: 'Fedora 41', value: 'https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2' }
+  ],
+  opensuse: [
+    { label: 'openSUSE Leap 15.6', value: 'https://download.opensuse.org/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2' }
+  ],
+  arch: [
+    { label: 'Arch Linux (latest)', value: 'https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2' }
+  ],
+  alpine: [
+    { label: 'Alpine Linux 3.21', value: 'https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/generic_alpine-3.21.3-x86_64-bios-cloudinit-r0.qcow2' }
+  ],
+  truenas: [
+    { label: 'TrueNAS SCALE 24.04', value: 'https://download.truenas.com/TrueNAS-SCALE-Dragonfish/24.04.2.5/TrueNAS-SCALE-24.04.2.5.iso' }
+  ]
+};
 
 const OSIcon = ({ type, size = 16 }) => {
   const os = type?.toLowerCase() || '';
@@ -42,6 +96,30 @@ const OSIcon = ({ type, size = 16 }) => {
       </svg>
     );
   }
+  if (os.includes('proxmox')) {
+    return <Layers size={size} color="#e57000" />;
+  }
+  if (os.includes('almalinux')) {
+    return <Server size={size} color="#0a3d91" />;
+  }
+  if (os.includes('rocky')) {
+    return <Server size={size} color="#10b981" />;
+  }
+  if (os.includes('fedora')) {
+    return <Server size={size} color="#3c6eb4" />;
+  }
+  if (os.includes('opensuse')) {
+    return <Server size={size} color="#73ba25" />;
+  }
+  if (os.includes('arch')) {
+    return <Server size={size} color="#1793d1" />;
+  }
+  if (os.includes('alpine')) {
+    return <Server size={size} color="#0d597f" />;
+  }
+  if (os.includes('truenas')) {
+    return <HardDrive size={size} color="#0095d5" />;
+  }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" title="Other OS">
       <circle cx="12" cy="12" r="10" stroke="#94a3b8" strokeWidth="2" />
@@ -60,7 +138,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
   // Form State
   const [clusterName, setClusterName] = useState('');
   const [clusterVms, setClusterVms] = useState([
-    { name: '', os_type: 'ubuntu', cpu_cores: 2, memory_gb: 2, disk_gb: 20 }
+    { name: '', os_type: 'ubuntu', cpu_cores: 2, memory_gb: 2, disk_gb: 20, packages: '', network_drives: '', cloud_init_template: '', custom_user_data: '', ssh_key: '', iso_url: OS_VERSIONS.ubuntu[0].value }
   ]);
   
   const fetchClusters = async () => {
@@ -87,7 +165,13 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
       os_type: 'ubuntu',
       cpu_cores: 2,
       memory_gb: 2,
-      disk_gb: 20
+      disk_gb: 20,
+      packages: '',
+      network_drives: '',
+      cloud_init_template: '',
+      custom_user_data: '',
+      ssh_key: '',
+      iso_url: OS_VERSIONS.ubuntu[0].value
     }]);
     setActiveVmIndex(nextIndex);
   };
@@ -102,6 +186,13 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
   const handleUpdateVm = (index, field, value) => {
     const next = [...clusterVms];
     next[index][field] = value;
+    setClusterVms(next);
+  };
+
+  const handleSelectOs = (index, osId) => {
+    const next = [...clusterVms];
+    next[index].os_type = osId;
+    next[index].iso_url = OS_VERSIONS[osId] ? OS_VERSIONS[osId][0].value : '';
     setClusterVms(next);
   };
 
@@ -134,7 +225,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
       }
       setShowCreate(false);
       setClusterName('');
-      setClusterVms([{ name: '', os_type: 'ubuntu', cpu_cores: 2, memory_gb: 2, disk_gb: 20 }]);
+      setClusterVms([{ name: '', os_type: 'ubuntu', cpu_cores: 2, memory_gb: 2, disk_gb: 20, packages: '', network_drives: '', cloud_init_template: '', custom_user_data: '', ssh_key: '', iso_url: OS_VERSIONS.ubuntu[0].value }]);
       setActiveVmIndex(0);
       fetchClusters();
       if (onRefreshVms) onRefreshVms();
@@ -458,7 +549,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                               ].map(os => (
                                 <div 
                                   key={os.id}
-                                  onClick={() => handleUpdateVm(index, 'os_type', os.id)}
+                                  onClick={() => handleSelectOs(index, os.id)}
                                   style={{
                                     border: vm.os_type === os.id ? '2px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
                                     background: vm.os_type === os.id ? 'rgba(99, 102, 241, 0.05)' : 'var(--bg-surface)',
@@ -480,6 +571,113 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                               ))}
                             </div>
                           </div>
+
+                          {/* OS Version Selector */}
+                          {OS_VERSIONS[vm.os_type] && OS_VERSIONS[vm.os_type].length > 1 && (
+                            <div className="input-group" style={{ marginTop: '4px' }}>
+                              <label className="input-label">Версия операционной системы</label>
+                              <CustomSelect 
+                                value={vm.iso_url}
+                                onChange={e => handleUpdateVm(index, 'iso_url', e.target.value)}
+                                options={OS_VERSIONS[vm.os_type].map(v => ({ value: v.value, label: v.label }))}
+                              />
+                            </div>
+                          )}
+
+                          {/* Windows ISO URL */}
+                          {vm.os_type === 'windows' && (
+                            <div className="input-group">
+                              <label className="input-label">Ссылка на собственный ISO-образ Windows (необязательно)</label>
+                              <input 
+                                type="url" 
+                                className="form-control" 
+                                placeholder="https://example.com/windows.iso"
+                                value={vm.iso_url || ''}
+                                onChange={e => handleUpdateVm(index, 'iso_url', e.target.value)}
+                              />
+                            </div>
+                          )}
+
+                          {/* Advanced Linux Settings */}
+                          {!['windows', 'proxmox', 'truenas'].includes(vm.os_type) && (
+                            <>
+                              <div className="input-group">
+                                <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <Package size={16}/> Пакеты для установки (через запятую)
+                                </label>
+                                <input 
+                                  type="text" 
+                                  className="form-control" 
+                                  placeholder="Например: nginx, docker.io, mc, htop"
+                                  value={vm.packages || ''}
+                                  onChange={e => handleUpdateVm(index, 'packages', e.target.value)}
+                                />
+                                <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Установятся автоматически при первом запуске (только для Linux).</span>
+                              </div>
+
+                              <div className="input-group">
+                                <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <HardDrive size={16}/> Сетевые диски (NFS / PVC)
+                                </label>
+                                <input 
+                                  type="text" 
+                                  className="form-control" 
+                                  placeholder="Например: 192.168.1.10:/shared или pvc-name"
+                                  value={vm.network_drives || ''}
+                                  onChange={e => handleUpdateVm(index, 'network_drives', e.target.value)}
+                                />
+                                <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Сетевая шара будет смонтирована в /mnt/network_drive.</span>
+                              </div>
+
+                              <div className="input-group">
+                                <label className="input-label">Шаблон окружения (Cloud-Init)</label>
+                                <CustomSelect 
+                                  value={vm.cloud_init_template || ''} 
+                                  onChange={e => handleUpdateVm(index, 'cloud_init_template', e.target.value)}
+                                  placeholder="Без шаблона (Чистая ОС)"
+                                  options={[
+                                    { value: '', label: 'Без шаблона (Чистая ОС)' },
+                                    { value: 'lamp', label: 'LAMP (Apache + PHP + MariaDB)' },
+                                    { value: 'lemp', label: 'LEMP (Nginx + PHP-FPM + MariaDB)' },
+                                    { value: 'docker', label: 'Docker (Engine + Compose)' },
+                                    { value: 'portainer', label: 'Portainer (Docker + веб-UI :9000)' },
+                                    { value: 'nodejs', label: 'Node.js 20 LTS (+ pm2)' },
+                                    { value: 'python', label: 'Python 3 (pip + venv + gunicorn)' },
+                                    { value: 'postgresql', label: 'PostgreSQL сервер' },
+                                    { value: 'redis', label: 'Redis сервер' },
+                                    { value: 'wordpress', label: 'WordPress (Apache + MariaDB + PHP)' }
+                                  ]}
+                                />
+                              </div>
+
+                              <div className="input-group">
+                                <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <Key size={16}/> Публичный SSH-ключ (для безопасного входа)
+                                </label>
+                                <input 
+                                  type="text" 
+                                  className="form-control" 
+                                  placeholder="ssh-rsa AAAA..."
+                                  value={vm.ssh_key || ''}
+                                  onChange={e => handleUpdateVm(index, 'ssh_key', e.target.value)}
+                                />
+                                <small style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                                  Если указан ключ, парольный вход по SSH будет автоматически заблокирован на создаваемой ВМ.
+                                </small>
+                              </div>
+
+                              <div className="input-group">
+                                <label className="input-label">Кастомный скрипт Cloud-Init (userData)</label>
+                                <textarea 
+                                  className="form-control" 
+                                  placeholder="#cloud-config..."
+                                  value={vm.custom_user_data || ''}
+                                  onChange={e => handleUpdateVm(index, 'custom_user_data', e.target.value)}
+                                  style={{ height: '80px', minHeight: '60px', resize: 'vertical' }}
+                                />
+                              </div>
+                            </>
+                          )}
 
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '8px' }}>
                             <div>
