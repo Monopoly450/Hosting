@@ -42,10 +42,10 @@ const OS_VERSIONS = {
     { label: 'Windows Server 2016', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195278' }
   ],
   proxmox: [
-    { label: 'Proxmox VE 9.2', value: 'https://download.proxmox.com/iso/proxmox-ve_9.2-1.iso' },
-    { label: 'Proxmox VE 8.2', value: 'https://download.proxmox.com/iso/proxmox-ve_8.2-1.iso' },
-    { label: 'Proxmox VE 8.1', value: 'https://download.proxmox.com/iso/proxmox-ve_8.1-1.iso' },
-    { label: 'Proxmox VE 7.4', value: 'https://download.proxmox.com/iso/proxmox-ve_7.4-1.iso' }
+    { label: 'Proxmox VE 9.2', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_9.2-1.iso' },
+    { label: 'Proxmox VE 8.2', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_8.2-1.iso' },
+    { label: 'Proxmox VE 8.1', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_8.1-1.iso' },
+    { label: 'Proxmox VE 7.4', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_7.4-1.iso' }
   ],
   bitrix: [
     { label: 'BitrixVM (CentOS 9)', value: 'https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2' }
