@@ -601,6 +601,11 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
   border-radius: 0 0 var(--radius-xl) var(--radius-xl);
 }
 
+/* Elevate main area when a slide-over drawer or modal is open to cover sidebar and header */
+.app-layout:has(.slide-over-overlay, .modal-overlay, .modal-backdrop) .main-area {
+  z-index: 1001;
+}
+
 /* Slide-over Side Panel */
 .slide-over-overlay {
   position: fixed;
