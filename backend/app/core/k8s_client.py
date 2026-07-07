@@ -889,7 +889,10 @@ class K8sClient:
                 "namespace": namespace
             },
             "spec": {
-                "config": '{ "cniVersion": "0.3.1", "type": "bridge", "bridge": "br-' + name[:11] + '", "isGateway": true, "ipam": { "type": "host-local", "subnet": "192.168.100.0/24" } }'
+                # Без IPAM: CNI не назначает адрес — каждая ВМ прописывает свой
+                # СТАТИЧЕСКИЙ IP (192.168.100.x) через cloud-init, поэтому адрес
+                # стабилен и не меняется при перезагрузке ВМ.
+                "config": '{ "cniVersion": "0.3.1", "type": "bridge", "bridge": "br-' + name[:11] + '", "isGateway": false, "ipam": {} }'
             }
         }
         try:

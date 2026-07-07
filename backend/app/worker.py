@@ -77,37 +77,41 @@ def process_vm_task(db: Session, task_id: int):
             iso_url = task.iso_url
             ssh_key = task.ssh_key
             static_ip = task.static_ip
-        
+            # Сеть кластера прокидываем в манифест — для Linux интерфейс со
+            # статическим IP добавит generate_linux_manifest.
+            cluster_network = multus_network
+
         # Вызываем логику создания ВМ
-        from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password, default_user_for
+        from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password, default_user_for, generate_mac_address
 
         generated_password = generate_random_password()
 
-        # Windows и Proxmox ставятся с ISO; всё остальное — Linux-образ с cloud-init
-        if task.os_type in ["windows", "proxmox", "truenas"]:
+        # Windows/Proxmox/TrueNAS ставятся с ISO; всё остальное — Linux-образ с cloud-init
+        is_iso = task.os_type in ["windows", "proxmox", "truenas"]
+        if is_iso:
             manifest = generate_windows_manifest(FakeReq())
             username = "Administrator"
         else:
             manifest = generate_linux_manifest(FakeReq(), generated_password)
             username = default_user_for(task.os_type)
 
-        # Добавляем сеть кластера если есть
+        # Сеть кластера
         if multus_network:
             k8s.create_network_attachment_definition(multus_network)
-            if "networks" not in manifest["spec"]["template"]["spec"]:
-                manifest["spec"]["template"]["spec"]["networks"] = []
-            manifest["spec"]["template"]["spec"]["networks"].append({
-                "name": "cluster-net",
-                "multus": {"networkName": multus_network}
-            })
-            if "interfaces" not in manifest["spec"]["template"]["spec"]["domain"]["devices"]:
-                manifest["spec"]["template"]["spec"]["domain"]["devices"]["interfaces"] = []
-            manifest["spec"]["template"]["spec"]["domain"]["devices"]["interfaces"].append({
-                "name": "cluster-net",
-                "bridge": {},
-                "macAddress": generate_mac_address_cluster(task.name)
-            })
-            
+            # Для Linux интерфейс кластера (со статическим IP) уже добавлен в манифест.
+            # Для ISO-ОС добавляем его вручную (IP настраивается внутри гостя).
+            if is_iso:
+                spec = manifest["spec"]["template"]["spec"]
+                spec.setdefault("networks", []).append({
+                    "name": "clusternet",
+                    "multus": {"networkName": multus_network}
+                })
+                spec["domain"]["devices"].setdefault("interfaces", []).append({
+                    "name": "clusternet",
+                    "bridge": {},
+                    "macAddress": generate_mac_address(task.name + "-lan")
+                })
+
         # Добавляем лимиты диска (Этап 4)
         manifest["spec"]["template"]["spec"]["domain"]["ioThreadsPolicy"] = "shared"
         for disk in manifest["spec"]["template"]["spec"]["domain"]["devices"]["disks"]:

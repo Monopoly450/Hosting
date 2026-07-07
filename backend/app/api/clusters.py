@@ -54,11 +54,11 @@ def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_c
         db.refresh(cluster)
         
         # Добавляем задачи для каждой ВМ:
-        for vm_req in req.vms:
+        for idx, vm_req in enumerate(req.vms):
             # Проверка имени ВМ
             if db.query(VMTask).filter(VMTask.name == vm_req.name).first():
                 continue
-                
+
             task = VMTask(
                 name=vm_req.name,
                 cluster_id=cluster.id,
@@ -74,6 +74,9 @@ def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_c
                 custom_user_data=vm_req.custom_user_data,
                 iso_url=vm_req.iso_url,
                 ssh_key=vm_req.ssh_key,
+                # СТАТИЧЕСКИЙ IP в изолированной сети кластера — не меняется никогда.
+                # 192.168.100.10, .11, .12 ... по порядку ВМ в кластере.
+                static_ip=f"192.168.100.{10 + idx}",
                 status="Pending"
             )
             db.add(task)

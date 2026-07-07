@@ -296,16 +296,17 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
         ssh_enable_commands = """  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config || true
   - sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config.d/*.conf || true"""
 
-    # --- Стабильный IP на мосту br-vms ---
-    # Если у ВМ задан static_ip, добавляем второй интерфейс (bridge на br-vms)
-    # с фиксированным MAC и статическим адресом. Первый интерфейс (pod/masquerade)
-    # остаётся для интернета — это страховка: даже если мост не поднимется, ВМ в сети.
+    # --- Полностью стабильный IP (не меняется при перезагрузке) ---
+    # К pod-интерфейсу (masquerade, интернет) добавляем второй bridge-интерфейс
+    # с ФИКСИРОВАННЫМ MAC и СТАТИЧЕСКИМ IP, прописанным в госте через cloud-init.
+    #  - ВМ в кластере -> статический IP в сети кластера (192.168.100.x, изоляция).
+    #  - Обычная локальная ВМ -> статический IP на мосту br-vms (172.20.0.x).
     static_ip = getattr(req, "static_ip", None)
+    cluster_network = getattr(req, "cluster_network", None)
     pod_mac = generate_mac_address(req.name)
     lan_mac = generate_mac_address(req.name + "-lan")
 
-    if static_ip:
-        # Два интерфейса: pod-nic (DHCP, интернет) + lan-nic (статический, стабильный)
+    if static_ip and cluster_network:
         netplan_content = f"""      network:
         version: 2
         ethernets:
@@ -315,7 +316,24 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
             dhcp4: true
             dhcp4-overrides:
               use-routes: true
-          lan-nic:
+          stable-nic:
+            match:
+              macaddress: "{lan_mac}"
+            dhcp4: false
+            addresses: [{static_ip}/24]"""
+        extra_interface = {"name": "clusternet", "bridge": {}, "macAddress": lan_mac}
+        extra_network = {"name": "clusternet", "multus": {"networkName": cluster_network}}
+    elif static_ip:
+        netplan_content = f"""      network:
+        version: 2
+        ethernets:
+          pod-nic:
+            match:
+              macaddress: "{pod_mac}"
+            dhcp4: true
+            dhcp4-overrides:
+              use-routes: true
+          stable-nic:
             match:
               macaddress: "{lan_mac}"
             dhcp4: false
