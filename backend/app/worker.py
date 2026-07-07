@@ -24,8 +24,8 @@ try:
     from .core.database import Base
     from .core.k8s_client import K8sClient
 
-    # Инициализация таблиц
-    Base.metadata.create_all(bind=engine)
+    # Инициализация таблиц (выполняется бэкендом, убираем для избежания взаимных блокировок)
+    # Base.metadata.create_all(bind=engine)
 
     RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 
