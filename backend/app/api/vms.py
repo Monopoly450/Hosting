@@ -773,7 +773,7 @@ def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_c
         # Автонастройка хостового шлюза для существующих кластерных сетей
         if vm_id:
             try:
-                from app.db.session import SessionLocal
+                from app.db import SessionLocal
                 from app.models.models import VMTask, Cluster
                 db = SessionLocal()
                 try:
