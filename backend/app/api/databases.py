@@ -397,3 +397,191 @@ def get_database_tables(db_id: int, current_user: User = Depends(get_current_use
             return []
     finally:
         db.close()
+
+@router.get("/{db_id}/backups")
+def list_database_backups(db_id: int, current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user_db = db.query(UserDatabase).filter(UserDatabase.id == db_id).first()
+        if not user_db:
+            raise HTTPException(status_code=404, detail="База данных не найдена")
+            
+        if current_user.role != "admin" and user_db.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+            
+        from app.api.s3 import get_minio_client
+        client = get_minio_client()
+        bucket = "database-backups"
+        
+        try:
+            if not client.bucket_exists(bucket):
+                client.make_bucket(bucket)
+                
+            objects = client.list_objects(bucket, prefix=f"{user_db.db_name}/", recursive=True)
+            res = []
+            for obj in objects:
+                filename = obj.object_name.split("/")[-1]
+                res.append({
+                    "filename": filename,
+                    "size_bytes": obj.size,
+                    "last_modified": obj.last_modified.strftime("%Y-%m-%d %H:%M:%S") if obj.last_modified else None
+                })
+            res.sort(key=lambda x: x["filename"], reverse=True)
+            return res
+        except Exception as e:
+            logger.error(f"Failed to list backups for {user_db.db_name}: {e}")
+            return []
+    finally:
+        db.close()
+
+@router.post("/{db_id}/backups")
+def create_database_backup(db_id: int, current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user_db = db.query(UserDatabase).filter(UserDatabase.id == db_id).first()
+        if not user_db:
+            raise HTTPException(status_code=404, detail="База данных не найдена")
+            
+        if current_user.role != "admin" and user_db.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+            
+        from app.core.k8s_client import K8sClient
+        k8s = K8sClient()
+        db_password = decrypt_secret(user_db.db_password)
+        
+        try:
+            dump_content = k8s.execute_db_backup(
+                db_name=user_db.db_name,
+                engine=user_db.db_type,
+                db_user=user_db.db_user,
+                db_password=db_password
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Ошибка генерации бэкапа: {e}")
+            
+        from io import BytesIO
+        from datetime import datetime
+        
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"backup_{user_db.db_name}_{timestamp}.sql"
+        object_name = f"{user_db.db_name}/{filename}"
+        
+        dump_bytes = dump_content.encode("utf-8")
+        data_stream = BytesIO(dump_bytes)
+        
+        from app.api.s3 import get_minio_client
+        client = get_minio_client()
+        bucket = "database-backups"
+        if not client.bucket_exists(bucket):
+            client.make_bucket(bucket)
+            
+        client.put_object(
+            bucket_name=bucket,
+            object_name=object_name,
+            data=data_stream,
+            length=len(dump_bytes),
+            content_type="application/sql"
+        )
+        
+        return {
+            "status": "Success",
+            "filename": filename,
+            "size_bytes": len(dump_bytes)
+        }
+    finally:
+        db.close()
+
+@router.post("/{db_id}/backups/{filename}/restore")
+def restore_database_backup(db_id: int, filename: str, current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user_db = db.query(UserDatabase).filter(UserDatabase.id == db_id).first()
+        if not user_db:
+            raise HTTPException(status_code=404, detail="База данных не найдена")
+            
+        if current_user.role != "admin" and user_db.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+            
+        from app.api.s3 import get_minio_client
+        client = get_minio_client()
+        bucket = "database-backups"
+        object_name = f"{user_db.db_name}/{filename}"
+        
+        try:
+            response = client.get_object(bucket, object_name)
+            sql_content = response.read().decode("utf-8")
+            response.close()
+            response.release_conn()
+        except Exception as e:
+            raise HTTPException(status_code=404, detail=f"Резервная копия не найдена в хранилище: {e}")
+            
+        from app.core.k8s_client import K8sClient
+        k8s = K8sClient()
+        db_password = decrypt_secret(user_db.db_password)
+        
+        try:
+            restore_output = k8s.execute_db_restore(
+                db_name=user_db.db_name,
+                engine=user_db.db_type,
+                db_user=user_db.db_user,
+                db_password=db_password,
+                sql_content=sql_content
+            )
+            return {"status": "Success", "detail": restore_output}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Ошибка восстановления базы данных: {e}")
+    finally:
+        db.close()
+
+@router.delete("/{db_id}/backups/{filename}")
+def delete_database_backup(db_id: int, filename: str, current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user_db = db.query(UserDatabase).filter(UserDatabase.id == db_id).first()
+        if not user_db:
+            raise HTTPException(status_code=404, detail="База данных не найдена")
+            
+        if current_user.role != "admin" and user_db.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+            
+        from app.api.s3 import get_minio_client
+        client = get_minio_client()
+        bucket = "database-backups"
+        object_name = f"{user_db.db_name}/{filename}"
+        
+        try:
+            client.remove_object(bucket, object_name)
+            return {"status": "Success", "detail": "Резервная копия удалена"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Ошибка удаления резервной копии: {e}")
+    finally:
+        db.close()
+
+@router.get("/{db_id}/backups/{filename}/download")
+def download_database_backup(db_id: int, filename: str, current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user_db = db.query(UserDatabase).filter(UserDatabase.id == db_id).first()
+        if not user_db:
+            raise HTTPException(status_code=404, detail="База данных не найдена")
+            
+        if current_user.role != "admin" and user_db.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+            
+        from app.api.s3 import get_minio_client
+        client = get_minio_client()
+        bucket = "database-backups"
+        object_name = f"{user_db.db_name}/{filename}"
+        
+        try:
+            response = client.get_object(bucket, object_name)
+            from fastapi.responses import StreamingResponse
+            return StreamingResponse(
+                response,
+                media_type="application/octet-stream",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+        except Exception as e:
+            raise HTTPException(status_code=404, detail=f"Резервная копия не найдена: {e}")
+    finally:
+        db.close()

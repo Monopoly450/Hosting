@@ -39,6 +39,10 @@ export default function DatabasesPanel() {
     const [metricsLoading, setMetricsLoading] = useState(false);
     const [tablesLoading, setTablesLoading] = useState(false);
 
+    const [dbBackups, setDbBackups] = useState([]);
+    const [backupsLoading, setBackupsLoading] = useState(false);
+    const [backupCreating, setBackupCreating] = useState(false);
+
     const fetchDbTables = async () => {
         if (!connectDb) return;
         setTablesLoading(true);
@@ -82,6 +86,110 @@ export default function DatabasesPanel() {
         }
     };
 
+    const fetchDbBackups = async () => {
+        if (!connectDb) return;
+        setBackupsLoading(true);
+        try {
+            const res = await fetch(`/api/databases/${connectDb.id}/backups`, {
+                headers: getHeaders()
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setDbBackups(data);
+            }
+        } catch (err) {
+            console.error('Ошибка загрузки бэкапов:', err);
+        } finally {
+            setBackupsLoading(false);
+        }
+    };
+
+    const handleCreateBackup = async () => {
+        if (!connectDb) return;
+        setBackupCreating(true);
+        try {
+            const res = await fetch(`/api/databases/${connectDb.id}/backups`, {
+                method: 'POST',
+                headers: getHeaders()
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || 'Ошибка создания резервной копии');
+            }
+            alert('Резервная копия успешно создана!');
+            fetchDbBackups();
+        } catch (err) {
+            alert(err.message || 'Ошибка создания резервной копии');
+        } finally {
+            setBackupCreating(false);
+        }
+    };
+
+    const handleRestoreBackup = async (filename) => {
+        if (!connectDb) return;
+        if (!window.confirm(`Вы уверены, что хотите восстановить базу данных из резервной копии ${filename}? Все текущие данные будут перезаписаны.`)) {
+            return;
+        }
+        try {
+            const res = await fetch(`/api/databases/${connectDb.id}/backups/${filename}/restore`, {
+                method: 'POST',
+                headers: getHeaders()
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || 'Ошибка восстановления');
+            }
+            alert('База данных успешно восстановлена!');
+            fetchDbTables();
+        } catch (err) {
+            alert(err.message || 'Ошибка восстановления резервной копии');
+        }
+    };
+
+    const handleDeleteBackup = async (filename) => {
+        if (!connectDb) return;
+        if (!window.confirm(`Удалить резервную копию ${filename}?`)) {
+            return;
+        }
+        try {
+            const res = await fetch(`/api/databases/${connectDb.id}/backups/${filename}`, {
+                method: 'DELETE',
+                headers: getHeaders()
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || 'Ошибка удаления');
+            }
+            alert('Резервная копия удалена.');
+            fetchDbBackups();
+        } catch (err) {
+            alert(err.message || 'Ошибка удаления резервной копии');
+        }
+    };
+
+    const handleDownloadBackup = async (filename) => {
+        if (!connectDb) return;
+        try {
+            const res = await fetch(`/api/databases/${connectDb.id}/backups/${filename}/download`, {
+                headers: getHeaders()
+            });
+            if (!res.ok) {
+                throw new Error('Не удалось скачать резервную копию');
+            }
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (err) {
+            alert(err.message || 'Ошибка при скачивании резервной копии');
+        }
+    };
+
     useEffect(() => {
         if (connectDb) {
             setDetailActiveTab('credentials');
@@ -89,6 +197,7 @@ export default function DatabasesPanel() {
             setQueryError('');
             fetchDbTables();
             fetchDbMetrics();
+            fetchDbBackups();
         }
     }, [connectDb]);
 
@@ -97,6 +206,12 @@ export default function DatabasesPanel() {
             fetchDbMetrics();
             const interval = setInterval(fetchDbMetrics, 5000);
             return () => clearInterval(interval);
+        }
+    }, [connectDb, detailActiveTab]);
+
+    useEffect(() => {
+        if (connectDb && detailActiveTab === 'backups') {
+            fetchDbBackups();
         }
     }, [connectDb, detailActiveTab]);
 
@@ -701,11 +816,20 @@ export default function DatabasesPanel() {
                 {detailActiveTab === 'backups' && (
                     <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                         <div>
-                            <div className="section-title" style={{ fontSize: '1.1rem', marginBottom: '4px' }}>
-                                Резервные копии базы данных
+                            <div className="section-title" style={{ fontSize: '1.1rem', marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span>Резервные копии базы данных</span>
+                                <button 
+                                    className="btn btn-primary btn-sm" 
+                                    onClick={handleCreateBackup}
+                                    disabled={backupCreating}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                                >
+                                    {backupCreating ? <span className="spinner" style={{ width: '12px', height: '12px' }} /> : <RefreshCw size={14} />}
+                                    Создать бэкап
+                                </button>
                             </div>
                             <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', margin: 0 }}>
-                                Ежедневные резервные копии автоматически сохраняются во встроенное объектное S3-хранилище. Вы можете скачать дамп базы данных или запустить мгновенное восстановление.
+                                Резервные копии (дампы SQL) сохраняются во встроенное S3-хранилище (MinIO). Вы можете скачать дамп или мгновенно восстановить состояние базы.
                             </p>
                         </div>
 
@@ -721,38 +845,55 @@ export default function DatabasesPanel() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {[
-                                        { id: 1, filename: `backup_daily_${c.name}_2026-07-09.sql.gz`, size: c.isPg ? '12.4 МБ' : '5.1 МБ', created_at: '2026-07-09 03:00:00', status: 'Успешно' },
-                                        { id: 2, filename: `backup_daily_${c.name}_2026-07-08.sql.gz`, size: c.isPg ? '12.1 МБ' : '4.9 МБ', created_at: '2026-07-08 03:00:00', status: 'Успешно' },
-                                        { id: 3, filename: `backup_daily_${c.name}_2026-07-07.sql.gz`, size: c.isPg ? '11.8 МБ' : '4.7 МБ', created_at: '2026-07-07 03:00:00', status: 'Успешно' },
-                                    ].map(b => (
-                                        <tr key={b.id}>
-                                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 600 }}>{b.filename}</td>
-                                            <td>{b.size}</td>
-                                            <td>{b.created_at}</td>
-                                            <td>
-                                                <span className="status-badge status-active">{b.status}</span>
-                                            </td>
-                                            <td style={{ textAlign: 'right' }}>
-                                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                                                    <button 
-                                                        className="btn btn-secondary btn-sm" 
-                                                        style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                                                        onClick={() => alert('Резервная копия успешно восстановлена!')}
-                                                    >
-                                                        <RefreshCw size={12} /> Восстановить
-                                                    </button>
-                                                    <button 
-                                                        className="btn btn-secondary btn-sm" 
-                                                        style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                                                        onClick={() => alert('Запрос на скачивание отправлен в S3...')}
-                                                    >
-                                                        <Download size={12} /> Скачать
-                                                    </button>
-                                                </div>
+                                    {backupsLoading ? (
+                                        <tr>
+                                            <td colSpan="5" style={{ textAlign: 'center', padding: '20px' }}>
+                                                <div className="spinner" style={{ margin: '0 auto' }} />
                                             </td>
                                         </tr>
-                                    ))}
+                                    ) : dbBackups.length > 0 ? (
+                                        dbBackups.map((b, idx) => (
+                                            <tr key={idx}>
+                                                <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 600 }}>{b.filename}</td>
+                                                <td>{b.size_bytes ? `${(b.size_bytes / 1024).toFixed(1)} КБ` : '0 КБ'}</td>
+                                                <td>{b.last_modified}</td>
+                                                <td>
+                                                    <span className="status-badge status-active">Успешно</span>
+                                                </td>
+                                                <td style={{ textAlign: 'right' }}>
+                                                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                                        <button 
+                                                            className="btn btn-secondary btn-sm" 
+                                                            style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                                                            onClick={() => handleRestoreBackup(b.filename)}
+                                                        >
+                                                            <RefreshCw size={12} /> Восстановить
+                                                        </button>
+                                                        <button 
+                                                            className="btn btn-secondary btn-sm" 
+                                                            style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                                                            onClick={() => handleDownloadBackup(b.filename)}
+                                                        >
+                                                            <Download size={12} /> Скачать
+                                                        </button>
+                                                        <button 
+                                                            className="btn btn-secondary btn-sm" 
+                                                            style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}
+                                                            onClick={() => handleDeleteBackup(b.filename)}
+                                                        >
+                                                            Удалить
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '20px' }}>
+                                                Резервных копий пока нет. Нажмите «Создать бэкап», чтобы сделать первый снимок.
+                                            </td>
+                                        </tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>

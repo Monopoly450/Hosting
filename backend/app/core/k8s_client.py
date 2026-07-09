@@ -1494,7 +1494,54 @@ class K8sClient:
 
         db_size_mb = round(db_size_bytes / (1024 * 1024), 2) if db_size_bytes else 0.05
 
-        # 2. Получаем метрики ресурсов пода (CPU/RAM)
+        # 2. Получаем время работы (uptime) на основе даты создания пода
+        uptime_str = "0 мин."
+        try:
+            from datetime import datetime, timezone
+            creation = pods.items[0].metadata.creation_timestamp
+            if creation:
+                now = datetime.now(timezone.utc)
+                delta = now - creation
+                days = delta.days
+                hours = delta.seconds // 3600
+                minutes = (delta.seconds % 3600) // 60
+                
+                parts = []
+                if days > 0:
+                    if 11 <= days % 100 <= 19:
+                        days_word = "дней"
+                    elif days % 10 == 1:
+                        days_word = "день"
+                    elif 2 <= days % 10 <= 4:
+                        days_word = "дня"
+                    else:
+                        days_word = "дней"
+                    parts.append(f"{days} {days_word}")
+                if hours > 0:
+                    if 11 <= hours % 100 <= 19:
+                        hours_word = "часов"
+                    elif hours % 10 == 1:
+                        hours_word = "час"
+                    elif 2 <= hours % 10 <= 4:
+                        hours_word = "часа"
+                    else:
+                        hours_word = "часов"
+                    parts.append(f"{hours} {hours_word}")
+                if minutes > 0 or not parts:
+                    if 11 <= minutes % 100 <= 19:
+                        min_word = "минут"
+                    elif minutes % 10 == 1:
+                        min_word = "минута"
+                    elif 2 <= minutes % 10 <= 4:
+                        min_word = "минуты"
+                    else:
+                        min_word = "минут"
+                    parts.append(f"{minutes} {min_word}")
+                uptime_str = " ".join(parts)
+        except Exception as e:
+            logger.error(f"Failed to calculate database uptime: {e}")
+
+        # 3. Получаем метрики ресурсов пода (CPU/RAM)
         cpu_load = 0.0
         memory_usage = 42.5 # дефолтный fallback
         
@@ -1538,6 +1585,94 @@ class K8sClient:
             "db_size_mb": db_size_mb,
             "cpu_load": min(cpu_load, 100.0),
             "memory_usage": memory_usage,
-            "active_sessions": 3
+            "active_sessions": 3,
+            "uptime": uptime_str
         }
+
+    def execute_db_backup(self, db_name: str, engine: str, db_user: str, db_password: str, namespace: str = "default") -> str:
+        """Создает SQL-дамп базы данных и возвращает его содержимое"""
+        core_api = client.CoreV1Api(self.api_client)
+        pods = core_api.list_namespaced_pod(namespace, label_selector=f"app=db-{db_name}")
+        if not pods.items:
+            raise Exception("Под базы данных не найден или не запущен")
+        pod_name = pods.items[0].metadata.name
+
+        if engine == "postgresql":
+            cmd = ["sh", "-c", f"PGPASSWORD='{db_password}' pg_dump -U {db_user} -d {db_name}"]
+        else: # mysql / mariadb
+            cmd = ["sh", "-c", f"mysqldump -u {db_user} -p'{db_password}' {db_name}"]
+
+        from kubernetes.stream import stream
+        try:
+            resp = stream(
+                core_api.connect_get_namespaced_pod_exec,
+                pod_name,
+                namespace,
+                command=cmd,
+                stderr=True,
+                stdin=False,
+                stdout=True,
+                tty=False
+            )
+            
+            # Если в ответе есть ошибки подключения или авторизации, вызовем исключение
+            if "error" in resp.lower() and not "--" in resp:
+                raise Exception(resp)
+                
+            return resp
+        except Exception as e:
+            raise Exception(f"Не удалось создать резервную копию: {e}")
+
+    def execute_db_restore(self, db_name: str, engine: str, db_user: str, db_password: str, sql_content: str, namespace: str = "default"):
+        """Восстанавливает базу данных из SQL-дампа"""
+        core_api = client.CoreV1Api(self.api_client)
+        pods = core_api.list_namespaced_pod(namespace, label_selector=f"app=db-{db_name}")
+        if not pods.items:
+            raise Exception("Под базы данных не найден или не запущен")
+        pod_name = pods.items[0].metadata.name
+
+        if engine == "postgresql":
+            shell_cmd = f"PGPASSWORD='{db_password}' psql -U {db_user} -d {db_name}"
+        else: # mysql
+            shell_cmd = f"mysql -u {db_user} -p'{db_password}' {db_name}"
+
+        import subprocess
+        try:
+            # Восстанавливаем через kubectl exec с передачей stdin
+            cmd = ["kubectl", "exec", "-i", "-n", namespace, pod_name, "--", "sh", "-c", shell_cmd]
+            p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stdout, stderr = p.communicate(input=sql_content)
+            if p.returncode != 0:
+                raise Exception(stderr or stdout)
+            return stdout or "Восстановление успешно завершено"
+        except FileNotFoundError:
+            # Fallback через base64 во временный файл в контейнере
+            from kubernetes.stream import stream
+            import base64
+            b64_content = base64.b64encode(sql_content.encode('utf-8')).decode('utf-8')
+            
+            write_cmd = ["sh", "-c", f"echo '{b64_content}' | base64 -d > /tmp/restore.sql"]
+            stream(
+                core_api.connect_get_namespaced_pod_exec,
+                pod_name,
+                namespace,
+                command=write_cmd,
+                stderr=True,
+                stdin=False,
+                stdout=True,
+                tty=False
+            )
+            
+            run_cmd = ["sh", "-c", f"{shell_cmd} < /tmp/restore.sql && rm -f /tmp/restore.sql"]
+            resp = stream(
+                core_api.connect_get_namespaced_pod_exec,
+                pod_name,
+                namespace,
+                command=run_cmd,
+                stderr=True,
+                stdin=False,
+                stdout=True,
+                tty=False
+            )
+            return resp
 
