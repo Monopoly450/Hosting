@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ScrollText, RefreshCw, Search, User, Globe, AlertTriangle, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { ScrollText, RefreshCw, Search, User, Globe, AlertTriangle, CheckCircle2, ShieldCheck, X } from 'lucide-react';
 
 export default function AuditPanel() {
     const [rows, setRows] = useState([]);
@@ -8,6 +8,7 @@ export default function AuditPanel() {
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
     const [onlyFailed, setOnlyFailed] = useState(false);
+    const [selectedRow, setSelectedRow] = useState(null);
 
     const headers = () => ({ 'Authorization': `Bearer ${localStorage.getItem('aegis_admin_token') || ''}` });
 
@@ -89,7 +90,7 @@ export default function AuditPanel() {
                         <thead><tr><th>Время</th><th>Пользователь</th><th>IP</th><th>Действие</th><th>Результат</th></tr></thead>
                         <tbody>
                             {rows.map(r => (
-                                <tr key={r.id}>
+                                <tr key={r.id} onClick={() => setSelectedRow(r)} style={{ cursor: 'pointer' }}>
                                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmt(r.timestamp)}</td>
                                     <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}><User size={13} /> {r.username}</span></td>
                                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.ip}</td>
@@ -108,6 +109,63 @@ export default function AuditPanel() {
                             )}
                         </tbody>
                     </table>
+                </div>
+            )}
+
+            {selectedRow && (
+                <div className="modal-overlay" onClick={() => setSelectedRow(null)}>
+                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+                        <div className="modal-header">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <ScrollText size={20} style={{ color: 'var(--accent)' }} />
+                                <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Информация о действии</h2>
+                            </div>
+                            <button className="btn-icon" onClick={() => setSelectedRow(null)}><X size={20} /></button>
+                        </div>
+                        <div style={{ padding: '0 24px 20px 24px' }}>
+                            <div className="glass-card" style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', display: 'flex', flexDirection: 'column', gap: '14px', border: '1px solid var(--border-color)' }}>
+                                <div>
+                                    <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Действие</span>
+                                    <span style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-heading)' }}>{selectedRow.action}</span>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                                    <div>
+                                        <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Пользователь</span>
+                                        <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '5px' }}><User size={13} /> {selectedRow.username}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>IP-адрес</span>
+                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}><Globe size={13} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> {selectedRow.ip}</span>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                                    <div>
+                                        <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Метод запроса</span>
+                                        <span className="badge" style={{ textTransform: 'uppercase', padding: '4px 8px', fontSize: '0.75rem', fontWeight: 700, background: 'var(--border-color)', color: 'var(--text-secondary)' }}>{selectedRow.method}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Код ответа</span>
+                                        {selectedRow.success ? (
+                                            <span className="badge badge-success" style={{ display: 'inline-flex', padding: '4px 8px' }}><CheckCircle2 size={12} /> {selectedRow.status_code} (OK)</span>
+                                        ) : (
+                                            <span className="badge badge-danger" style={{ display: 'inline-flex', padding: '4px 8px' }}><AlertTriangle size={12} /> {selectedRow.status_code} (Ошибка)</span>
+                                        )}
+                                    </div>
+                                </div>
+                                <div>
+                                    <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>API Путь</span>
+                                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', wordBreak: 'break-all', display: 'block', padding: '8px', background: 'rgba(0,0,0,0.15)', borderRadius: '6px' }}>{selectedRow.path}</span>
+                                </div>
+                                <div>
+                                    <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Время события</span>
+                                    <span style={{ fontSize: '0.85rem' }}>{fmt(selectedRow.timestamp)}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="modal-actions">
+                            <button type="button" className="btn btn-secondary" onClick={() => setSelectedRow(null)}>Закрыть</button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
