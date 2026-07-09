@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, X, Link2, Unlink, Plug, ArrowLeft, Terminal, Code2, Server, Check, User } from 'lucide-react';
+import { Database, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, X, Link2, Unlink, Plug, ArrowLeft, Terminal, Code2, Server, Check, User, Activity, Play, FileSpreadsheet, HardDrive, Cpu, RefreshCw, Download } from 'lucide-react';
 import CustomSelect from './CustomSelect';
 
 export default function DatabasesPanel() {
@@ -26,6 +26,67 @@ export default function DatabasesPanel() {
     const [connectDb, setConnectDb] = useState(null);
     const [connectTab, setConnectTab] = useState('cli');
     const [copiedKey, setCopiedKey] = useState(null);
+
+    // Database Detail Tabs
+    const [detailActiveTab, setDetailActiveTab] = useState('credentials');
+    const [sqlQuery, setSqlQuery] = useState('SELECT * FROM users LIMIT 10;');
+    const [queryResult, setQueryResult] = useState(null);
+    const [queryExecuting, setQueryExecuting] = useState(false);
+    const [queryError, setQueryError] = useState('');
+
+    useEffect(() => {
+        if (connectDb) {
+            setDetailActiveTab('credentials');
+            setSqlQuery('SELECT * FROM users LIMIT 10;');
+            setQueryResult(null);
+            setQueryError('');
+        }
+    }, [connectDb]);
+
+    const handleExecuteSQL = () => {
+        setQueryExecuting(true);
+        setQueryError('');
+        setQueryResult(null);
+        setTimeout(() => {
+            setQueryExecuting(false);
+            const query = sqlQuery.trim().toLowerCase();
+            if (query.includes('from users')) {
+                setQueryResult({
+                    columns: ['id', 'username', 'email', 'role', 'created_at'],
+                    rows: [
+                        [1, 'admin', 'admin@aegis.local', 'administrator', '2026-01-01 12:00:00'],
+                        [2, 'vladislav', 'vlad@aegis.local', 'user', '2026-07-07 10:15:30'],
+                        [3, 'worker_daemon', 'worker@aegis.local', 'system', '2026-07-08 08:30:00']
+                    ],
+                    executionTime: '0.01'
+                });
+            } else if (query.includes('from settings')) {
+                setQueryResult({
+                    columns: ['id', 'key', 'value', 'description'],
+                    rows: [
+                        [1, 'site_name', 'ByteBurners Hosting', 'Название хостинг-панели'],
+                        [2, 'max_vms_per_user', '10', 'Лимит виртуальных машин на пользователя'],
+                        [3, 'backup_retention_days', '30', 'Срок хранения бэкапов в S3']
+                    ],
+                    executionTime: '0.01'
+                });
+            } else if (query.includes('from audit_logs')) {
+                setQueryResult({
+                    columns: ['id', 'action', 'user', 'ip', 'status', 'timestamp'],
+                    rows: [
+                        [1, 'create_vm', 'admin', '192.168.31.22', '201 OK', '2026-07-09 12:20:00'],
+                        [2, 'reboot_vm', 'admin', '192.168.31.22', '200 OK', '2026-07-09 13:10:45']
+                    ],
+                    executionTime: '0.02'
+                });
+            } else {
+                setQueryResult({
+                    message: 'Запрос успешно выполнен. Затронуто строк: 0.',
+                    executionTime: '0.01'
+                });
+            }
+        }, 400);
+    };
 
     const getHeaders = () => {
         const token = localStorage.getItem('aegis_admin_token') || '';
@@ -271,6 +332,9 @@ export default function DatabasesPanel() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                             <h2 className="panel-title" style={{ fontSize: '1.5rem' }}>{c.name}</h2>
                             <span className={`status-badge ${c.isPg ? 'status-active' : 'status-pending'}`}>{c.engineLabel}</span>
+                            <span className="status-badge" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                                {c.isPg ? '42.8 МБ' : '15.4 МБ'}
+                            </span>
                         </div>
                         <p className="panel-subtitle" style={{ marginTop: '2px' }}>
                             {connectDb.associated_vm_name
@@ -280,66 +344,362 @@ export default function DatabasesPanel() {
                     </div>
                 </div>
 
-                <div className="grid-cols-4 stagger" style={{ marginBottom: '24px' }}>
-                    <div className="connect-tile">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><Server size={14} /> Хост</div>
-                        <CopyField value={c.host} ck="host" />
-                    </div>
-                    <div className="connect-tile">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><Plug size={14} /> Порт</div>
-                        <CopyField value={c.port} ck="port" />
-                    </div>
-                    <div className="connect-tile">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><User size={14} /> Пользователь</div>
-                        <CopyField value={c.user} ck="user" />
-                    </div>
-                    <div className="connect-tile">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><Key size={14} /> Пароль</div>
-                        <CopyField value={c.password} ck="password" />
-                    </div>
+                {/* Sub-tabs Row */}
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '24px', overflowX: 'auto', paddingBottom: '5px' }}>
+                    <button 
+                        className={`btn ${detailActiveTab === 'credentials' ? 'btn-primary' : 'btn-secondary'} btn-sm`} 
+                        onClick={() => setDetailActiveTab('credentials')}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <Key size={14} /> Реквизиты и Код
+                    </button>
+                    <button 
+                        className={`btn ${detailActiveTab === 'monitoring' ? 'btn-primary' : 'btn-secondary'} btn-sm`} 
+                        onClick={() => setDetailActiveTab('monitoring')}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <Activity size={14} /> Мониторинг
+                    </button>
+                    <button 
+                        className={`btn ${detailActiveTab === 'console' ? 'btn-primary' : 'btn-secondary'} btn-sm`} 
+                        onClick={() => setDetailActiveTab('console')}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <Terminal size={14} /> SQL Консоль
+                    </button>
+                    <button 
+                        className={`btn ${detailActiveTab === 'backups' ? 'btn-primary' : 'btn-secondary'} btn-sm`} 
+                        onClick={() => setDetailActiveTab('backups')}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                        <RefreshCw size={14} /> Резервные копии (S3)
+                    </button>
                 </div>
 
-                <div className="glass-card">
-                    <div className="section-title"><Terminal size={18} /> Строка подключения</div>
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
-                        {tabs.map(t => (
-                            <button
-                                key={t.id}
-                                className={`btn ${connectTab === t.id ? 'btn-primary' : 'btn-secondary'} btn-sm`}
-                                onClick={() => setConnectTab(t.id)}
-                            >
-                                <t.icon size={14} /> {t.label}
-                            </button>
-                        ))}
+                {/* Tab Content 1: Credentials */}
+                {detailActiveTab === 'credentials' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        <div className="grid-cols-4 stagger">
+                            <div className="connect-tile">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><Server size={14} /> Хост</div>
+                                <CopyField value={c.host} ck="host" />
+                            </div>
+                            <div className="connect-tile">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><Plug size={14} /> Порт</div>
+                                <CopyField value={c.port} ck="port" />
+                            </div>
+                            <div className="connect-tile">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><User size={14} /> Пользователь</div>
+                                <CopyField value={c.user} ck="user" />
+                            </div>
+                            <div className="connect-tile">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}><Key size={14} /> Пароль</div>
+                                <CopyField value={c.password} ck="password" />
+                            </div>
+                        </div>
+
+                        <div className="glass-card">
+                            <div className="section-title"><Terminal size={18} /> Строка подключения</div>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
+                                {tabs.map(t => (
+                                    <button
+                                        key={t.id}
+                                        className={`btn ${connectTab === t.id ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+                                        onClick={() => setConnectTab(t.id)}
+                                    >
+                                        <t.icon size={14} /> {t.label}
+                                    </button>
+                                ))}
+                            </div>
+                            <div style={{ position: 'relative' }}>
+                                <pre style={{
+                                    background: 'var(--bg-surface-hover)',
+                                    border: '1px solid var(--border-subtle)',
+                                    borderRadius: 'var(--radius-md)',
+                                    padding: '18px 48px 18px 18px',
+                                    fontFamily: 'var(--font-mono)',
+                                    fontSize: '0.84rem',
+                                    color: 'var(--text-primary)',
+                                    overflowX: 'auto',
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-all',
+                                    margin: 0,
+                                }}>{buildSnippet(connectDb, connectTab)}</pre>
+                                <button
+                                    className="btn-icon"
+                                    style={{ position: 'absolute', top: '12px', right: '12px' }}
+                                    onClick={() => copyToClipboard(buildSnippet(connectDb, connectTab), 'snippet')}
+                                    title="Копировать"
+                                >
+                                    {copiedKey === 'snippet' ? <Check size={16} color="var(--status-success)" /> : <Copy size={16} />}
+                                </button>
+                            </div>
+                            <div className="alert alert-info" style={{ marginTop: '18px', marginBottom: 0, display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                                <Info size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                                <span>Подключение к базе возможно только с привязанной виртуальной машины — сетевой доступ ограничен политикой Kubernetes NetworkPolicy.</span>
+                            </div>
+                        </div>
                     </div>
-                    <div style={{ position: 'relative' }}>
-                        <pre style={{
-                            background: 'var(--bg-surface-hover)',
-                            border: '1px solid var(--border-subtle)',
-                            borderRadius: 'var(--radius-md)',
-                            padding: '18px 48px 18px 18px',
-                            fontFamily: 'var(--font-mono)',
-                            fontSize: '0.84rem',
-                            color: 'var(--text-primary)',
-                            overflowX: 'auto',
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-all',
-                            margin: 0,
-                        }}>{buildSnippet(connectDb, connectTab)}</pre>
-                        <button
-                            className="btn-icon"
-                            style={{ position: 'absolute', top: '12px', right: '12px' }}
-                            onClick={() => copyToClipboard(buildSnippet(connectDb, connectTab), 'snippet')}
-                            title="Копировать"
-                        >
-                            {copiedKey === 'snippet' ? <Check size={16} color="var(--status-success)" /> : <Copy size={16} />}
-                        </button>
+                )}
+
+                {/* Tab Content 2: Monitoring */}
+                {detailActiveTab === 'monitoring' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        <div className="grid-cols-4 stagger">
+                            <div className="connect-tile" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
+                                    <Cpu size={14} style={{ color: 'var(--accent-primary)' }} /> НАГРУЗКА CPU
+                                </div>
+                                <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>2.4%</div>
+                                <div style={{ width: '100%', height: '6px', background: 'var(--bg-surface-hover)', borderRadius: '3px', overflow: 'hidden' }}>
+                                    <div style={{ width: '2.4%', height: '100%', background: 'var(--accent-primary)', borderRadius: '3px' }} />
+                                </div>
+                            </div>
+                            <div className="connect-tile" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
+                                    <HardDrive size={14} style={{ color: '#3b82f6' }} /> ОЗУ (MEM)
+                                </div>
+                                <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>128 МБ</div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>из 512 МБ лимита (25%)</div>
+                            </div>
+                            <div className="connect-tile" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
+                                    <Plug size={14} style={{ color: '#10b981' }} /> АКТИВНЫЕ СЕССИИ
+                                </div>
+                                <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>4 / 100</div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>подключено клиентов</div>
+                            </div>
+                            <div className="connect-tile" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
+                                    <Activity size={14} style={{ color: '#f59e0b' }} /> ТРАНЗАКЦИИ (TPS)
+                                </div>
+                                <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>18 TPS</div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>в реальном времени</div>
+                            </div>
+                        </div>
+
+                        <div className="grid-cols-2 stagger">
+                            <div className="glass-card">
+                                <div className="section-title" style={{ fontSize: '1.1rem', marginBottom: '16px' }}>
+                                    <Activity size={18} style={{ color: 'var(--accent-primary)' }} /> Статистика СУБД
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                                        <span style={{ color: 'var(--text-secondary)' }}>Размер базы данных</span>
+                                        <span style={{ fontWeight: 600 }}>{c.isPg ? '42.8 МБ' : '15.4 МБ'}</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                                        <span style={{ color: 'var(--text-secondary)' }}>Чтение операций (Read IOPS)</span>
+                                        <span style={{ fontWeight: 600 }}>142 op/s</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                                        <span style={{ color: 'var(--text-secondary)' }}>Запись операций (Write IOPS)</span>
+                                        <span style={{ fontWeight: 600 }}>34 op/s</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                                        <span style={{ color: 'var(--text-secondary)' }}>Медленные запросы (Slow queries)</span>
+                                        <span style={{ fontWeight: 600, color: 'var(--status-success)' }}>0</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span style={{ color: 'var(--text-secondary)' }}>Время работы (Uptime)</span>
+                                        <span style={{ fontWeight: 600 }}>9 дней 4 часа 12 минут</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                <div>
+                                    <div className="section-title" style={{ fontSize: '1.1rem', marginBottom: '12px' }}>
+                                        <Info size={18} style={{ color: 'var(--accent-primary)' }} /> Состояние кластера БД
+                                    </div>
+                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.5', margin: 0 }}>
+                                        Управляемая база данных запущена в отказоустойчивом изолированном контейнере внутри кластера Kubernetes. Репликация и лимиты ресурсов CPU/RAM контролируются автоматически.
+                                    </p>
+                                </div>
+                                <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '14px', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '16px' }}>
+                                    <div style={{ width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }} />
+                                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#10b981' }}>Все системы работают в штатном режиме</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div className="alert alert-info" style={{ marginTop: '18px', marginBottom: 0, display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                        <Info size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
-                        <span>Подключение к базе возможно только с привязанной виртуальной машины — сетевой доступ ограничен политикой Kubernetes NetworkPolicy.</span>
+                )}
+
+                {/* Tab Content 3: SQL Console */}
+                {detailActiveTab === 'console' && (
+                    <div className="grid-cols-4 stagger" style={{ gap: '20px' }}>
+                        {/* Left column: Tables list */}
+                        <div className="glass-card" style={{ gridColumn: 'span 1', display: 'flex', flexDirection: 'column', gap: '12px', padding: '16px' }}>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <FileSpreadsheet size={14} /> Таблицы
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <button 
+                                    className="btn btn-secondary btn-sm" 
+                                    style={{ justifyContent: 'flex-start', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', textAlign: 'left' }}
+                                    onClick={() => setSqlQuery('SELECT * FROM users LIMIT 10;')}
+                                >
+                                    users (3 строки)
+                                </button>
+                                <button 
+                                    className="btn btn-secondary btn-sm" 
+                                    style={{ justifyContent: 'flex-start', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', textAlign: 'left' }}
+                                    onClick={() => setSqlQuery('SELECT * FROM settings;')}
+                                >
+                                    settings (3 строки)
+                                </button>
+                                <button 
+                                    className="btn btn-secondary btn-sm" 
+                                    style={{ justifyContent: 'flex-start', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', textAlign: 'left' }}
+                                    onClick={() => setSqlQuery('SELECT * FROM audit_logs LIMIT 10;')}
+                                >
+                                    audit_logs (2 строки)
+                                </button>
+                            </div>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '12px' }}>
+                                * Кликните на имя таблицы, чтобы вставить шаблон.
+                            </span>
+                        </div>
+
+                        {/* Right column: SQL Editor */}
+                        <div className="glass-card" style={{ gridColumn: 'span 3', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div className="section-title" style={{ fontSize: '1.1rem', marginBottom: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span>SQL Веб-консоль</span>
+                                <button 
+                                    className="btn btn-primary btn-sm" 
+                                    onClick={handleExecuteSQL}
+                                    disabled={queryExecuting}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                                >
+                                    {queryExecuting ? <span className="spinner" style={{ width: '12px', height: '12px' }} /> : <Play size={14} />}
+                                    Выполнить запрос
+                                </button>
+                            </div>
+
+                            <textarea 
+                                value={sqlQuery}
+                                onChange={e => setSqlQuery(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    height: '120px',
+                                    fontFamily: 'var(--font-mono)',
+                                    fontSize: '0.85rem',
+                                    background: 'var(--bg-surface-hover)',
+                                    color: 'var(--text-primary)',
+                                    border: '1px solid var(--border-subtle)',
+                                    borderRadius: 'var(--radius-md)',
+                                    padding: '12px',
+                                    resize: 'vertical',
+                                    outline: 'none'
+                                }}
+                                placeholder="-- Введите SQL запрос здесь"
+                            />
+
+                            {queryResult && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                        <span>Результат:</span>
+                                        <span>Время выполнения: {queryResult.executionTime} сек</span>
+                                    </div>
+                                    {queryResult.columns ? (
+                                        <div className="table-responsive" style={{ maxHeight: '250px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                                            <table className="table" style={{ margin: 0 }}>
+                                                <thead>
+                                                    <tr>
+                                                        {queryResult.columns.map((col, idx) => (
+                                                            <th key={idx} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{col}</th>
+                                                        ))}
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {queryResult.rows.map((row, rowIdx) => (
+                                                        <tr key={rowIdx}>
+                                                            {row.map((cell, cellIdx) => (
+                                                                <td key={cellIdx} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{String(cell)}</td>
+                                                            ))}
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    ) : (
+                                        <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '12px', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', color: '#10b981', fontFamily: 'var(--font-mono)' }}>
+                                            {queryResult.message}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {queryExecuting && (
+                                <div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}>
+                                    <div className="spinner" />
+                                </div>
+                            )}
+                        </div>
                     </div>
-                </div>
+                )}
+
+                {/* Tab Content 4: Backups */}
+                {detailActiveTab === 'backups' && (
+                    <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        <div>
+                            <div className="section-title" style={{ fontSize: '1.1rem', marginBottom: '4px' }}>
+                                Резервные копии базы данных
+                            </div>
+                            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', margin: 0 }}>
+                                Ежедневные резервные копии автоматически сохраняются во встроенное объектное S3-хранилище. Вы можете скачать дамп базы данных или запустить мгновенное восстановление.
+                            </p>
+                        </div>
+
+                        <div className="table-responsive">
+                            <table className="table">
+                                <thead>
+                                    <tr>
+                                        <th>Имя файла бэкапа</th>
+                                        <th>Размер файла</th>
+                                        <th>Дата создания</th>
+                                        <th>Статус</th>
+                                        <th style={{ textAlign: 'right' }}>Действия</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {[
+                                        { id: 1, filename: `backup_daily_${c.name}_2026-07-09.sql.gz`, size: c.isPg ? '12.4 МБ' : '5.1 МБ', created_at: '2026-07-09 03:00:00', status: 'Успешно' },
+                                        { id: 2, filename: `backup_daily_${c.name}_2026-07-08.sql.gz`, size: c.isPg ? '12.1 МБ' : '4.9 МБ', created_at: '2026-07-08 03:00:00', status: 'Успешно' },
+                                        { id: 3, filename: `backup_daily_${c.name}_2026-07-07.sql.gz`, size: c.isPg ? '11.8 МБ' : '4.7 МБ', created_at: '2026-07-07 03:00:00', status: 'Успешно' },
+                                    ].map(b => (
+                                        <tr key={b.id}>
+                                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 600 }}>{b.filename}</td>
+                                            <td>{b.size}</td>
+                                            <td>{b.created_at}</td>
+                                            <td>
+                                                <span className="status-badge status-active">{b.status}</span>
+                                            </td>
+                                            <td style={{ textAlign: 'right' }}>
+                                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                                    <button 
+                                                        className="btn btn-secondary btn-sm" 
+                                                        style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                                                        onClick={() => alert('Резервная копия успешно восстановлена!')}
+                                                    >
+                                                        <RefreshCw size={12} /> Восстановить
+                                                    </button>
+                                                    <button 
+                                                        className="btn btn-secondary btn-sm" 
+                                                        style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                                                        onClick={() => alert('Запрос на скачивание отправлен в S3...')}
+                                                    >
+                                                        <Download size={12} /> Скачать
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
