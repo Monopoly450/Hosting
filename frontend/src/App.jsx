@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket, Boxes } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket, Boxes, ScrollText } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -17,6 +17,7 @@ import UsersAdminPanel from './components/UsersAdminPanel';
 import DatabasesPanel from './components/DatabasesPanel';
 import DeploymentsPanel from './components/DeploymentsPanel';
 import KubernetesPanel from './components/KubernetesPanel';
+import AuditPanel from './components/AuditPanel';
 import S3Panel from './components/S3Panel';
 import VolumesPanel from './components/VolumesPanel';
 import MailPanel from './components/MailPanel';
@@ -390,6 +391,7 @@ const App = () => {
       case 'databases': return 'Управляемые базы данных';
       case 'deployments': return 'Деплой приложений';
       case 'kubernetes': return 'Kubernetes кластер';
+      case 'audit': return 'Логи аудита';
       case 's3': return 'S3 Объектное хранилище';
       case 'volumes': return 'Сетевые диски';
       case 'mail': return 'Почтовый хостинг';
@@ -580,6 +582,14 @@ const App = () => {
               >
                 <Boxes size={18} />
                 Kubernetes
+              </button>
+
+              <button
+                className={`nav-item ${activeTab === 'audit' && !selectedVMDetailName ? 'active' : ''}`}
+                onClick={() => navigateToTab('audit')}
+              >
+                <ScrollText size={18} />
+                Логи аудита
               </button>
 
               <button 
@@ -790,6 +800,8 @@ const App = () => {
             <DockerPanel />
           ) : activeTab === 'kubernetes' ? (
             <KubernetesPanel />
+          ) : activeTab === 'audit' ? (
+            <AuditPanel />
           ) : activeTab === 'infra' ? (
             <InfraPanel />
           ) : activeTab === 'users' ? (

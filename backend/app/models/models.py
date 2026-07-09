@@ -208,3 +208,17 @@ class AppDeployment(Base):
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     status = Column(String, default="Deploying")  # Deploying | Running | Error
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+    username = Column(String, index=True)   # кто выполнил действие
+    ip = Column(String)                     # с какого IP
+    method = Column(String)                 # HTTP-метод
+    path = Column(String)                   # путь запроса
+    action = Column(String)                 # человекочитаемое действие
+    status_code = Column(Integer)           # код ответа
+    success = Column(Boolean, default=True)

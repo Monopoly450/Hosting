@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api import vms, host, vnc, images, docker_admin, external_servers, infra, clusters, auth, databases, s3, volumes, snapshots, mail, deployments, kubernetes as kubernetes_api, ssh_terminal
+from app.api import vms, host, vnc, images, docker_admin, external_servers, infra, clusters, auth, databases, s3, volumes, snapshots, mail, deployments, kubernetes as kubernetes_api, ssh_terminal, audit
 from app.core.auth import verify_admin_token
 
 # Настройка логирования
@@ -153,6 +153,20 @@ app.include_router(images.router, prefix=f"{settings.API_V1_STR}/images", tags=[
 app.include_router(docker_admin.router, prefix=f"{settings.API_V1_STR}/docker", tags=["docker"], dependencies=[Depends(verify_admin_token)])
 app.include_router(external_servers.router, prefix=f"{settings.API_V1_STR}/external-servers", tags=["external-servers"], dependencies=[Depends(verify_admin_token)])
 app.include_router(infra.router, prefix=f"{settings.API_V1_STR}/infra", tags=["infra"], dependencies=[Depends(verify_admin_token)])
+app.include_router(audit.router, prefix=f"{settings.API_V1_STR}/audit", tags=["audit"], dependencies=[Depends(verify_admin_token)])
+
+
+# Middleware аудита: пишет журнал по всем мутирующим запросам (кто, откуда, что, результат)
+@app.middleware("http")
+async def audit_middleware(request, call_next):
+    response = await call_next(request)
+    try:
+        if request.method in ("POST", "PUT", "DELETE", "PATCH") and request.url.path.startswith(settings.API_V1_STR):
+            from app.core.audit import log_request_audit
+            log_request_audit(request, response.status_code)
+    except Exception:
+        pass
+    return response
 
 @app.get("/")
 def read_root():
