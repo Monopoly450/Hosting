@@ -129,7 +129,6 @@ body {
   flex-direction: column;
   padding: 24px 16px;
   flex-shrink: 0;
-  z-index: 10;
   box-shadow: none;
   max-height: 100%;
   overflow: hidden;
@@ -213,6 +212,7 @@ body {
   overflow-y: auto;
   position: relative;
   padding: 0;
+  z-index: 1;
 }
 
 .top-header {

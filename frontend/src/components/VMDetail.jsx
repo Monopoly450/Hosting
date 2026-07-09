@@ -535,13 +535,13 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
 
       {showMigrateModal && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '500px' }}>
+        <div className="modal-overlay" onClick={() => setShowMigrateModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
             <div className="modal-header">
-              <h3>Миграция ВМ на Внешний сервер</h3>
-              <button className="btn-icon-only" onClick={() => setShowMigrateModal(false)}><X size={20} /></button>
+              <h2>Миграция ВМ на Внешний сервер</h2>
+              <button className="btn-icon" onClick={() => setShowMigrateModal(false)}><X size={20} /></button>
             </div>
-            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ background: 'var(--status-warning-bg)', color: 'var(--status-warning)', padding: '16px', borderRadius: 'var(--radius-md)', fontSize: '0.9rem' }}>
                 <AlertTriangle size={18} style={{ marginBottom: '8px' }} />
                 <p style={{ margin: 0 }}>ВМ будет выключена, а её диск отправлен по SSH на выбранный внешний сервер. После миграции она продолжит работу там, а локальная копия будет удалена.</p>
@@ -562,7 +562,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               </div>
               
             </div>
-            <div className="modal-footer">
+            <div className="modal-actions">
               <button className="btn btn-secondary" onClick={() => setShowMigrateModal(false)} disabled={migrating}>Отмена</button>
               <button className="btn btn-primary" onClick={handleMigrate} disabled={migrating || externalServers.length === 0}>
                 {migrating ? <span className="spinner" /> : <><Send size={16} /> Начать миграцию</>}
