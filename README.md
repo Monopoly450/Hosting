@@ -94,10 +94,19 @@ kvm-ok
    git clone https://github.com/Monopoly450/Hosting.git ~/Hosting
    cd ~/Hosting
    ```
-3. Запустите скрипт автоматической настройки хоста от имени root:
+3. Сделайте скрипты исполняемыми и запустите настройку хоста (от имени root):
    ```bash
+   chmod +x scripts/*.sh
    sudo ./scripts/bootstrap-host.sh
+   # (Если вы уже вошли под пользователем root, слово 'sudo' писать не нужно)
    ```
+   > [!TIP]
+   > **Проблема с зависанием загрузки K3s с GitHub:**
+   > Если скачивание K3s зависает из-за сетевых блокировок, скачайте бинарник на локальный ПК и перекиньте на сервер:
+   > 1. На вашем Mac/ПК: `curl -LO https://github.com/k3s-io/k3s/releases/download/v1.36.2+k3s1/k3s && scp k3s root@IP_СЕРВЕРА:/tmp/k3s`
+   > 2. На сервере: `mv /tmp/k3s /usr/local/bin/k3s && chmod +x /usr/local/bin/k3s`
+   > 3. Запуск на сервере: `INSTALL_K3S_SKIP_DOWNLOAD=true ./scripts/bootstrap-host.sh`
+
    *Скрипт автоматически настроит сетевой мост, dnsmasq, установит K3s, KubeVirt, Multus, Helm, Prometheus и Nginx.*
 4. Создайте файл конфигурации окружения `.env` из шаблона и **обязательно замените все значения `CHANGE_ME`** на сгенерированные секреты:
    ```bash
@@ -134,6 +143,7 @@ kvm-ok
    ```bash
    git clone https://github.com/Monopoly450/Hosting.git ~/Hosting
    cd ~/Hosting
+   chmod +x scripts/*.sh
    sudo ./scripts/bootstrap-host.sh
    cp .env.example .env
    docker compose up -d --build
@@ -146,6 +156,7 @@ kvm-ok
 
 1. Установите систему и запустите базовый скрипт настройки:
    ```bash
+   chmod +x scripts/*.sh
    sudo ./scripts/bootstrap-host.sh
    ```
 2. Скрипт автоматически определит ваш основной внешний сетевой интерфейс (на котором висит белый IP) и настроит правила NAT Masquerade через `iptables`.
