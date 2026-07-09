@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+"""
+aegis — CLI для управления хостингом ByteBurners прямо из консоли.
+
+Зависимостей нет (только стандартная библиотека Python 3.8+).
+Конфиг (адрес панели + токен) хранится в ~/.aegis/config.json.
+
+Быстрый старт:
+    aegis login --url http://SERVER:8000 --user admin --password '<пароль>'
+    # или сразу по админ-токену:
+    aegis configure --url http://SERVER:8000 --token '<ADMIN_TOKEN>'
+
+    aegis vm list
+    aegis vm create my-vm --os ubuntu --cpu 2 --ram 2 --disk 20
+    aegis vm stop my-vm
+    aegis audit --failed
+"""
+import argparse
+import json
+import os
+import sys
+import urllib.request
+import urllib.error
+
+CONFIG_PATH = os.path.expanduser("~/.aegis/config.json")
+
+
+def _color(txt, code):
+    if not sys.stdout.isatty():
+        return txt
+    return f"\033[{code}m{txt}\033[0m"
+
+
+def die(msg):
+    print(_color(f"Ошибка: {msg}", "31"), file=sys.stderr)
+    sys.exit(1)
+
+
+def load_config():
+    try:
+        with open(CONFIG_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_config(cfg):
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
+    os.chmod(CONFIG_PATH, 0o600)
+
+
+def api(method, path, body=None, token=None, url=None):
+    cfg = load_config()
+    base = url or cfg.get("url")
+    tok = token or cfg.get("token")
+    if not base:
+        die("Не задан адрес панели. Выполните: aegis configure --url ... --token ...")
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(base.rstrip("/") + path, data=data, method=method)
+    req.add_header("Content-Type", "application/json")
+    if tok:
+        # JWT (с точками) -> Bearer, иначе X-Admin-Token
+        if "." in tok:
+            req.add_header("Authorization", f"Bearer {tok}")
+        else:
+            req.add_header("X-Admin-Token", tok)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = resp.read().decode()
+            return json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode()
+        try:
+            detail = json.loads(detail).get("detail", detail)
+        except Exception:
+            pass
+        die(f"{e.code}: {detail}")
+    except urllib.error.URLError as e:
+        die(f"нет связи с панелью: {e.reason}")
+
+
+def table(rows, cols):
+    """Печатает список словарей как таблицу. cols = [(ключ, Заголовок), ...]"""
+    if not rows:
+        print("(пусто)")
+        return
+    widths = {k: len(h) for k, h in cols}
+    for r in rows:
+        for k, _ in cols:
+            widths[k] = max(widths[k], len(str(r.get(k, ""))))
+    header = "  ".join(_color(h.ljust(widths[k]), "1") for k, h in cols)
+    print(header)
+    for r in rows:
+        print("  ".join(str(r.get(k, "")).ljust(widths[k]) for k, _ in cols))
+
+
+# ------------------------- команды -------------------------
+
+def cmd_configure(a):
+    cfg = load_config()
+    if a.url:
+        cfg["url"] = a.url
+    if a.token:
+        cfg["token"] = a.token
+    save_config(cfg)
+    print(_color("Сохранено в ~/.aegis/config.json", "32"))
+
+
+def cmd_login(a):
+    res = api("POST", "/api/auth/login", {"username": a.user, "password": a.password}, token="", url=a.url)
+    cfg = load_config()
+    cfg["url"] = a.url
+    cfg["token"] = res["access_token"]
+    save_config(cfg)
+    print(_color(f"Вход выполнен: {res.get('username')} ({res.get('role')})", "32"))
+
+
+def cmd_vm_list(a):
+    vms = api("GET", "/api/vms")
+    rows = [{
+        "name": v.get("name"),
+        "status": v.get("status"),
+        "os": v.get("os_type"),
+        "cpu": v.get("cpu_cores"),
+        "ram": v.get("memory"),
+        "ip": (v.get("ips") or ["—"])[0],
+        "ssh_port": v.get("ssh_port") or "—",
+    } for v in vms]
+    table(rows, [("name", "ИМЯ"), ("status", "СТАТУС"), ("os", "ОС"), ("cpu", "CPU"), ("ram", "RAM"), ("ip", "IP"), ("ssh_port", "SSH-ПОРТ")])
+
+
+def cmd_vm_create(a):
+    body = {"name": a.name, "os_type": a.os, "cpu_cores": a.cpu, "memory_gb": a.ram, "disk_gb": a.disk}
+    res = api("POST", "/api/vms", body)
+    print(_color(f"ВМ «{a.name}» создаётся (task {res.get('task_id')})", "32"))
+
+
+def cmd_vm_action(a):
+    api("POST", f"/api/vms/{a.name}/{a.action}")
+    print(_color(f"ВМ «{a.name}»: {a.action} — команда отправлена", "32"))
+
+
+def cmd_vm_delete(a):
+    api("DELETE", f"/api/vms/{a.name}")
+    print(_color(f"ВМ «{a.name}» удалена", "32"))
+
+
+def cmd_clusters(a):
+    cs = api("GET", "/api/clusters")
+    rows = [{"id": c["id"], "name": c["name"], "network": c.get("network_name"), "status": c.get("status"), "vms": len(c.get("vms", []))} for c in cs]
+    table(rows, [("id", "ID"), ("name", "ИМЯ"), ("network", "СЕТЬ"), ("status", "СТАТУС"), ("vms", "ВМ")])
+
+
+def cmd_db(a):
+    dbs = api("GET", "/api/databases")
+    rows = [{"name": d.get("db_name"), "engine": d.get("engine"), "host": d.get("db_host"), "user": d.get("db_user"), "status": d.get("status")} for d in dbs]
+    table(rows, [("name", "ИМЯ"), ("engine", "СУБД"), ("host", "ХОСТ"), ("user", "ЛОГИН"), ("status", "СТАТУС")])
+
+
+def cmd_deploy(a):
+    deps = api("GET", "/api/deployments")
+    rows = [{"name": d.get("name"), "stack": d.get("stack_label"), "status": d.get("status"), "url": d.get("app_url") or "—", "repo": d.get("repo_url")} for d in deps]
+    table(rows, [("name", "ИМЯ"), ("stack", "СТЕК"), ("status", "СТАТУС"), ("url", "URL"), ("repo", "РЕПОЗИТОРИЙ")])
+
+
+def cmd_audit(a):
+    path = f"/api/audit?limit={a.limit}" + ("&only_failed=true" if a.failed else "")
+    rows = api("GET", path)
+    out = [{"time": (r.get("timestamp") or "")[:19].replace("T", " "), "user": r.get("username"), "ip": r.get("ip"), "action": r.get("action"), "res": r.get("status_code")} for r in rows]
+    table(out, [("time", "ВРЕМЯ"), ("user", "ПОЛЬЗОВАТЕЛЬ"), ("ip", "IP"), ("action", "ДЕЙСТВИЕ"), ("res", "КОД")])
+
+
+def build_parser():
+    p = argparse.ArgumentParser(prog="aegis", description="CLI управления хостингом ByteBurners")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    c = sub.add_parser("configure", help="Сохранить адрес панели и токен")
+    c.add_argument("--url"); c.add_argument("--token"); c.set_defaults(func=cmd_configure)
+
+    c = sub.add_parser("login", help="Войти по логину/паролю и сохранить сессию")
+    c.add_argument("--url", required=True); c.add_argument("--user", required=True); c.add_argument("--password", required=True); c.set_defaults(func=cmd_login)
+
+    vm = sub.add_parser("vm", help="Управление виртуальными машинами").add_subparsers(dest="sub", required=True)
+    vm.add_parser("list", help="Список ВМ").set_defaults(func=cmd_vm_list)
+    cc = vm.add_parser("create", help="Создать ВМ")
+    cc.add_argument("name"); cc.add_argument("--os", default="ubuntu"); cc.add_argument("--cpu", type=int, default=2); cc.add_argument("--ram", type=int, default=2); cc.add_argument("--disk", type=int, default=20); cc.set_defaults(func=cmd_vm_create)
+    for act in ("start", "stop", "restart"):
+        pa = vm.add_parser(act, help=f"{act} ВМ"); pa.add_argument("name"); pa.set_defaults(func=cmd_vm_action, action=act)
+    dd = vm.add_parser("delete", help="Удалить ВМ"); dd.add_argument("name"); dd.set_defaults(func=cmd_vm_delete)
+
+    sub.add_parser("clusters", help="Список кластеров").set_defaults(func=cmd_clusters)
+    sub.add_parser("db", help="Список баз данных").set_defaults(func=cmd_db)
+    sub.add_parser("deploy", help="Список деплоев").set_defaults(func=cmd_deploy)
+    au = sub.add_parser("audit", help="Журнал аудита"); au.add_argument("--limit", type=int, default=30); au.add_argument("--failed", action="store_true"); au.set_defaults(func=cmd_audit)
+    return p
+
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+    # для vm-подкоманд action-атрибут может конфликтовать — обрабатываем через func
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
