@@ -643,7 +643,9 @@ export default function DatabasesPanel() {
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
                                             <Activity size={14} style={{ color: '#f59e0b' }} /> ТРАНЗАКЦИИ
                                         </div>
-                                        <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>18 TPS</div>
+                                        <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>
+                                            {dbMetrics ? `${dbMetrics.tps} TPS` : '...'}
+                                        </div>
                                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>в реальном времени</div>
                                     </div>
                                 </div>
@@ -660,19 +662,21 @@ export default function DatabasesPanel() {
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
                                                 <span style={{ color: 'var(--text-secondary)' }}>Чтение операций (Read IOPS)</span>
-                                                <span style={{ fontWeight: 600 }}>142 op/s</span>
+                                                <span style={{ fontWeight: 600 }}>{dbMetrics ? `${dbMetrics.read_iops} op/s` : '...'}</span>
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
                                                 <span style={{ color: 'var(--text-secondary)' }}>Запись операций (Write IOPS)</span>
-                                                <span style={{ fontWeight: 600 }}>34 op/s</span>
+                                                <span style={{ fontWeight: 600 }}>{dbMetrics ? `${dbMetrics.write_iops} op/s` : '...'}</span>
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
                                                 <span style={{ color: 'var(--text-secondary)' }}>Медленные запросы (Slow queries)</span>
-                                                <span style={{ fontWeight: 600, color: 'var(--status-success)' }}>0</span>
+                                                <span style={{ fontWeight: 600, color: dbMetrics && dbMetrics.slow_queries > 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
+                                                    {dbMetrics ? dbMetrics.slow_queries : '...'}
+                                                </span>
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                                 <span style={{ color: 'var(--text-secondary)' }}>Время работы (Uptime)</span>
-                                                <span style={{ fontWeight: 600 }}>9 дней 4 часа 12 минут</span>
+                                                <span style={{ fontWeight: 600 }}>{dbMetrics ? dbMetrics.uptime : '...'}</span>
                                             </div>
                                         </div>
                                     </div>

@@ -9,6 +9,8 @@ from app.core.config import settings
 
 logger = logging.getLogger("app.k8s_client")
 
+db_metrics_cache = {}
+
 class K8sClient:
     def __init__(self):
         self.load_config()
@@ -1541,7 +1543,102 @@ class K8sClient:
         except Exception as e:
             logger.error(f"Failed to calculate database uptime: {e}")
 
-        # 3. Получаем метрики ресурсов пода (CPU/RAM)
+        # 3. Запрос реальной статистики базы данных (сессии, TPS, IOPS, медленные запросы)
+        active_sessions = 1
+        tps = 0.0
+        read_iops = 0.0
+        write_iops = 0.0
+        slow_queries = 0
+
+        if engine == "postgresql":
+            try:
+                # Активные сессии
+                sql_sess = f"SELECT count(*) FROM pg_stat_activity WHERE datname = '{db_name}';"
+                resp_sess = self.execute_db_query(db_name, engine, db_user, db_password, sql_sess, namespace)
+                lines = resp_sess.strip().split('\n')
+                if len(lines) >= 2:
+                    active_sessions = int(lines[1].replace('"', '').strip() or 1)
+            except Exception:
+                pass
+
+            try:
+                # Медленные запросы (> 1s)
+                sql_slow = f"SELECT count(*) FROM pg_stat_activity WHERE datname = '{db_name}' AND state = 'active' AND (now() - query_start) > interval '1 second';"
+                resp_slow = self.execute_db_query(db_name, engine, db_user, db_password, sql_slow, namespace)
+                lines = resp_slow.strip().split('\n')
+                if len(lines) >= 2:
+                    slow_queries = int(lines[1].replace('"', '').strip() or 0)
+            except Exception:
+                pass
+
+            try:
+                # Транзакции, чтение, запись
+                sql_stats = f"SELECT (xact_commit + xact_rollback) as xacts, blks_read as reads, (tup_inserted + tup_updated + tup_deleted) as writes FROM pg_stat_database WHERE datname = '{db_name}';"
+                resp_stats = self.execute_db_query(db_name, engine, db_user, db_password, sql_stats, namespace)
+                lines = resp_stats.strip().split('\n')
+                if len(lines) >= 2:
+                    parts = lines[1].replace('"', '').split(',')
+                    if len(parts) >= 3:
+                        curr_xacts = int(parts[0].strip() or 0)
+                        curr_reads = int(parts[1].strip() or 0)
+                        curr_writes = int(parts[2].strip() or 0)
+
+                        now_ts = time.time()
+                        prev = db_metrics_cache.get(db_name)
+                        if prev:
+                            dt = now_ts - prev["timestamp"]
+                            if dt > 0:
+                                tps = max(0.0, round((curr_xacts - prev["xacts"]) / dt, 1))
+                                read_iops = max(0.0, round((curr_reads - prev["reads"]) / dt, 1))
+                                write_iops = max(0.0, round((curr_writes - prev["writes"]) / dt, 1))
+                        db_metrics_cache[db_name] = {
+                            "timestamp": now_ts,
+                            "xacts": curr_xacts,
+                            "reads": curr_reads,
+                            "writes": curr_writes
+                        }
+            except Exception as e:
+                logger.error(f"Failed to query PG stats: {e}")
+        else: # mysql / mariadb
+            try:
+                sql_status = "SHOW STATUS WHERE Variable_name IN ('Threads_connected', 'Questions', 'Innodb_rows_read', 'Innodb_rows_inserted', 'Innodb_rows_updated', 'Innodb_rows_deleted', 'Slow_queries');"
+                resp_status = self.execute_db_query(db_name, engine, db_user, db_password, sql_status, namespace)
+                
+                status_vars = {}
+                for line in resp_status.strip().split('\n')[1:]:
+                    parts = line.split('\t')
+                    if len(parts) >= 2:
+                        status_vars[parts[0].strip()] = parts[1].strip()
+                        
+                active_sessions = int(status_vars.get("Threads_connected", 1))
+                slow_queries = int(status_vars.get("Slow_queries", 0))
+                
+                curr_xacts = int(status_vars.get("Questions", 0))
+                curr_reads = int(status_vars.get("Innodb_rows_read", 0))
+                curr_writes = (
+                    int(status_vars.get("Innodb_rows_inserted", 0)) +
+                    int(status_vars.get("Innodb_rows_updated", 0)) +
+                    int(status_vars.get("Innodb_rows_deleted", 0))
+                )
+                
+                now_ts = time.time()
+                prev = db_metrics_cache.get(db_name)
+                if prev:
+                    dt = now_ts - prev["timestamp"]
+                    if dt > 0:
+                        tps = max(0.0, round((curr_xacts - prev["xacts"]) / dt, 1))
+                        read_iops = max(0.0, round((curr_reads - prev["reads"]) / dt, 1))
+                        write_iops = max(0.0, round((curr_writes - prev["writes"]) / dt, 1))
+                db_metrics_cache[db_name] = {
+                    "timestamp": now_ts,
+                    "xacts": curr_xacts,
+                    "reads": curr_reads,
+                    "writes": curr_writes
+                }
+            except Exception as e:
+                logger.error(f"Failed to query MySQL stats: {e}")
+
+        # 4. Получаем метрики ресурсов пода (CPU/RAM)
         cpu_load = 0.0
         memory_usage = 42.5 # дефолтный fallback
         
@@ -1585,8 +1682,12 @@ class K8sClient:
             "db_size_mb": db_size_mb,
             "cpu_load": min(cpu_load, 100.0),
             "memory_usage": memory_usage,
-            "active_sessions": 3,
-            "uptime": uptime_str
+            "active_sessions": active_sessions,
+            "uptime": uptime_str,
+            "tps": tps,
+            "read_iops": read_iops,
+            "write_iops": write_iops,
+            "slow_queries": slow_queries
         }
 
     def execute_db_backup(self, db_name: str, engine: str, db_user: str, db_password: str, namespace: str = "default") -> str:
