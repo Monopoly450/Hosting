@@ -253,3 +253,147 @@ def bind_database(db_id: int, req: DatabaseBindRequest, current_user: User = Dep
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+class SQLQueryRequest(BaseModel):
+    sql: str
+
+@router.get("/{db_id}/metrics")
+def get_database_metrics(db_id: int, current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user_db = db.query(UserDatabase).filter(UserDatabase.id == db_id).first()
+        if not user_db:
+            raise HTTPException(status_code=404, detail="База данных не найдена")
+            
+        if current_user.role != "admin" and user_db.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+            
+        from app.core.k8s_client import K8sClient
+        k8s = K8sClient()
+        db_password = decrypt_secret(user_db.db_password)
+        
+        try:
+            metrics = k8s.get_db_metrics(
+                db_name=user_db.db_name,
+                engine=user_db.db_type,
+                db_user=user_db.db_user,
+                db_password=db_password
+            )
+            return metrics
+        except Exception as e:
+            logger.error(f"Failed to fetch DB metrics for {user_db.db_name}: {e}")
+            return {
+                "db_size_mb": 0.05,
+                "cpu_load": 0.0,
+                "memory_usage": 0.0,
+                "active_sessions": 0,
+                "error": str(e)
+            }
+    finally:
+        db.close()
+
+@router.post("/{db_id}/query")
+def execute_sql_query(db_id: int, req: SQLQueryRequest, current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user_db = db.query(UserDatabase).filter(UserDatabase.id == db_id).first()
+        if not user_db:
+            raise HTTPException(status_code=404, detail="База данных не найдена")
+            
+        if current_user.role != "admin" and user_db.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+            
+        sql = req.sql.strip()
+        from app.core.k8s_client import K8sClient
+        k8s = K8sClient()
+        db_password = decrypt_secret(user_db.db_password)
+        
+        try:
+            raw_output = k8s.execute_db_query(
+                db_name=user_db.db_name,
+                engine=user_db.db_type,
+                db_user=user_db.db_user,
+                db_password=db_password,
+                sql=sql
+            )
+            
+            import csv
+            from io import StringIO
+            
+            if "ERROR:" in raw_output or "error" in raw_output.lower():
+                raise Exception(raw_output.strip())
+                
+            if user_db.db_type == "postgresql":
+                lines = raw_output.strip().split('\n')
+                if not lines or (len(lines) == 1 and not ',' in lines[0] and not '"' in lines[0]):
+                    return {"columns": None, "rows": None, "message": raw_output.strip() or "Запрос выполнен успешно"}
+                
+                f = StringIO(raw_output.strip())
+                reader = csv.reader(f)
+                rows = list(reader)
+                if not rows:
+                    return {"columns": None, "rows": None, "message": "Запрос выполнен успешно"}
+                columns = rows[0]
+                data_rows = rows[1:]
+                return {"columns": columns, "rows": data_rows, "message": None}
+            else: # mysql / mariadb
+                lines = [line.split('\t') for line in raw_output.strip().split('\n') if line]
+                if not lines:
+                    return {"columns": None, "rows": None, "message": "Запрос выполнен успешно"}
+                if len(lines) == 1 and len(lines[0]) == 1 and not lines[0][0]:
+                    return {"columns": None, "rows": None, "message": "Запрос выполнен успешно"}
+                
+                columns = lines[0]
+                data_rows = lines[1:]
+                if len(lines) == 1 and len(columns) == 1:
+                    return {"columns": None, "rows": None, "message": columns[0]}
+                
+                return {"columns": columns, "rows": data_rows, "message": None}
+                
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        db.close()
+
+@router.get("/{db_id}/tables")
+def get_database_tables(db_id: int, current_user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        user_db = db.query(UserDatabase).filter(UserDatabase.id == db_id).first()
+        if not user_db:
+            raise HTTPException(status_code=404, detail="База данных не найдена")
+            
+        if current_user.role != "admin" and user_db.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+            
+        from app.core.k8s_client import K8sClient
+        k8s = K8sClient()
+        db_password = decrypt_secret(user_db.db_password)
+        
+        if user_db.db_type == "postgresql":
+            sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';"
+        else:
+            sql = "SHOW TABLES;"
+            
+        try:
+            raw_output = k8s.execute_db_query(
+                db_name=user_db.db_name,
+                engine=user_db.db_type,
+                db_user=user_db.db_user,
+                db_password=db_password,
+                sql=sql
+            )
+            
+            tables = []
+            lines = raw_output.strip().split('\n')
+            if len(lines) >= 2:
+                for line in lines[1:]:
+                    val = line.replace('"', '').strip()
+                    if val:
+                        tables.append(val)
+            return tables
+        except Exception as e:
+            logger.error(f"Failed to fetch tables for {user_db.db_name}: {e}")
+            return []
+    finally:
+        db.close()

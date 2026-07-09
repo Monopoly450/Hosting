@@ -27,65 +27,108 @@ export default function DatabasesPanel() {
     const [connectTab, setConnectTab] = useState('cli');
     const [copiedKey, setCopiedKey] = useState(null);
 
-    // Database Detail Tabs
+    // Database Detail Tabs and Data
     const [detailActiveTab, setDetailActiveTab] = useState('credentials');
     const [sqlQuery, setSqlQuery] = useState('SELECT * FROM users LIMIT 10;');
     const [queryResult, setQueryResult] = useState(null);
     const [queryExecuting, setQueryExecuting] = useState(false);
     const [queryError, setQueryError] = useState('');
 
+    const [dbTables, setDbTables] = useState([]);
+    const [dbMetrics, setDbMetrics] = useState(null);
+    const [metricsLoading, setMetricsLoading] = useState(false);
+    const [tablesLoading, setTablesLoading] = useState(false);
+
+    const fetchDbTables = async () => {
+        if (!connectDb) return;
+        setTablesLoading(true);
+        try {
+            const res = await fetch(`/api/databases/${connectDb.id}/tables`, {
+                headers: getHeaders()
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setDbTables(data);
+                if (data.length > 0) {
+                    setSqlQuery(`SELECT * FROM ${data[0]} LIMIT 10;`);
+                } else {
+                    setSqlQuery(connectDb.engine === 'postgresql' 
+                        ? '-- Создайте таблицу:\n-- CREATE TABLE users (id SERIAL PRIMARY KEY, name VARCHAR(50));' 
+                        : '-- Создайте таблицу:\n-- CREATE TABLE users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50));');
+                }
+            }
+        } catch (err) {
+            console.error('Ошибка загрузки списка таблиц:', err);
+        } finally {
+            setTablesLoading(false);
+        }
+    };
+
+    const fetchDbMetrics = async () => {
+        if (!connectDb) return;
+        setMetricsLoading(true);
+        try {
+            const res = await fetch(`/api/databases/${connectDb.id}/metrics`, {
+                headers: getHeaders()
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setDbMetrics(data);
+            }
+        } catch (err) {
+            console.error('Ошибка загрузки метрик БД:', err);
+        } finally {
+            setMetricsLoading(false);
+        }
+    };
+
     useEffect(() => {
         if (connectDb) {
             setDetailActiveTab('credentials');
-            setSqlQuery('SELECT * FROM users LIMIT 10;');
             setQueryResult(null);
             setQueryError('');
+            fetchDbTables();
+            fetchDbMetrics();
         }
     }, [connectDb]);
 
-    const handleExecuteSQL = () => {
+    useEffect(() => {
+        if (connectDb && detailActiveTab === 'monitoring') {
+            fetchDbMetrics();
+            const interval = setInterval(fetchDbMetrics, 5000);
+            return () => clearInterval(interval);
+        }
+    }, [connectDb, detailActiveTab]);
+
+    const handleExecuteSQL = async () => {
+        if (!connectDb || !sqlQuery.trim()) return;
         setQueryExecuting(true);
         setQueryError('');
         setQueryResult(null);
-        setTimeout(() => {
-            setQueryExecuting(false);
-            const query = sqlQuery.trim().toLowerCase();
-            if (query.includes('from users')) {
-                setQueryResult({
-                    columns: ['id', 'username', 'email', 'role', 'created_at'],
-                    rows: [
-                        [1, 'admin', 'admin@aegis.local', 'administrator', '2026-01-01 12:00:00'],
-                        [2, 'vladislav', 'vlad@aegis.local', 'user', '2026-07-07 10:15:30'],
-                        [3, 'worker_daemon', 'worker@aegis.local', 'system', '2026-07-08 08:30:00']
-                    ],
-                    executionTime: '0.01'
-                });
-            } else if (query.includes('from settings')) {
-                setQueryResult({
-                    columns: ['id', 'key', 'value', 'description'],
-                    rows: [
-                        [1, 'site_name', 'ByteBurners Hosting', 'Название хостинг-панели'],
-                        [2, 'max_vms_per_user', '10', 'Лимит виртуальных машин на пользователя'],
-                        [3, 'backup_retention_days', '30', 'Срок хранения бэкапов в S3']
-                    ],
-                    executionTime: '0.01'
-                });
-            } else if (query.includes('from audit_logs')) {
-                setQueryResult({
-                    columns: ['id', 'action', 'user', 'ip', 'status', 'timestamp'],
-                    rows: [
-                        [1, 'create_vm', 'admin', '192.168.31.22', '201 OK', '2026-07-09 12:20:00'],
-                        [2, 'reboot_vm', 'admin', '192.168.31.22', '200 OK', '2026-07-09 13:10:45']
-                    ],
-                    executionTime: '0.02'
-                });
-            } else {
-                setQueryResult({
-                    message: 'Запрос успешно выполнен. Затронуто строк: 0.',
-                    executionTime: '0.01'
-                });
+        try {
+            const res = await fetch(`/api/databases/${connectDb.id}/query`, {
+                method: 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify({ sql: sqlQuery })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.detail || 'Ошибка выполнения SQL-запроса');
             }
-        }, 400);
+            setQueryResult({
+                columns: data.columns,
+                rows: data.rows,
+                message: data.message,
+                executionTime: data.columns ? '0.01' : '0.00'
+            });
+            if (!data.columns) {
+                fetchDbTables();
+            }
+        } catch (err) {
+            setQueryError(err.message || 'Ошибка выполнения SQL-запроса');
+        } finally {
+            setQueryExecuting(false);
+        }
     };
 
     const getHeaders = () => {
@@ -333,7 +376,7 @@ export default function DatabasesPanel() {
                             <h2 className="panel-title" style={{ fontSize: '1.5rem' }}>{c.name}</h2>
                             <span className={`status-badge ${c.isPg ? 'status-active' : 'status-pending'}`}>{c.engineLabel}</span>
                             <span className="status-badge" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
-                                {c.isPg ? '42.8 МБ' : '15.4 МБ'}
+                                {dbMetrics ? `${dbMetrics.db_size_mb} МБ` : '...'}
                             </span>
                         </div>
                         <p className="panel-subtitle" style={{ marginTop: '2px' }}>
@@ -445,83 +488,97 @@ export default function DatabasesPanel() {
                 {/* Tab Content 2: Monitoring */}
                 {detailActiveTab === 'monitoring' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                        <div className="grid-cols-4 stagger">
-                            <div className="connect-tile" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
-                                    <Cpu size={14} style={{ color: 'var(--accent-primary)' }} /> НАГРУЗКА CPU
-                                </div>
-                                <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>2.4%</div>
-                                <div style={{ width: '100%', height: '6px', background: 'var(--bg-surface-hover)', borderRadius: '3px', overflow: 'hidden' }}>
-                                    <div style={{ width: '2.4%', height: '100%', background: 'var(--accent-primary)', borderRadius: '3px' }} />
-                                </div>
+                        {metricsLoading && !dbMetrics ? (
+                            <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
+                                <div className="spinner"></div>
                             </div>
-                            <div className="connect-tile" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
-                                    <HardDrive size={14} style={{ color: '#3b82f6' }} /> ОЗУ (MEM)
+                        ) : (
+                            <>
+                                <div className="grid-cols-4 stagger">
+                                    <div className="connect-tile" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
+                                            <Cpu size={14} style={{ color: 'var(--accent-primary)' }} /> НАГРУЗКА CPU
+                                        </div>
+                                        <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>
+                                            {dbMetrics ? `${dbMetrics.cpu_load}%` : '...'}
+                                        </div>
+                                        <div style={{ width: '100%', height: '6px', background: 'var(--bg-surface-hover)', borderRadius: '3px', overflow: 'hidden' }}>
+                                            <div style={{ width: dbMetrics ? `${dbMetrics.cpu_load}%` : '0%', height: '100%', background: 'var(--accent-primary)', borderRadius: '3px' }} />
+                                        </div>
+                                    </div>
+                                    <div className="connect-tile" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
+                                            <HardDrive size={14} style={{ color: '#3b82f6' }} /> ОЗУ (MEM)
+                                        </div>
+                                        <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>
+                                            {dbMetrics ? `${dbMetrics.memory_usage} МБ` : '...'}
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>из 512 МБ лимита</div>
+                                    </div>
+                                    <div className="connect-tile" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
+                                            <Plug size={14} style={{ color: '#10b981' }} /> СЕССИИ
+                                        </div>
+                                        <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>
+                                            {dbMetrics ? `${dbMetrics.active_sessions} / 100` : '...'}
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>активных подключений</div>
+                                    </div>
+                                    <div className="connect-tile" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
+                                            <Activity size={14} style={{ color: '#f59e0b' }} /> ТРАНЗАКЦИИ
+                                        </div>
+                                        <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>18 TPS</div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>в реальном времени</div>
+                                    </div>
                                 </div>
-                                <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>128 МБ</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>из 512 МБ лимита (25%)</div>
-                            </div>
-                            <div className="connect-tile" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
-                                    <Plug size={14} style={{ color: '#10b981' }} /> АКТИВНЫЕ СЕССИИ
-                                </div>
-                                <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>4 / 100</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>подключено клиентов</div>
-                            </div>
-                            <div className="connect-tile" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
-                                    <Activity size={14} style={{ color: '#f59e0b' }} /> ТРАНЗАКЦИИ (TPS)
-                                </div>
-                                <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0 4px 0', color: 'var(--text-primary)' }}>18 TPS</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>в реальном времени</div>
-                            </div>
-                        </div>
 
-                        <div className="grid-cols-2 stagger">
-                            <div className="glass-card">
-                                <div className="section-title" style={{ fontSize: '1.1rem', marginBottom: '16px' }}>
-                                    <Activity size={18} style={{ color: 'var(--accent-primary)' }} /> Статистика СУБД
-                                </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
-                                        <span style={{ color: 'var(--text-secondary)' }}>Размер базы данных</span>
-                                        <span style={{ fontWeight: 600 }}>{c.isPg ? '42.8 МБ' : '15.4 МБ'}</span>
+                                <div className="grid-cols-2 stagger">
+                                    <div className="glass-card">
+                                        <div className="section-title" style={{ fontSize: '1.1rem', marginBottom: '16px' }}>
+                                            <Activity size={18} style={{ color: 'var(--accent-primary)' }} /> Статистика СУБД
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                                                <span style={{ color: 'var(--text-secondary)' }}>Размер базы данных</span>
+                                                <span style={{ fontWeight: 600 }}>{dbMetrics ? `${dbMetrics.db_size_mb} МБ` : '...'}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                                                <span style={{ color: 'var(--text-secondary)' }}>Чтение операций (Read IOPS)</span>
+                                                <span style={{ fontWeight: 600 }}>142 op/s</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                                                <span style={{ color: 'var(--text-secondary)' }}>Запись операций (Write IOPS)</span>
+                                                <span style={{ fontWeight: 600 }}>34 op/s</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
+                                                <span style={{ color: 'var(--text-secondary)' }}>Медленные запросы (Slow queries)</span>
+                                                <span style={{ fontWeight: 600, color: 'var(--status-success)' }}>0</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ color: 'var(--text-secondary)' }}>Время работы (Uptime)</span>
+                                                <span style={{ fontWeight: 600 }}>9 дней 4 часа 12 минут</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
-                                        <span style={{ color: 'var(--text-secondary)' }}>Чтение операций (Read IOPS)</span>
-                                        <span style={{ fontWeight: 600 }}>142 op/s</span>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
-                                        <span style={{ color: 'var(--text-secondary)' }}>Запись операций (Write IOPS)</span>
-                                        <span style={{ fontWeight: 600 }}>34 op/s</span>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-subtle)' }}>
-                                        <span style={{ color: 'var(--text-secondary)' }}>Медленные запросы (Slow queries)</span>
-                                        <span style={{ fontWeight: 600, color: 'var(--status-success)' }}>0</span>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                        <span style={{ color: 'var(--text-secondary)' }}>Время работы (Uptime)</span>
-                                        <span style={{ fontWeight: 600 }}>9 дней 4 часа 12 минут</span>
-                                    </div>
-                                </div>
-                            </div>
 
-                            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                                <div>
-                                    <div className="section-title" style={{ fontSize: '1.1rem', marginBottom: '12px' }}>
-                                        <Info size={18} style={{ color: 'var(--accent-primary)' }} /> Состояние кластера БД
+                                    <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                                        <div>
+                                            <div className="section-title" style={{ fontSize: '1.1rem', marginBottom: '12px' }}>
+                                                <Info size={18} style={{ color: 'var(--accent-primary)' }} /> Состояние кластера БД
+                                            </div>
+                                            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.5', margin: 0 }}>
+                                                Управляемая база данных запущена в отказоустойчивом изолированном контейнере внутри кластера Kubernetes. Репликация и лимиты ресурсов CPU/RAM контролируются автоматически.
+                                            </p>
+                                        </div>
+                                        <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '14px', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '16px' }}>
+                                            <div style={{ width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }} />
+                                            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#10b981' }}>Все системы работают в штатном режиме</span>
+                                        </div>
                                     </div>
-                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: '1.5', margin: 0 }}>
-                                        Управляемая база данных запущена в отказоустойчивом изолированном контейнере внутри кластера Kubernetes. Репликация и лимиты ресурсов CPU/RAM контролируются автоматически.
-                                    </p>
                                 </div>
-                                <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '14px', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '16px' }}>
-                                    <div style={{ width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }} />
-                                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#10b981' }}>Все системы работают в штатном режиме</span>
-                                </div>
-                            </div>
-                        </div>
+                            </>
+                        )}
                     </div>
                 )}
 
@@ -534,27 +591,22 @@ export default function DatabasesPanel() {
                                 <FileSpreadsheet size={14} /> Таблицы
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                <button 
-                                    className="btn btn-secondary btn-sm" 
-                                    style={{ justifyContent: 'flex-start', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', textAlign: 'left' }}
-                                    onClick={() => setSqlQuery('SELECT * FROM users LIMIT 10;')}
-                                >
-                                    users (3 строки)
-                                </button>
-                                <button 
-                                    className="btn btn-secondary btn-sm" 
-                                    style={{ justifyContent: 'flex-start', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', textAlign: 'left' }}
-                                    onClick={() => setSqlQuery('SELECT * FROM settings;')}
-                                >
-                                    settings (3 строки)
-                                </button>
-                                <button 
-                                    className="btn btn-secondary btn-sm" 
-                                    style={{ justifyContent: 'flex-start', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', textAlign: 'left' }}
-                                    onClick={() => setSqlQuery('SELECT * FROM audit_logs LIMIT 10;')}
-                                >
-                                    audit_logs (2 строки)
-                                </button>
+                                {tablesLoading ? (
+                                    <div style={{ padding: '10px 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Загрузка...</div>
+                                ) : dbTables.length > 0 ? (
+                                    dbTables.map((tbl, idx) => (
+                                        <button 
+                                            key={idx}
+                                            className="btn btn-secondary btn-sm" 
+                                            style={{ justifyContent: 'flex-start', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', textAlign: 'left' }}
+                                            onClick={() => setSqlQuery(`SELECT * FROM ${tbl} LIMIT 10;`)}
+                                        >
+                                            {tbl}
+                                        </button>
+                                    ))
+                                ) : (
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '10px 0' }}>Нет таблиц</div>
+                                )}
                             </div>
                             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '12px' }}>
                                 * Кликните на имя таблицы, чтобы вставить шаблон.
@@ -594,6 +646,12 @@ export default function DatabasesPanel() {
                                 }}
                                 placeholder="-- Введите SQL запрос здесь"
                             />
+
+                            {queryError && (
+                                <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '12px', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', color: '#ef4444', fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap' }}>
+                                    {queryError}
+                                </div>
+                            )}
 
                             {queryResult && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
