@@ -63,6 +63,8 @@ _RULES = [
     ("POST",   r"^/api/images/upload$",             "Загрузка образа диска"),
     ("DELETE", r"^/api/images/",                    "Удаление образа диска"),
     ("POST",   r"^/api/snapshots",                   "Создание снапшота"),
+    ("POST",   r"^/api/tokens$",                     "Создание API-токена"),
+    ("DELETE", r"^/api/tokens/\d+$",                 "Отзыв API-токена"),
 ]
 
 

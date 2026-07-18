@@ -18,6 +18,7 @@ import DatabasesPanel from './components/DatabasesPanel';
 import DeploymentsPanel from './components/DeploymentsPanel';
 import KubernetesPanel from './components/KubernetesPanel';
 import AuditPanel from './components/AuditPanel';
+import TokensPanel from './components/TokensPanel';
 import S3Panel from './components/S3Panel';
 import VolumesPanel from './components/VolumesPanel';
 import MailPanel from './components/MailPanel';
@@ -392,6 +393,7 @@ const App = () => {
       case 'deployments': return 'Деплой приложений';
       case 'kubernetes': return 'Kubernetes кластер';
       case 'audit': return 'Логи аудита';
+      case 'tokens': return 'API-токены';
       case 's3': return 'S3 Объектное хранилище';
       case 'volumes': return 'Сетевые диски';
       case 'mail': return 'Почтовый хостинг';
@@ -550,12 +552,20 @@ const App = () => {
             Сетевые диски
           </button>
 
-          <button 
+          <button
             className={`nav-item ${activeTab === 'mail' && !selectedVMDetailName ? 'active' : ''}`}
             onClick={() => navigateToTab('mail')}
           >
             <Mail size={18} />
             Почтовый хостинг
+          </button>
+
+          <button
+            className={`nav-item ${activeTab === 'tokens' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => navigateToTab('tokens')}
+          >
+            <Key size={18} />
+            API-токены
           </button>
 
           {userRole === 'admin' && (
@@ -796,6 +806,8 @@ const App = () => {
             <VolumesPanel />
           ) : activeTab === 'mail' ? (
             <MailPanel />
+          ) : activeTab === 'tokens' ? (
+            <TokensPanel />
           ) : activeTab === 'docker' ? (
             <DockerPanel />
           ) : activeTab === 'kubernetes' ? (

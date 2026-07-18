@@ -222,3 +222,16 @@ class AuditLog(Base):
     action = Column(String)                 # человекочитаемое действие
     status_code = Column(Integer)           # код ответа
     success = Column(Boolean, default=True)
+
+
+class ApiToken(Base):
+    __tablename__ = "api_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)          # понятное имя (напр. "ci-runner")
+    token_prefix = Column(String, nullable=False)  # первые символы для отображения (aeg_1a2b…)
+    token_hash = Column(String, unique=True, index=True, nullable=False)  # SHA-256 самого токена
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    last_used = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)

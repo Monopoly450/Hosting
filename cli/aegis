@@ -61,8 +61,8 @@ def api(method, path, body=None, token=None, url=None):
     req = urllib.request.Request(base.rstrip("/") + path, data=data, method=method)
     req.add_header("Content-Type", "application/json")
     if tok:
-        # JWT (с точками) -> Bearer, иначе X-Admin-Token
-        if "." in tok:
+        # JWT (с точками) и API-токены (aeg_...) -> Bearer, иначе X-Admin-Token
+        if "." in tok or tok.startswith("aeg_"):
             req.add_header("Authorization", f"Bearer {tok}")
         else:
             req.add_header("X-Admin-Token", tok)
@@ -172,6 +172,25 @@ def cmd_audit(a):
     table(out, [("time", "ВРЕМЯ"), ("user", "ПОЛЬЗОВАТЕЛЬ"), ("ip", "IP"), ("action", "ДЕЙСТВИЕ"), ("res", "КОД")])
 
 
+def cmd_token_list(a):
+    toks = api("GET", "/api/tokens")
+    table(toks, [("id", "ID"), ("name", "ИМЯ"), ("prefix", "ПРЕФИКС"), ("last_used", "ИСПОЛЬЗОВАН"), ("expires_at", "ИСТЕКАЕТ")])
+
+
+def cmd_token_create(a):
+    body = {"name": a.name}
+    if a.expires_days:
+        body["expires_days"] = a.expires_days
+    res = api("POST", "/api/tokens", body)
+    print(_color(f"Токен «{res['name']}» создан. Сохраните его — показывается один раз:", "32"))
+    print(_color(res["token"], "1"))
+
+
+def cmd_token_revoke(a):
+    api("DELETE", f"/api/tokens/{a.id}")
+    print(_color(f"Токен {a.id} отозван", "32"))
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="aegis", description="CLI управления хостингом ByteBurners")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -194,6 +213,11 @@ def build_parser():
     sub.add_parser("db", help="Список баз данных").set_defaults(func=cmd_db)
     sub.add_parser("deploy", help="Список деплоев").set_defaults(func=cmd_deploy)
     au = sub.add_parser("audit", help="Журнал аудита"); au.add_argument("--limit", type=int, default=30); au.add_argument("--failed", action="store_true"); au.set_defaults(func=cmd_audit)
+
+    tk = sub.add_parser("token", help="Управление API-токенами").add_subparsers(dest="sub", required=True)
+    tk.add_parser("list", help="Список токенов").set_defaults(func=cmd_token_list)
+    tc = tk.add_parser("create", help="Создать токен"); tc.add_argument("name"); tc.add_argument("--expires-days", type=int, dest="expires_days"); tc.set_defaults(func=cmd_token_create)
+    tr = tk.add_parser("revoke", help="Отозвать токен"); tr.add_argument("id", type=int); tr.set_defaults(func=cmd_token_revoke)
     return p
 
 

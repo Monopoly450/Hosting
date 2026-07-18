@@ -91,7 +91,13 @@ async def verify_admin_token(
     if x_admin_token and x_admin_token == ADMIN_TOKEN:
         return x_admin_token
 
-    # 2. Проверяем JWT Bearer токен (для вошедшего в веб-панель админа)
+    # 2. Персональный API-токен админа (aeg_...)
+    for cand in (credentials.credentials if credentials else None, x_admin_token):
+        api_user = await resolve_api_token(cand, db)
+        if api_user and api_user.role == "admin":
+            return cand
+
+    # 3. Проверяем JWT Bearer токен (для вошедшего в веб-панель админа)
     if credentials:
         payload = decode_access_token(credentials.credentials)
         if payload and "sub" in payload:
@@ -107,13 +113,47 @@ async def verify_admin_token(
         headers={"WWW-Authenticate": "Bearer or X-Admin-Token"},
     )
 
+API_TOKEN_PREFIX = "aeg_"
+
+
+def hash_api_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+async def resolve_api_token(token: str, db: AsyncSession):
+    """Возвращает пользователя-владельца по персональному API-токену (aeg_...), либо None."""
+    import datetime
+    from app.models.models import ApiToken
+    if not token or not token.startswith(API_TOKEN_PREFIX):
+        return None
+    res = await db.execute(select(ApiToken).filter_by(token_hash=hash_api_token(token)))
+    apitok = res.scalars().first()
+    if not apitok:
+        return None
+    if apitok.expires_at and apitok.expires_at < datetime.datetime.utcnow():
+        return None
+    try:
+        apitok.last_used = datetime.datetime.utcnow()
+        await db.commit()
+    except Exception:
+        await db.rollback()
+    res2 = await db.execute(select(User).filter_by(id=apitok.owner_id))
+    return res2.scalars().first()
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security_bearer),
     x_admin_token: str = Security(token_header),
     db: AsyncSession = Depends(get_db)
 ) -> User:
-    """Извлекает текущего пользователя из JWT Bearer токена или X-Admin-Token"""
-    
+    """Извлекает текущего пользователя из JWT Bearer, X-Admin-Token или API-токена"""
+
+    # 0. Персональный API-токен (aeg_...) в Bearer или X-Admin-Token заголовке
+    for cand in (credentials.credentials if credentials else None, x_admin_token):
+        api_user = await resolve_api_token(cand, db)
+        if api_user:
+            return api_user
+
     # 1. Если передан системный X-Admin-Token (например, от оркестратора или админа)
     if x_admin_token and x_admin_token == ADMIN_TOKEN:
         # Ищем или создаем виртуального суперпользователя admin
