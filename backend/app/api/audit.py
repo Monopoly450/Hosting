@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 from fastapi import APIRouter, Query
 from app.db import SessionLocal
 from app.models.models import AuditLog

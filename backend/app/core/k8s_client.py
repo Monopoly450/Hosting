@@ -1435,40 +1435,39 @@ class K8sClient:
             return "Error"
 
     def execute_db_query(self, db_name: str, engine: str, db_user: str, db_password: str, sql: str, namespace: str = "default"):
-        """Выполняет SQL-запрос внутри пода СУБД и возвращает результат в структурированном виде"""
-        from kubernetes.stream import stream
+        """Выполняет SQL-запрос внутри пода СУБД и возвращает результат.
+
+        SQL передаётся в клиент СУБД через STDIN (а не через shell-интерполяцию),
+        поэтому обратные кавычки MySQL работают, и невозможна инъекция команд
+        через `` `...` `` или `$(...)` в теле запроса."""
         core_api = client.CoreV1Api(self.api_client)
-        
+
         # 1. Находим под базы данных
         pods = core_api.list_namespaced_pod(namespace, label_selector=f"app=db-{db_name}")
         if not pods.items:
             raise Exception("Под базы данных не найден или не запущен")
-        
         pod_name = pods.items[0].metadata.name
-        
-        # Экранируем кавычки и доллары в SQL для передачи в командную строку
-        escaped_sql = sql.replace('"', '\\"').replace('$', '\\$')
-        
+
+        # ON_ERROR_STOP/exit-code гарантируют ненулевой код при ошибке SQL
         if engine == "postgresql":
-            cmd = ["sh", "-c", f"PGPASSWORD='{db_password}' psql --csv -U {db_user} -d {db_name} -c \"{escaped_sql}\""]
-        else: # mysql / mariadb
-            cmd = ["sh", "-c", f"mysql -B -u {db_user} -p'{db_password}' {db_name} -e \"{escaped_sql}\""]
-            
+            shell_cmd = f"PGPASSWORD='{db_password}' psql --csv -v ON_ERROR_STOP=1 -U {db_user} -d {db_name}"
+        else:  # mysql / mariadb
+            shell_cmd = f"mysql -B -u {db_user} -p'{db_password}' {db_name}"
+
+        import subprocess
+        cmd = ["kubectl", "exec", "-i", "-n", namespace, pod_name, "--", "sh", "-c", shell_cmd]
         try:
-            resp = stream(
-                core_api.connect_get_namespaced_pod_exec,
-                pod_name,
-                namespace,
-                command=cmd,
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False
-            )
+            p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stdout, stderr = p.communicate(input=sql if sql.endswith("\n") else sql + "\n", timeout=30)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            raise Exception("Превышено время выполнения запроса (30с)")
         except Exception as e:
             raise Exception(f"Ошибка выполнения команды в контейнере: {e}")
-            
-        return resp
+
+        if p.returncode != 0:
+            raise Exception((stderr or stdout or "Ошибка выполнения запроса").strip())
+        return stdout
 
     def get_db_metrics(self, db_name: str, engine: str, db_user: str, db_password: str, namespace: str = "default"):
         """Возвращает метрики потребления ресурсов подом БД и размер базы данных"""

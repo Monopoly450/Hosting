@@ -156,17 +156,43 @@ app.include_router(infra.router, prefix=f"{settings.API_V1_STR}/infra", tags=["i
 app.include_router(audit.router, prefix=f"{settings.API_V1_STR}/audit", tags=["audit"], dependencies=[Depends(verify_admin_token)])
 
 
-# Middleware аудита: пишет журнал по всем мутирующим запросам (кто, откуда, что, результат)
+# Middleware аудита: пишет журнал по всем мутирующим запросам (кто, откуда, что, результат).
+# Запись в БД выносим в отдельный поток (asyncio.to_thread), чтобы не блокировать
+# событийный цикл синхронным commit'ом. Ссылки на задачи держим, чтобы их не собрал GC.
+import asyncio as _asyncio
+_audit_tasks = set()
+
+
 @app.middleware("http")
 async def audit_middleware(request, call_next):
     response = await call_next(request)
     try:
         if request.method in ("POST", "PUT", "DELETE", "PATCH") and request.url.path.startswith(settings.API_V1_STR):
-            from app.core.audit import log_request_audit
-            log_request_audit(request, response.status_code)
+            from app.core.audit import build_audit_entry_data
+            # Собираем нужные данные СИНХРОННО (пока request жив), пишем в БД — в потоке
+            data = build_audit_entry_data(request, response.status_code)
+            task = _asyncio.create_task(_asyncio.to_thread(_write_audit, data))
+            _audit_tasks.add(task)
+            task.add_done_callback(_audit_tasks.discard)
     except Exception:
         pass
     return response
+
+
+def _write_audit(data: dict):
+    try:
+        from app.db import SessionLocal
+        from app.models.models import AuditLog
+        db = SessionLocal()
+        try:
+            db.add(AuditLog(**data))
+            db.commit()
+            from app.core.audit import prune_old_audit
+            prune_old_audit(db)
+        finally:
+            db.close()
+    except Exception:
+        pass
 
 @app.get("/")
 def read_root():

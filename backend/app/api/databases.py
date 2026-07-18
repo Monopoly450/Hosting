@@ -13,6 +13,14 @@ from app.core.crypto import encrypt_secret, decrypt_secret
 router = APIRouter()
 logger = logging.getLogger("app.api.databases")
 
+
+def _safe_backup_filename(filename: str) -> str:
+    """Защита от path traversal: имя бэкапа не должно содержать разделителей путей."""
+    if not filename or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Некорректное имя файла резервной копии.")
+    return filename
+
+
 def resolve_ip(ips: list) -> Optional[str]:
     from app.core.netutils import pick_external_ip
     return pick_external_ip(ips)
@@ -319,10 +327,10 @@ def execute_sql_query(db_id: int, req: SQLQueryRequest, current_user: User = Dep
             
             import csv
             from io import StringIO
-            
-            if "ERROR:" in raw_output or "error" in raw_output.lower():
-                raise Exception(raw_output.strip())
-                
+
+            # Реальные ошибки SQL уже приходят исключением из execute_db_query
+            # (ненулевой код клиента), поэтому строковую проверку убрали —
+            # она давала ложные срабатывания на данных со словом "error".
             if user_db.db_type == "postgresql":
                 lines = raw_output.strip().split('\n')
                 if not lines or (len(lines) == 1 and not ',' in lines[0] and not '"' in lines[0]):
@@ -464,7 +472,7 @@ def create_database_backup(db_id: int, current_user: User = Depends(get_current_
         
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"backup_{user_db.db_name}_{timestamp}.sql"
-        object_name = f"{user_db.db_name}/{filename}"
+        object_name = f"{user_db.db_name}/{_safe_backup_filename(filename)}"
         
         dump_bytes = dump_content.encode("utf-8")
         data_stream = BytesIO(dump_bytes)
@@ -505,7 +513,7 @@ def restore_database_backup(db_id: int, filename: str, current_user: User = Depe
         from app.api.s3 import get_minio_client
         client = get_minio_client()
         bucket = "database-backups"
-        object_name = f"{user_db.db_name}/{filename}"
+        object_name = f"{user_db.db_name}/{_safe_backup_filename(filename)}"
         
         try:
             response = client.get_object(bucket, object_name)
@@ -547,7 +555,7 @@ def delete_database_backup(db_id: int, filename: str, current_user: User = Depen
         from app.api.s3 import get_minio_client
         client = get_minio_client()
         bucket = "database-backups"
-        object_name = f"{user_db.db_name}/{filename}"
+        object_name = f"{user_db.db_name}/{_safe_backup_filename(filename)}"
         
         try:
             client.remove_object(bucket, object_name)
@@ -571,7 +579,7 @@ def download_database_backup(db_id: int, filename: str, current_user: User = Dep
         from app.api.s3 import get_minio_client
         client = get_minio_client()
         bucket = "database-backups"
-        object_name = f"{user_db.db_name}/{filename}"
+        object_name = f"{user_db.db_name}/{_safe_backup_filename(filename)}"
         
         try:
             response = client.get_object(bucket, object_name)

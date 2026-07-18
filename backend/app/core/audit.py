@@ -78,28 +78,51 @@ def action_for(method: str, path: str) -> str:
     return f"{method} {path}"
 
 
+def build_audit_entry_data(request, status_code: int) -> dict:
+    """Собирает данные события аудита из запроса (синхронно, пока request жив)."""
+    path = request.url.path
+    return {
+        "username": resolve_username(request),
+        "ip": request.client.host if request.client else "unknown",
+        "method": request.method,
+        "path": path,
+        "action": action_for(request.method, path),
+        "status_code": status_code,
+        "success": status_code < 400,
+    }
+
+
+# Ретеншн журнала: хранить не дольше стольких дней
+AUDIT_RETENTION_DAYS = 90
+_prune_counter = [0]
+
+
+def prune_old_audit(db):
+    """Периодически (раз в ~300 записей) чистит журнал от записей старше ретеншна,
+    чтобы таблица audit_logs не росла бесконечно."""
+    import datetime
+    _prune_counter[0] += 1
+    if _prune_counter[0] % 300 != 0:
+        return
+    try:
+        from app.models.models import AuditLog
+        cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=AUDIT_RETENTION_DAYS)
+        db.query(AuditLog).filter(AuditLog.timestamp < cutoff).delete(synchronize_session=False)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"audit prune failed: {e}")
+
+
 def log_request_audit(request, status_code: int):
-    """Записывает событие аудита для мутирующего запроса. Best-effort."""
+    """Синхронно записывает событие аудита. Best-effort (для прямого вызова)."""
     try:
         from app.db import SessionLocal
         from app.models.models import AuditLog
-        username = resolve_username(request)
-        ip = request.client.host if request.client else "unknown"
-        # Пропускаем шумные health/read-запросы, если вдруг попали
-        path = request.url.path
-        entry = AuditLog(
-            username=username,
-            ip=ip,
-            method=request.method,
-            path=path,
-            action=action_for(request.method, path),
-            status_code=status_code,
-            success=(status_code < 400),
-        )
         db = SessionLocal()
         try:
-            db.add(entry)
+            db.add(AuditLog(**build_audit_entry_data(request, status_code)))
             db.commit()
+            prune_old_audit(db)
         finally:
             db.close()
     except Exception as e:
