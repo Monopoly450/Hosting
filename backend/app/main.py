@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.api import vms, host, vnc, images, docker_admin, external_servers, infra, clusters, auth, databases, s3, volumes, snapshots, mail, deployments, kubernetes as kubernetes_api, ssh_terminal, audit, tokens
+from app.api import vms, host, vnc, images, docker_admin, external_servers, infra, clusters, auth, databases, s3, volumes, snapshots, mail, deployments, kubernetes as kubernetes_api, ssh_terminal, audit, tokens, backups
 from app.core.auth import verify_admin_token
 
 # Настройка логирования
@@ -155,6 +155,7 @@ app.include_router(external_servers.router, prefix=f"{settings.API_V1_STR}/exter
 app.include_router(infra.router, prefix=f"{settings.API_V1_STR}/infra", tags=["infra"], dependencies=[Depends(verify_admin_token)])
 app.include_router(audit.router, prefix=f"{settings.API_V1_STR}/audit", tags=["audit"], dependencies=[Depends(verify_admin_token)])
 app.include_router(tokens.router, prefix=f"{settings.API_V1_STR}/tokens", tags=["tokens"])
+app.include_router(backups.router, prefix=f"{settings.API_V1_STR}/backup-schedules", tags=["backup-schedules"])
 
 
 # Middleware аудита: пишет журнал по всем мутирующим запросам (кто, откуда, что, результат).

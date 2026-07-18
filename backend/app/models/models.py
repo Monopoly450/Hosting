@@ -235,3 +235,27 @@ class ApiToken(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     last_used = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=True)
+
+
+class BackupSchedule(Base):
+    """Расписание автоматических бэкапов ВМ или базы данных.
+    Планировщик в воркере раз в минуту проверяет next_run и запускает бэкап,
+    когда время наступило, затем ротирует старые копии по retention."""
+    __tablename__ = "backup_schedules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)                # понятное имя расписания
+    target_type = Column(String, nullable=False)         # "vm" | "database"
+    target_id = Column(Integer, nullable=False)          # VMTask.id или UserDatabase.id
+    target_name = Column(String, nullable=False)         # имя ВМ / БД (для отображения и запуска)
+    frequency = Column(String, nullable=False, default="daily")  # "hourly" | "daily" | "weekly"
+    hour = Column(Integer, default=3)                    # час (UTC) для daily/weekly
+    minute = Column(Integer, default=0)                  # минута
+    weekday = Column(Integer, nullable=True)             # день недели 0=Пн..6=Вс для weekly
+    retention = Column(Integer, default=7)               # сколько последних копий хранить
+    enabled = Column(Boolean, default=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    last_run = Column(DateTime, nullable=True)
+    last_status = Column(String, nullable=True)          # "success" | "error: ..."
+    next_run = Column(DateTime, nullable=True)

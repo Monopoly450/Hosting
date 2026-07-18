@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket, Boxes, ScrollText } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket, Boxes, ScrollText, CalendarClock } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -19,6 +19,7 @@ import DeploymentsPanel from './components/DeploymentsPanel';
 import KubernetesPanel from './components/KubernetesPanel';
 import AuditPanel from './components/AuditPanel';
 import TokensPanel from './components/TokensPanel';
+import BackupsPanel from './components/BackupsPanel';
 import S3Panel from './components/S3Panel';
 import VolumesPanel from './components/VolumesPanel';
 import MailPanel from './components/MailPanel';
@@ -394,6 +395,7 @@ const App = () => {
       case 'kubernetes': return 'Kubernetes кластер';
       case 'audit': return 'Логи аудита';
       case 'tokens': return 'API-токены';
+      case 'backups': return 'Запланированные бэкапы';
       case 's3': return 'S3 Объектное хранилище';
       case 'volumes': return 'Сетевые диски';
       case 'mail': return 'Почтовый хостинг';
@@ -566,6 +568,14 @@ const App = () => {
           >
             <Key size={18} />
             API-токены
+          </button>
+
+          <button
+            className={`nav-item ${activeTab === 'backups' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => navigateToTab('backups')}
+          >
+            <CalendarClock size={18} />
+            Бэкапы по расписанию
           </button>
 
           {userRole === 'admin' && (
@@ -808,6 +818,8 @@ const App = () => {
             <MailPanel />
           ) : activeTab === 'tokens' ? (
             <TokensPanel />
+          ) : activeTab === 'backups' ? (
+            <BackupsPanel />
           ) : activeTab === 'docker' ? (
             <DockerPanel />
           ) : activeTab === 'kubernetes' ? (

@@ -191,6 +191,41 @@ def cmd_token_revoke(a):
     print(_color(f"Токен {a.id} отозван", "32"))
 
 
+def cmd_schedule_list(a):
+    rows = api("GET", "/api/backup-schedules")
+    out = [{
+        "id": r.get("id"),
+        "name": r.get("name"),
+        "target": f"{r.get('target_type')}:{r.get('target_name')}",
+        "freq": r.get("frequency"),
+        "next": (r.get("next_run") or "")[:16].replace("T", " "),
+        "on": "да" if r.get("enabled") else "нет",
+        "last": r.get("last_status") or "—",
+    } for r in rows]
+    table(out, [("id", "ID"), ("name", "ИМЯ"), ("target", "ОБЪЕКТ"), ("freq", "ЧАСТОТА"), ("next", "СЛЕДУЮЩИЙ"), ("on", "ВКЛ"), ("last", "ПОСЛЕДНИЙ")])
+
+
+def cmd_schedule_create(a):
+    body = {
+        "name": a.name, "target_type": a.type, "target_id": a.target_id,
+        "frequency": a.frequency, "hour": a.hour, "minute": a.minute, "retention": a.retention,
+    }
+    if a.weekday is not None:
+        body["weekday"] = a.weekday
+    res = api("POST", "/api/backup-schedules", body)
+    print(_color(f"Расписание «{res['name']}» создано (id {res['id']}), следующий запуск: {res.get('next_run')}", "32"))
+
+
+def cmd_schedule_run(a):
+    res = api("POST", f"/api/backup-schedules/{a.id}/run")
+    print(_color(f"Бэкап выполнен: {res.get('last_status')}", "32"))
+
+
+def cmd_schedule_delete(a):
+    api("DELETE", f"/api/backup-schedules/{a.id}")
+    print(_color(f"Расписание {a.id} удалено", "32"))
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="aegis", description="CLI управления хостингом ByteBurners")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -218,6 +253,21 @@ def build_parser():
     tk.add_parser("list", help="Список токенов").set_defaults(func=cmd_token_list)
     tc = tk.add_parser("create", help="Создать токен"); tc.add_argument("name"); tc.add_argument("--expires-days", type=int, dest="expires_days"); tc.set_defaults(func=cmd_token_create)
     tr = tk.add_parser("revoke", help="Отозвать токен"); tr.add_argument("id", type=int); tr.set_defaults(func=cmd_token_revoke)
+
+    sc = sub.add_parser("schedule", help="Расписания автоматических бэкапов").add_subparsers(dest="sub", required=True)
+    sc.add_parser("list", help="Список расписаний").set_defaults(func=cmd_schedule_list)
+    scc = sc.add_parser("create", help="Создать расписание")
+    scc.add_argument("name")
+    scc.add_argument("--type", required=True, choices=["vm", "database"], help="Тип объекта")
+    scc.add_argument("--target-id", type=int, required=True, dest="target_id", help="ID ВМ или БД")
+    scc.add_argument("--frequency", default="daily", choices=["hourly", "daily", "weekly"])
+    scc.add_argument("--hour", type=int, default=3)
+    scc.add_argument("--minute", type=int, default=0)
+    scc.add_argument("--weekday", type=int, help="0=Пн..6=Вс (для weekly)")
+    scc.add_argument("--retention", type=int, default=7)
+    scc.set_defaults(func=cmd_schedule_create)
+    scr = sc.add_parser("run", help="Запустить бэкап сейчас"); scr.add_argument("id", type=int); scr.set_defaults(func=cmd_schedule_run)
+    scd = sc.add_parser("delete", help="Удалить расписание"); scd.add_argument("id", type=int); scd.set_defaults(func=cmd_schedule_delete)
     return p
 
 

@@ -65,6 +65,10 @@ _RULES = [
     ("POST",   r"^/api/snapshots",                   "Создание снапшота"),
     ("POST",   r"^/api/tokens$",                     "Создание API-токена"),
     ("DELETE", r"^/api/tokens/\d+$",                 "Отзыв API-токена"),
+    ("POST",   r"^/api/backup-schedules$",           "Создание расписания бэкапов"),
+    ("PUT",    r"^/api/backup-schedules/\d+$",       "Изменение расписания бэкапов"),
+    ("DELETE", r"^/api/backup-schedules/\d+$",       "Удаление расписания бэкапов"),
+    ("POST",   r"^/api/backup-schedules/\d+/run$",   "Ручной запуск бэкапа по расписанию"),
 ]
 
 

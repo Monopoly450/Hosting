@@ -424,6 +424,19 @@ def apply_firewall_reconcile_daemon():
         time.sleep(15)
 
 
+def scheduled_backup_daemon():
+    """Планировщик автоматических бэкапов: раз в минуту проверяет расписания
+    и запускает бэкапы ВМ/БД, у которых наступил срок, с ротацией старых копий."""
+    logger.info("Starting scheduled backup daemon thread...")
+    from .services.scheduled_backups import run_due_backups
+    while True:
+        try:
+            run_due_backups(k8s)
+        except Exception as e:
+            logger.error(f"Error in scheduled backup daemon loop: {e}")
+        time.sleep(60)
+
+
 def main():
     logger.info("Starting worker...")
 
@@ -434,6 +447,10 @@ def main():
     # Демон переустановки проброса портов при смене IP ВМ (после перезагрузок)
     firewall_thread = threading.Thread(target=apply_firewall_reconcile_daemon, daemon=True)
     firewall_thread.start()
+
+    # Планировщик запланированных бэкапов
+    backup_thread = threading.Thread(target=scheduled_backup_daemon, daemon=True)
+    backup_thread.start()
     
     while True:
         try:
