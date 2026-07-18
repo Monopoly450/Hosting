@@ -1,0 +1,13 @@
+# Собранный бинарник провайдера
+terraform-provider-aegis
+terraform-provider-aegis.exe
+
+# Артефакты Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+!examples/*.tfvars.example
