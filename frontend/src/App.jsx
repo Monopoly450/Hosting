@@ -82,6 +82,8 @@ const App = () => {
   const [authenticated, setAuthenticated] = useState(!!localStorage.getItem('aegis_admin_token'));
   const [usernameInput, setUsernameInput] = useState('admin');
   const [passwordInput, setPasswordInput] = useState('');
+  const [otpInput, setOtpInput] = useState('');
+  const [requires2fa, setRequires2fa] = useState(false);
   const [userRole, setUserRole] = useState(localStorage.getItem('aegis_role') || 'student');
   const [username, setUsername] = useState(localStorage.getItem('aegis_username') || '');
   const [quotaUsage, setQuotaUsage] = useState(null);
@@ -102,6 +104,7 @@ const App = () => {
   const [showCreateVM, setShowCreateVM] = useState(false);
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [showTwoFactorModal, setShowTwoFactorModal] = useState(false);
   const [selectedServerId, setSelectedServerId] = useState(null);
   const [selectedVMDetailName, setSelectedVMDetailName] = useState(null);
 
@@ -338,10 +341,10 @@ const App = () => {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: usernameVal, password: passwordVal }),
+        body: JSON.stringify({ username: usernameVal, password: passwordVal, otp: otpInput.trim() || undefined }),
         _skipAuthRedirect: true
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         localStorage.setItem('aegis_admin_token', data.access_token);
@@ -350,13 +353,28 @@ const App = () => {
         setAuthenticated(true);
         window.location.reload();
       } else {
+        let detail = '';
+        try { detail = (await response.clone().json()).detail || ''; } catch (_) { /* ignore */ }
+
+        // Пользователю с включённой 2FA нужен код — показываем поле и ждём повторной отправки
+        if (detail === 'TOTP_REQUIRED') {
+          setRequires2fa(true);
+          setFormLoading(false);
+          return;
+        }
+        if (requires2fa) {
+          alert('Неверный код двухфакторной аутентификации.');
+          setFormLoading(false);
+          return;
+        }
+
         // Если API авторизации вернул ошибку, пробуем старый способ (проверка X-Admin-Token напрямую)
         // Это полезно для обратной совместимости или входа по прямому токену
         const legacyResponse = await fetch('/api/host/metrics', {
           headers: { 'X-Admin-Token': passwordVal },
           _skipAuthRedirect: true
         });
-        
+
         if (legacyResponse.ok) {
           localStorage.setItem('aegis_admin_token', passwordVal);
           localStorage.setItem('aegis_role', 'admin');
@@ -456,8 +474,29 @@ const App = () => {
               </div>
             </div>
 
+            {requires2fa && (
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label">Код двухфакторной аутентификации</label>
+                <div style={{ position: 'relative' }}>
+                  <ShieldCheck size={17} style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    className="form-control"
+                    style={{ paddingLeft: '40px', letterSpacing: '0.15em' }}
+                    value={otpInput}
+                    onChange={(e) => setOtpInput(e.target.value)}
+                    placeholder="123456 или резервный код"
+                    autoFocus
+                  />
+                </div>
+                <p className="text-muted" style={{ fontSize: '0.75rem', marginTop: '6px' }}>Введите код из приложения-аутентификатора или один из резервных кодов.</p>
+              </div>
+            )}
+
             <button type="submit" className="btn btn-primary" disabled={formLoading} style={{ width: '100%', padding: '13px', fontSize: '1rem', marginTop: '10px' }}>
-              {formLoading ? <span className="spinner" /> : 'Войти в панель'}
+              {formLoading ? <span className="spinner" /> : (requires2fa ? 'Подтвердить код' : 'Войти в панель')}
             </button>
           </form>
 
@@ -678,16 +717,24 @@ const App = () => {
               <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>{username || 'Администратор'}</span>
             </div>
           </div>
-          <button 
-            className="nav-item" 
+          <button
+            className="nav-item"
             style={{ width: '100%', color: 'var(--text-secondary)', marginBottom: '4px' }}
             onClick={() => setShowChangePasswordModal(true)}
           >
             <Key size={18} />
             Сменить пароль
           </button>
-          <button 
-            className="nav-item" 
+          <button
+            className="nav-item"
+            style={{ width: '100%', color: 'var(--text-secondary)', marginBottom: '4px' }}
+            onClick={() => setShowTwoFactorModal(true)}
+          >
+            <ShieldCheck size={18} />
+            Двухфакторная защита
+          </button>
+          <button
+            className="nav-item"
             style={{ width: '100%', color: 'var(--status-danger)' }}
             onClick={handleLogout}
           >
@@ -869,6 +916,10 @@ const App = () => {
 
       {showChangePasswordModal && (
         <ChangePasswordModal onClose={() => setShowChangePasswordModal(false)} />
+      )}
+
+      {showTwoFactorModal && (
+        <TwoFactorModal onClose={() => setShowTwoFactorModal(false)} />
       )}
 
               {showCreateVM && (
@@ -1197,6 +1248,157 @@ const ChangePasswordModal = ({ onClose }) => {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+};
+
+const TwoFactorModal = ({ onClose }) => {
+  const [loading, setLoading] = useState(true);
+  const [enabled, setEnabled] = useState(false);
+  const [remaining, setRemaining] = useState(0);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Поток включения
+  const [setup, setSetup] = useState(null);   // {secret, otpauth_uri, qr_svg}
+  const [code, setCode] = useState('');
+  const [backupCodes, setBackupCodes] = useState(null);
+
+  // Поток отключения
+  const [disableCode, setDisableCode] = useState('');
+  const [showDisable, setShowDisable] = useState(false);
+
+  const authHeaders = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${localStorage.getItem('aegis_admin_token')}`,
+  };
+
+  const loadStatus = async () => {
+    try {
+      const res = await fetch('/api/auth/2fa/status', { headers: authHeaders });
+      const data = await res.json();
+      setEnabled(!!data.enabled);
+      setRemaining(data.backup_codes_remaining || 0);
+    } catch (e) {
+      setError('Не удалось загрузить статус 2FA');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadStatus(); }, []);
+
+  const startSetup = async () => {
+    setBusy(true); setError('');
+    try {
+      const res = await fetch('/api/auth/2fa/setup', { method: 'POST', headers: authHeaders });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Ошибка');
+      setSetup(data);
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  };
+
+  const confirmEnable = async (e) => {
+    e.preventDefault();
+    setBusy(true); setError('');
+    try {
+      const res = await fetch('/api/auth/2fa/enable', { method: 'POST', headers: authHeaders, body: JSON.stringify({ code: code.trim() }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Ошибка');
+      setBackupCodes(data.backup_codes);
+      setSetup(null);
+      setEnabled(true);
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  };
+
+  const confirmDisable = async (e) => {
+    e.preventDefault();
+    setBusy(true); setError('');
+    try {
+      const res = await fetch('/api/auth/2fa/disable', { method: 'POST', headers: authHeaders, body: JSON.stringify({ code: disableCode.trim() }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Ошибка');
+      setEnabled(false); setShowDisable(false); setDisableCode('');
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="slide-over-overlay" onClick={onClose}>
+      <div className="slide-over-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+        <div className="slide-over-header">
+          <h2>Двухфакторная защита</h2>
+          <button className="btn-close" onClick={onClose} type="button"><X size={18} /></button>
+        </div>
+        <div className="slide-over-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {error && <div className="alert alert-danger">{error}</div>}
+
+          {loading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}><span className="spinner spinner-lg" /></div>
+
+          ) : backupCodes ? (
+            <>
+              <div className="alert" style={{ background: 'var(--bg-surface-hover)', border: '1px solid var(--border-subtle)' }}>
+                <b>2FA включена.</b> Сохраните резервные коды — они показываются <b>один раз</b>. Каждый код можно использовать однократно, если под рукой нет аутентификатора.
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontFamily: 'var(--font-mono)', fontSize: '0.95rem' }}>
+                {backupCodes.map(c => <div key={c} style={{ padding: '8px 10px', background: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)', textAlign: 'center', letterSpacing: '0.08em' }}>{c}</div>)}
+              </div>
+              <button className="btn btn-secondary" onClick={() => navigator.clipboard.writeText(backupCodes.join('\n'))}><Key size={15} /> Скопировать все</button>
+              <button className="btn btn-primary" onClick={onClose}>Я сохранил коды</button>
+            </>
+
+          ) : setup ? (
+            <>
+              <p className="text-muted" style={{ fontSize: '0.85rem' }}>Отсканируйте QR-код в приложении-аутентификаторе (Google Authenticator, Aegis, 1Password и т.п.), затем введите 6-значный код.</p>
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <img src={setup.qr_svg} alt="QR-код 2FA" style={{ width: '200px', height: '200px', background: '#fff', borderRadius: 'var(--radius-md)', padding: '8px' }} />
+              </div>
+              <div className="input-group" style={{ marginBottom: 0 }}>
+                <label className="input-label">Ключ вручную (если не сканируется)</label>
+                <code style={{ display: 'block', padding: '8px 10px', background: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', wordBreak: 'break-all' }}>{setup.secret}</code>
+              </div>
+              <form onSubmit={confirmEnable} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div className="input-group" style={{ marginBottom: 0 }}>
+                  <label className="input-label">Код из приложения</label>
+                  <input className="form-control" inputMode="numeric" value={code} onChange={e => setCode(e.target.value)} placeholder="123456" style={{ letterSpacing: '0.15em' }} autoFocus required />
+                </div>
+                <button type="submit" className="btn btn-primary" disabled={busy || code.trim().length < 6}>{busy ? <span className="spinner" /> : 'Включить 2FA'}</button>
+              </form>
+            </>
+
+          ) : enabled ? (
+            <>
+              <div className="alert" style={{ background: 'var(--bg-surface-hover)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <ShieldCheck size={20} style={{ color: 'var(--status-success)' }} />
+                <div>
+                  <div style={{ fontWeight: 600 }}>2FA включена</div>
+                  <div className="text-muted" style={{ fontSize: '0.8rem' }}>Резервных кодов осталось: {remaining}</div>
+                </div>
+              </div>
+              {showDisable ? (
+                <form onSubmit={confirmDisable} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div className="input-group" style={{ marginBottom: 0 }}>
+                    <label className="input-label">Подтвердите отключение кодом</label>
+                    <input className="form-control" value={disableCode} onChange={e => setDisableCode(e.target.value)} placeholder="Код 2FA или резервный код" autoFocus required />
+                  </div>
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowDisable(false)}>Отмена</button>
+                    <button type="submit" className="btn btn-danger" style={{ flex: 1 }} disabled={busy}>{busy ? <span className="spinner" /> : 'Отключить 2FA'}</button>
+                  </div>
+                </form>
+              ) : (
+                <button className="btn btn-danger" onClick={() => setShowDisable(true)}>Отключить 2FA</button>
+              )}
+            </>
+
+          ) : (
+            <>
+              <p className="text-muted" style={{ fontSize: '0.9rem' }}>Двухфакторная аутентификация добавляет второй шаг при входе: помимо пароля потребуется одноразовый код из приложения-аутентификатора.</p>
+              <button className="btn btn-primary" onClick={startSetup} disabled={busy}>{busy ? <span className="spinner" /> : <><ShieldCheck size={15} /> Настроить 2FA</>}</button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

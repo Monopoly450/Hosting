@@ -21,6 +21,11 @@ class User(Base):
     
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+    # Двухфакторная аутентификация (TOTP)
+    totp_secret = Column(String, nullable=True)        # base32-секрет, зашифрован (Fernet)
+    totp_enabled = Column(Boolean, default=False)      # включена ли 2FA
+    totp_backup_codes = Column(Text, nullable=True)    # JSON-список SHA-256 неиспользованных кодов
+
     # Relationships
     vms = relationship("VMTask", back_populates="owner")
     clusters = relationship("Cluster", back_populates="owner")

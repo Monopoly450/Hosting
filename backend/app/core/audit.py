@@ -28,6 +28,8 @@ _RULES = [
     ("DELETE", r"^/api/auth/users/\d+$",             "Удаление пользователя"),
     ("PUT",    r"^/api/auth/users/\d+$",             "Изменение пользователя/квот"),
     ("POST",   r"^/api/auth/change-password$",       "Смена своего пароля"),
+    ("POST",   r"^/api/auth/2fa/enable$",             "Включение 2FA"),
+    ("POST",   r"^/api/auth/2fa/disable$",            "Отключение 2FA"),
     ("POST",   r"^/api/vms$",                         "Создание ВМ"),
     ("POST",   r"^/api/vms/([^/]+)/clone$",          "Клонирование ВМ «{0}»"),
     ("DELETE", r"^/api/vms/([^/]+)$",                "Удаление ВМ «{0}»"),

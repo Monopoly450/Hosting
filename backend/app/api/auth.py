@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from collections import defaultdict
 import time
+import json
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import SessionLocal
@@ -19,6 +20,7 @@ router = APIRouter()
 class LoginRequest(BaseModel):
     username: str = Field(..., description="Имя пользователя")
     password: str = Field(..., description="Пароль")
+    otp: Optional[str] = Field(None, description="Код 2FA или резервный код (если включена 2FA)")
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -94,11 +96,26 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверное имя пользователя или пароль"
         )
-    
+
+    # Второй фактор (TOTP), если включён у пользователя
+    if user.totp_enabled:
+        if not req.otp:
+            # Пароль верный — просто нужен код. Не считаем это неудачной попыткой.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="TOTP_REQUIRED"
+            )
+        if not await verify_second_factor(user, req.otp, db):
+            _login_failures[client_ip].append(now)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Неверный код двухфакторной аутентификации"
+            )
+
     # Очищаем попытки при успешном логине
     if client_ip in _login_failures:
         del _login_failures[client_ip]
-        
+
     token = create_access_token({"sub": user.username})
     return {
         "access_token": token,
@@ -235,3 +252,113 @@ async def change_own_password(req: ChangePasswordRequest, current_user: User = D
     current_user.password_hash = hash_password(req.new_password)
     await db.commit()
     return {"status": "success", "detail": "Пароль успешно изменен"}
+
+
+# --- ДВУХФАКТОРНАЯ АУТЕНТИФИКАЦИЯ (TOTP) ---
+
+class TotpEnableRequest(BaseModel):
+    code: str = Field(..., description="6-значный код из приложения-аутентификатора")
+
+class TotpDisableRequest(BaseModel):
+    code: str = Field(..., description="Код 2FA или резервный код для подтверждения отключения")
+
+
+async def verify_second_factor(user: User, otp: str, db: AsyncSession) -> bool:
+    """Проверяет TOTP-код, а при неудаче — одноразовый резервный код.
+    Использованный резервный код удаляется (расходуется)."""
+    from app.core.crypto import decrypt_secret
+    from app.core import totp as totp_lib
+
+    if user.totp_secret:
+        try:
+            secret = decrypt_secret(user.totp_secret)
+            if totp_lib.verify_totp(secret, otp):
+                return True
+        except Exception:
+            pass
+
+    # Резервные коды (хэши SHA-256)
+    if user.totp_backup_codes:
+        try:
+            hashes = json.loads(user.totp_backup_codes)
+        except Exception:
+            hashes = []
+        candidate = totp_lib.hash_backup_code(otp)
+        if candidate in hashes:
+            hashes.remove(candidate)
+            user.totp_backup_codes = json.dumps(hashes)
+            await db.commit()
+            return True
+    return False
+
+
+@router.get("/2fa/status")
+async def totp_status(current_user: User = Depends(get_current_user)):
+    """Статус 2FA у текущего пользователя."""
+    remaining = 0
+    if current_user.totp_backup_codes:
+        try:
+            remaining = len(json.loads(current_user.totp_backup_codes))
+        except Exception:
+            remaining = 0
+    return {"enabled": bool(current_user.totp_enabled), "backup_codes_remaining": remaining}
+
+
+@router.post("/2fa/setup")
+async def totp_setup(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Генерирует новый секрет (в состоянии «ожидает подтверждения») и QR-код.
+    2FA ещё не активна, пока не будет подтверждён код в /2fa/enable."""
+    from app.core.crypto import encrypt_secret
+    from app.core import totp as totp_lib
+
+    if current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="2FA уже включена. Сначала отключите её.")
+
+    secret = totp_lib.generate_secret()
+    current_user.totp_secret = encrypt_secret(secret)  # сохраняем как ожидающий
+    await db.commit()
+
+    uri = totp_lib.provisioning_uri(secret, current_user.username)
+    return {
+        "secret": secret,
+        "otpauth_uri": uri,
+        "qr_svg": totp_lib.qr_svg_data_uri(uri),
+    }
+
+
+@router.post("/2fa/enable")
+async def totp_enable(req: TotpEnableRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Подтверждает секрет кодом и включает 2FA, выдавая резервные коды (один раз)."""
+    from app.core.crypto import decrypt_secret
+    from app.core import totp as totp_lib
+
+    if current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="2FA уже включена")
+    if not current_user.totp_secret:
+        raise HTTPException(status_code=400, detail="Сначала выполните /2fa/setup")
+
+    secret = decrypt_secret(current_user.totp_secret)
+    if not totp_lib.verify_totp(secret, req.code):
+        raise HTTPException(status_code=400, detail="Неверный код. Проверьте время на устройстве и попробуйте снова.")
+
+    backup_codes = totp_lib.generate_backup_codes(10)
+    current_user.totp_backup_codes = json.dumps([totp_lib.hash_backup_code(c) for c in backup_codes])
+    current_user.totp_enabled = True
+    await db.commit()
+
+    return {"status": "enabled", "backup_codes": backup_codes}
+
+
+@router.post("/2fa/disable")
+async def totp_disable(req: TotpDisableRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Отключает 2FA после подтверждения кодом (TOTP или резервным)."""
+    if not current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="2FA не включена")
+    if not await verify_second_factor(current_user, req.code, db):
+        raise HTTPException(status_code=400, detail="Неверный код подтверждения")
+
+    current_user.totp_enabled = False
+    current_user.totp_secret = None
+    current_user.totp_backup_codes = None
+    await db.commit()
+    return {"status": "disabled"}
