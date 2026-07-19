@@ -71,6 +71,13 @@ _RULES = [
     ("PUT",    r"^/api/backup-schedules/\d+$",       "Изменение расписания бэкапов"),
     ("DELETE", r"^/api/backup-schedules/\d+$",       "Удаление расписания бэкапов"),
     ("POST",   r"^/api/backup-schedules/\d+/run$",   "Ручной запуск бэкапа по расписанию"),
+    ("POST",   r"^/api/alerts/channels$",             "Создание канала уведомлений"),
+    ("PUT",    r"^/api/alerts/channels/\d+$",         "Изменение канала уведомлений"),
+    ("DELETE", r"^/api/alerts/channels/\d+$",         "Удаление канала уведомлений"),
+    ("POST",   r"^/api/alerts/channels/\d+/test$",    "Тест канала уведомлений"),
+    ("POST",   r"^/api/alerts/rules$",                "Создание правила алерта"),
+    ("PUT",    r"^/api/alerts/rules/\d+$",            "Изменение правила алерта"),
+    ("DELETE", r"^/api/alerts/rules/\d+$",            "Удаление правила алерта"),
 ]
 
 

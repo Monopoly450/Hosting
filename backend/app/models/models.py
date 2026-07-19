@@ -264,3 +264,44 @@ class BackupSchedule(Base):
     last_run = Column(DateTime, nullable=True)
     last_status = Column(String, nullable=True)          # "success" | "error: ..."
     next_run = Column(DateTime, nullable=True)
+
+
+class NotificationChannel(Base):
+    """Канал доставки уведомлений об алертах (webhook или Telegram).
+    config шифруется (может содержать секреты: bot_token, URL с токеном)."""
+    __tablename__ = "notification_channels"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    type = Column(String, nullable=False)                # "webhook" | "telegram"
+    config = Column(Text, nullable=False)                # JSON, зашифрован (app.core.crypto)
+    enabled = Column(Boolean, default=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class AlertRule(Base):
+    """Правило оповещения по метрике. Демон в воркере периодически считывает
+    метрику, сравнивает с порогом и при СМЕНЕ состояния (ok<->firing) шлёт
+    уведомление в привязанный канал."""
+    __tablename__ = "alert_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    target_type = Column(String, nullable=False)         # "vm" | "host"
+    target_id = Column(Integer, nullable=True)           # VMTask.id (для host — NULL)
+    target_name = Column(String, nullable=False)         # имя ВМ или "host"
+    metric = Column(String, nullable=False)              # status | cpu_percent | memory_percent
+    comparator = Column(String, default=">")             # ">" | "<" (для числовых метрик)
+    threshold = Column(Float, nullable=True)             # порог (для status не используется)
+    channel_id = Column(Integer, ForeignKey("notification_channels.id"), nullable=True)
+    enabled = Column(Boolean, default=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    # Состояние
+    state = Column(String, default="ok")                 # "ok" | "firing" | "unknown"
+    last_value = Column(Float, nullable=True)
+    last_checked = Column(DateTime, nullable=True)
+    last_state_change = Column(DateTime, nullable=True)
+    last_notified = Column(DateTime, nullable=True)
+    last_error = Column(String, nullable=True)

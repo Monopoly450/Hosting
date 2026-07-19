@@ -437,6 +437,19 @@ def scheduled_backup_daemon():
         time.sleep(60)
 
 
+def alerts_daemon():
+    """Движок алертов: раз в минуту считывает метрики и шлёт уведомления
+    при смене состояния правил (ok<->firing)."""
+    logger.info("Starting alerts daemon thread...")
+    from .services.alerts import evaluate_alerts
+    while True:
+        try:
+            evaluate_alerts(k8s)
+        except Exception as e:
+            logger.error(f"Error in alerts daemon loop: {e}")
+        time.sleep(60)
+
+
 def main():
     logger.info("Starting worker...")
 
@@ -451,6 +464,10 @@ def main():
     # Планировщик запланированных бэкапов
     backup_thread = threading.Thread(target=scheduled_backup_daemon, daemon=True)
     backup_thread.start()
+
+    # Движок алертов и уведомлений
+    alerts_thread = threading.Thread(target=alerts_daemon, daemon=True)
+    alerts_thread.start()
     
     while True:
         try:
