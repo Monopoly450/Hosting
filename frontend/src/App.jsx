@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket, Boxes, ScrollText, CalendarClock, Bell } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket, Boxes, ScrollText, CalendarClock, Bell, Store } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -21,6 +21,7 @@ import AuditPanel from './components/AuditPanel';
 import TokensPanel from './components/TokensPanel';
 import BackupsPanel from './components/BackupsPanel';
 import AlertsPanel from './components/AlertsPanel';
+import MarketplacePanel from './components/MarketplacePanel';
 import S3Panel from './components/S3Panel';
 import VolumesPanel from './components/VolumesPanel';
 import MailPanel from './components/MailPanel';
@@ -416,6 +417,7 @@ const App = () => {
       case 'tokens': return 'API-токены';
       case 'backups': return 'Запланированные бэкапы';
       case 'alerts': return 'Алерты и уведомления';
+      case 'marketplace': return 'Маркетплейс приложений';
       case 's3': return 'S3 Объектное хранилище';
       case 'volumes': return 'Сетевые диски';
       case 'mail': return 'Почтовый хостинг';
@@ -625,6 +627,14 @@ const App = () => {
           >
             <Bell size={18} />
             Алерты
+          </button>
+
+          <button
+            className={`nav-item ${activeTab === 'marketplace' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => navigateToTab('marketplace')}
+          >
+            <Store size={18} />
+            Маркетплейс
           </button>
 
           {userRole === 'admin' && (
@@ -879,6 +889,8 @@ const App = () => {
             <BackupsPanel />
           ) : activeTab === 'alerts' ? (
             <AlertsPanel />
+          ) : activeTab === 'marketplace' ? (
+            <MarketplacePanel />
           ) : activeTab === 'docker' ? (
             <DockerPanel />
           ) : activeTab === 'kubernetes' ? (

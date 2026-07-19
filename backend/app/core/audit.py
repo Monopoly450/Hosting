@@ -57,6 +57,7 @@ _RULES = [
     ("POST",   r"^/api/volumes$",                     "Создание сетевого диска"),
     ("DELETE", r"^/api/volumes/\d+$",               "Удаление сетевого диска"),
     ("POST",   r"^/api/deployments$",                "Создание деплоя приложения"),
+    ("POST",   r"^/api/marketplace/deploy$",          "Деплой приложения из маркетплейса"),
     ("DELETE", r"^/api/deployments/\d+$",           "Удаление деплоя"),
     ("POST",   r"^/api/deployments/\d+/redeploy$",   "Передеплой приложения"),
     ("POST",   r"^/api/external-servers$",           "Подключение внешнего сервера"),

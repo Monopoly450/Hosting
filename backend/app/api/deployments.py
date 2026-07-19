@@ -23,6 +23,7 @@ STACK_LABELS = {
     "python": "Python",
     "static": "Статический сайт",
     "custom": "Своя команда",
+    "marketplace": "Маркетплейс",
 }
 
 
