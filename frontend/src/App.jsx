@@ -22,6 +22,7 @@ import TokensPanel from './components/TokensPanel';
 import BackupsPanel from './components/BackupsPanel';
 import AlertsPanel from './components/AlertsPanel';
 import MarketplacePanel from './components/MarketplacePanel';
+import RegistryPanel from './components/RegistryPanel';
 import S3Panel from './components/S3Panel';
 import VolumesPanel from './components/VolumesPanel';
 import MailPanel from './components/MailPanel';
@@ -418,6 +419,7 @@ const App = () => {
       case 'backups': return 'Запланированные бэкапы';
       case 'alerts': return 'Алерты и уведомления';
       case 'marketplace': return 'Маркетплейс приложений';
+      case 'registry': return 'Контейнерный реестр';
       case 's3': return 'S3 Объектное хранилище';
       case 'volumes': return 'Сетевые диски';
       case 'mail': return 'Почтовый хостинг';
@@ -639,12 +641,20 @@ const App = () => {
 
           {userRole === 'admin' && (
             <>
-              <button 
+              <button
                 className={`nav-item ${activeTab === 'docker' && !selectedVMDetailName ? 'active' : ''}`}
                 onClick={() => navigateToTab('docker')}
               >
                 <Shield size={18} />
                 Docker Управление
+              </button>
+
+              <button
+                className={`nav-item ${activeTab === 'registry' && !selectedVMDetailName ? 'active' : ''}`}
+                onClick={() => navigateToTab('registry')}
+              >
+                <Boxes size={18} />
+                Контейнерный реестр
               </button>
 
               <button
@@ -891,6 +901,8 @@ const App = () => {
             <AlertsPanel />
           ) : activeTab === 'marketplace' ? (
             <MarketplacePanel />
+          ) : activeTab === 'registry' ? (
+            <RegistryPanel />
           ) : activeTab === 'docker' ? (
             <DockerPanel />
           ) : activeTab === 'kubernetes' ? (
