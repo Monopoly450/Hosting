@@ -33,16 +33,21 @@ from app.core.config import settings
 router = APIRouter()
 logger = logging.getLogger("app.api.vms")
 
-def check_vm_ownership(vm_name: str, current_user: User):
-    """Проверяет права доступа текущего пользователя к виртуальной машине"""
+def check_vm_ownership(vm_name: str, current_user: User, need: str = "editor"):
+    """Проверяет права доступа к ВМ: админ, владелец или участник проекта.
+
+    По умолчанию требуется роль editor (безопасно для изменяющих операций);
+    у эндпоинтов только на чтение передаём need="viewer".
+    """
     if current_user.role == "admin":
         return
     from app.db import SessionLocal
     from app.models.models import VMTask
+    from app.core.rbac import can_access
     db = SessionLocal()
     try:
         vm = db.query(VMTask).filter(VMTask.name == vm_name).first()
-        if not vm or vm.owner_id != current_user.id:
+        if not vm or not can_access(db, current_user, vm.owner_id, vm.project_id, need):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Доступ запрещен: Вы не являетесь владельцем этой виртуальной машины."
@@ -718,14 +723,24 @@ def list_vms(client: K8sClient = Depends(get_k8s_client), current_user: User = D
                     vm["owner_username"] = db_vm_owner_map.get(name, "Unknown")
                 return all_vms
             else:
-                db_vms = db.query(VMTask).filter(VMTask.owner_id == current_user.id).all()
-                db_vm_map = {vm.name: vm.id for vm in db_vms}
+                # Видны свои ВМ и ВМ проектов, где пользователь состоит
+                from sqlalchemy import or_
+                from app.core.rbac import visible_project_ids
+                conds = [VMTask.owner_id == current_user.id]
+                pids = visible_project_ids(db, current_user)
+                if pids:
+                    conds.append(VMTask.project_id.in_(pids))
+                db_vms = db.query(VMTask).filter(or_(*conds)).all()
+
+                users_map = {u.id: u.username for u in db.query(User).all()}
+                db_vm_map = {vm.name: vm for vm in db_vms}
                 filtered_vms = []
                 for vm in all_vms:
                     name = vm.get("name")
-                    if name in db_vm_map:
-                        vm["id"] = db_vm_map[name]
-                        vm["owner_username"] = current_user.username
+                    row = db_vm_map.get(name)
+                    if row:
+                        vm["id"] = row.id
+                        vm["owner_username"] = users_map.get(row.owner_id, current_user.username)
                         filtered_vms.append(vm)
                 return filtered_vms
         finally:
@@ -1015,7 +1030,7 @@ def get_balancer_resources(client: K8sClient = Depends(get_k8s_client), current_
 
 @router.get("/{name}", response_model=dict)
 def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
-    check_vm_ownership(name, current_user)
+    check_vm_ownership(name, current_user, need="viewer")
     from app.db import SessionLocal
     from app.models.models import VMTask
 
@@ -1574,7 +1589,7 @@ def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClien
 @router.get("/{name}/metrics/history")
 def get_vm_metrics_history(name: str, range_hours: int = Query(1, ge=1, le=24), client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Получение истории метрик CPU/RAM из Prometheus за указанный период (в часах)"""
-    check_vm_ownership(name, current_user)
+    check_vm_ownership(name, current_user, need="viewer")
     import time
     
     end_time = int(time.time())
@@ -1633,7 +1648,7 @@ def create_backup(name: str, client: K8sClient = Depends(get_k8s_client), curren
 @router.get("/{name}/backups")
 def list_backups(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Получить список резервных копий VM"""
-    check_vm_ownership(name, current_user)
+    check_vm_ownership(name, current_user, need="viewer")
     try:
         return client.list_vm_backups(name)
     except Exception as e:

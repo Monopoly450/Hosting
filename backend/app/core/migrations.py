@@ -50,6 +50,10 @@ MIGRATION_STATEMENTS = [
     "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS ssh_key VARCHAR;",
     # Стабильный IP на мосту br-vms
     "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS static_ip VARCHAR;",
+    # Проекты (RBAC): привязка ресурсов к проекту
+    "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS project_id INTEGER;",
+    "ALTER TABLE user_databases ADD COLUMN IF NOT EXISTS project_id INTEGER;",
+    "ALTER TABLE app_deployments ADD COLUMN IF NOT EXISTS project_id INTEGER;",
     # Двухфакторная аутентификация (TOTP)
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR;",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE;",

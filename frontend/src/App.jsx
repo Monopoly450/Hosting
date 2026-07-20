@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket, Boxes, ScrollText, CalendarClock, Bell, Store, Globe } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket, Boxes, ScrollText, CalendarClock, Bell, Store, Globe, FolderKanban } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -24,6 +24,7 @@ import AlertsPanel from './components/AlertsPanel';
 import MarketplacePanel from './components/MarketplacePanel';
 import RegistryPanel from './components/RegistryPanel';
 import DomainsPanel from './components/DomainsPanel';
+import ProjectsPanel from './components/ProjectsPanel';
 import S3Panel from './components/S3Panel';
 import VolumesPanel from './components/VolumesPanel';
 import MailPanel from './components/MailPanel';
@@ -422,6 +423,7 @@ const App = () => {
       case 'marketplace': return 'Маркетплейс приложений';
       case 'registry': return 'Контейнерный реестр';
       case 'domains': return 'Свои домены и TLS';
+      case 'projects': return 'Проекты и доступы';
       case 's3': return 'S3 Объектное хранилище';
       case 'volumes': return 'Сетевые диски';
       case 'mail': return 'Почтовый хостинг';
@@ -647,6 +649,14 @@ const App = () => {
           >
             <Globe size={18} />
             Домены и TLS
+          </button>
+
+          <button
+            className={`nav-item ${activeTab === 'projects' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => navigateToTab('projects')}
+          >
+            <FolderKanban size={18} />
+            Проекты и доступы
           </button>
 
           {userRole === 'admin' && (
@@ -915,6 +925,8 @@ const App = () => {
             <RegistryPanel />
           ) : activeTab === 'domains' ? (
             <DomainsPanel />
+          ) : activeTab === 'projects' ? (
+            <ProjectsPanel />
           ) : activeTab === 'docker' ? (
             <DockerPanel />
           ) : activeTab === 'kubernetes' ? (

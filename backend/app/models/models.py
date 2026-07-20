@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 import datetime
 from sqlalchemy.dialects.postgresql import JSONB
@@ -44,6 +44,7 @@ class UserDatabase(Base):
     db_password = Column(String, nullable=False)
     associated_vm_id = Column(Integer, ForeignKey("vm_tasks.id"), nullable=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
     status = Column(String, default="Active")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -163,6 +164,7 @@ class VMTask(Base):
     name = Column(String, unique=True, index=True)
     cluster_id = Column(Integer, ForeignKey("clusters.id"), nullable=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
     
     # VM Spec
     os_type = Column(String)
@@ -211,6 +213,7 @@ class AppDeployment(Base):
     vm_name = Column(String, nullable=True)
 
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
     status = Column(String, default="Deploying")  # Deploying | Running | Error
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
@@ -264,6 +267,30 @@ class BackupSchedule(Base):
     last_run = Column(DateTime, nullable=True)
     last_status = Column(String, nullable=True)          # "success" | "error: ..."
     next_run = Column(DateTime, nullable=True)
+
+
+class Project(Base):
+    """Проект — рабочее пространство, объединяющее ресурсы и участников."""
+    __tablename__ = "projects"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class ProjectMember(Base):
+    """Участник проекта и его роль.
+    viewer — только чтение, editor — управление ресурсами, owner — плюс участники."""
+    __tablename__ = "project_members"
+    __table_args__ = (UniqueConstraint("project_id", "user_id", name="uq_project_member"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    role = Column(String, nullable=False, default="viewer")  # viewer | editor | owner
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
 class Domain(Base):
