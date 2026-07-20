@@ -74,9 +74,14 @@ export default function MarketplacePanel() {
                 <div className="glass-card accent-top" style={{ marginBottom: '20px' }}>
                     <div className="section-title"><Check size={18} style={{ color: 'var(--status-success)' }} /> «{result.app}» разворачивается</div>
                     <p className="text-muted" style={{ fontSize: '0.86rem' }}>
-                        ВМ «{result.name}» создаётся. Когда она поднимется, приложение станет доступно на вкладке
-                        <b> «Деплой приложений»</b> по ссылке (внутренний порт {result.app_port}).
+                        ВМ «{result.name}» создаётся. Когда она поднимется (обычно 1–3 минуты), приложение будет доступно по адресу:
                     </p>
+                    {result.app_url && (
+                        <div className="copy-field">
+                            <code style={{ fontFamily: 'var(--font-mono)' }}>{result.app_url}</code>
+                            <button className="btn-icon" onClick={() => copy(result.app_url, 'url')}>{copied === 'url' ? <Check size={16} color="var(--status-success)" /> : <Copy size={16} />}</button>
+                        </div>
+                    )}
                     {result.generated_secrets && Object.keys(result.generated_secrets).length > 0 && (
                         <>
                             <div className="alert alert-danger" style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', marginTop: '10px' }}>

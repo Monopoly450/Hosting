@@ -10,7 +10,10 @@ from pydantic import BaseModel, Field
 from app.db import SessionLocal
 from app.models.models import User, VMTask, AppDeployment
 from app.core.auth import get_current_user
-from app.services.marketplace import get_catalog, get_app, resolve_env, build_marketplace_cloud_init
+from app.services.marketplace import (
+    get_catalog, get_app, resolve_env, build_marketplace_cloud_init,
+    add_public_url, default_host,
+)
 
 router = APIRouter()
 logger = logging.getLogger("app.api.marketplace")
@@ -65,24 +68,30 @@ def deploy(req: MarketplaceDeploy, current_user: User = Depends(get_current_user
 
         env = resolve_env(app, req.env)
         password = generate_random_password()
-        cloud_init = build_marketplace_cloud_init(app, env, password)
         app_port = app["app_port"]
 
+        # Фаза 1: создаём ВМ, чтобы узнать её id (от него зависит внешний порт).
         vm = VMTask(
             name=req.name, os_type="ubuntu",
             cpu_cores=req.cpu_cores, memory_gb=req.memory_gb, disk_gb=req.disk_gb,
-            custom_user_data=cloud_init, owner_id=current_user.id, status="Pending",
+            owner_id=current_user.id, status="Pending",
         )
         db.add(vm)
         db.commit()
         db.refresh(vm)
 
+        ext_port = 28000 + vm.id
         ports = [
             {"ext_port": 22000 + vm.id, "int_port": 22, "name": "SSH"},
-            {"ext_port": 28000 + vm.id, "int_port": app_port, "name": "APP"},
+            {"ext_port": ext_port, "int_port": app_port, "name": "APP"},
         ]
         vm.ports_config = json.dumps(ports)
         vm.static_ip = compute_static_ip(vm.id)
+
+        # Фаза 2: внешний адрес известен — прокидываем его в приложение и только
+        # теперь формируем cloud-init (воркер прочитает его при publish_task).
+        env = add_public_url(env, default_host(), ext_port)
+        vm.custom_user_data = build_marketplace_cloud_init(app, env, password)
         db.commit()
 
         dep = AppDeployment(
@@ -103,6 +112,7 @@ def deploy(req: MarketplaceDeploy, current_user: User = Depends(get_current_user
             "name": req.name,
             "app": app["name"],
             "app_port": app_port,
+            "app_url": env["PUBLIC_URL"],
             "deployment_id": dep.id,
             "generated_secrets": shown,
         }

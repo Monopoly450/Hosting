@@ -57,3 +57,48 @@ def test_build_cloud_init_contains_compose_and_env():
 
 def test_get_app_unknown():
     assert mp.get_app("does-not-exist") is None
+
+
+def test_add_public_url():
+    env = mp.add_public_url({"A": "1"}, "10.0.0.5", 28042)
+    assert env["PUBLIC_HOST"] == "10.0.0.5:28042"
+    assert env["PUBLIC_URL"] == "http://10.0.0.5:28042"
+    assert env["A"] == "1"  # исходные значения не теряются
+
+
+def test_apps_needing_public_url_reference_it():
+    """Приложения, которые сами генерируют ссылки, должны получать свой внешний
+    адрес — иначе ссылки будут указывать на localhost."""
+    for app_id in ("ghost", "wordpress", "nextcloud", "n8n", "vaultwarden"):
+        compose = mp.get_app(app_id)["compose"]
+        assert "${PUBLIC_URL}" in compose or "${PUBLIC_HOST}" in compose, app_id
+
+
+def test_generated_cloud_init_and_compose_are_valid_yaml():
+    """Compose встраивается в cloud-init с отступами — проверяем, что оба
+    документа действительно парсятся и порт приложения опубликован."""
+    import yaml
+    for app in mp.CATALOG:
+        env = mp.add_public_url(mp.resolve_env(app, {}), "10.0.0.5", 28042)
+        ci = mp.build_marketplace_cloud_init(app, env, "pw")
+
+        doc = yaml.safe_load(ci)
+        files = {f["path"]: f["content"] for f in doc["write_files"]}
+        assert "/opt/app/docker-compose.yml" in files, app["id"]
+
+        compose = yaml.safe_load(files["/opt/app/docker-compose.yml"])
+        assert compose.get("services"), app["id"]
+        ports = [p for s in compose["services"].values() for p in s.get("ports", [])]
+        assert any(p.startswith(f"{app['app_port']}:") for p in ports), app["id"]
+
+        env_file = files["/opt/app/.env"]
+        assert "PUBLIC_URL=http://10.0.0.5:28042" in env_file, app["id"]
+
+
+def test_public_url_lands_in_cloud_init():
+    ghost = mp.get_app("ghost")
+    env = mp.add_public_url(mp.resolve_env(ghost, {}), "10.0.0.5", 28042)
+    ci = mp.build_marketplace_cloud_init(ghost, env, "pw")
+    # значение попадает в .env, а compose ссылается на него
+    assert "PUBLIC_URL=http://10.0.0.5:28042" in ci
+    assert "url: ${PUBLIC_URL}" in ci

@@ -5,6 +5,7 @@
 `docker compose up -d`. Секретные env-переменные генерируются автоматически,
 поэтому установка действительно «в один клик».
 """
+import os
 import secrets
 
 # ---- env-схема: {key, label, default, secret, generate} ----
@@ -48,6 +49,9 @@ CATALOG = [
       WORDPRESS_DB_USER: wordpress
       WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
       WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_HOME', '${PUBLIC_URL}');
+        define('WP_SITEURL', '${PUBLIC_URL}');
     volumes:
       - wp_data:/var/www/html
 volumes:
@@ -71,6 +75,7 @@ volumes:
       - "2368:2368"
     environment:
       NODE_ENV: production
+      url: ${PUBLIC_URL}
     volumes:
       - ghost_data:/var/lib/ghost/content
 volumes:
@@ -108,6 +113,9 @@ volumes:
       POSTGRES_DB: nextcloud
       POSTGRES_USER: nextcloud
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+      NEXTCLOUD_TRUSTED_DOMAINS: ${PUBLIC_HOST}
+      OVERWRITEHOST: ${PUBLIC_HOST}
+      OVERWRITEPROTOCOL: http
     volumes:
       - nc_data:/var/www/html
 volumes:
@@ -131,6 +139,7 @@ volumes:
       - "5678:5678"
     environment:
       N8N_SECURE_COOKIE: "false"
+      WEBHOOK_URL: ${PUBLIC_URL}
     volumes:
       - n8n_data:/home/node/.n8n
 volumes:
@@ -175,6 +184,7 @@ volumes:
       - "8082:80"
     environment:
       ADMIN_TOKEN: ${ADMIN_TOKEN}
+      DOMAIN: ${PUBLIC_URL}
     volumes:
       - vw_data:/data
 volumes:
@@ -261,6 +271,25 @@ def resolve_env(app: dict, overrides: dict) -> dict:
             val = _gen()
         resolved[e["key"]] = val
     return resolved
+
+
+def default_host() -> str:
+    """IP/хост, по которому пользователь достучится до приложения снаружи."""
+    return os.getenv("AEGIS_HOST_IP") or os.getenv("HOST_IP") or "127.0.0.1"
+
+
+def add_public_url(env: dict, host: str, ext_port: int) -> dict:
+    """Добавляет в env публичный адрес приложения.
+
+    Многим приложениям (Ghost, WordPress, Nextcloud, n8n, Vaultwarden) нужно
+    знать свой внешний URL, иначе они генерируют ссылки на localhost. Внешний
+    порт известен только после создания ВМ, поэтому подставляем его здесь.
+    """
+    public_host = f"{host}:{ext_port}"
+    env = dict(env)
+    env["PUBLIC_HOST"] = public_host
+    env["PUBLIC_URL"] = f"http://{public_host}"
+    return env
 
 
 def _indent(text: str, spaces: int) -> str:
