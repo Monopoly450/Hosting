@@ -12,6 +12,33 @@
 INTERNAL_IP_PREFIXES = ("10.244.", "10.42.", "10.0.2.", "127.", "192.168.100.")
 
 
+def detect_host_ip() -> str:
+    """IP хоста, по которому до него достучатся снаружи.
+
+    Единая точка правды: раньше это дублировалось в vms.py (с автоопределением)
+    и в деплоях/реестре/доменах/маркетплейсе (где по умолчанию возвращался
+    127.0.0.1). Из-за этого проверка DNS у доменов не могла пройти никогда,
+    а приложения маркетплейса получали ссылки на localhost.
+    """
+    import os
+    import socket as _socket
+
+    env_host = os.getenv("AEGIS_HOST_IP") or os.getenv("HOST_IP")
+    if env_host:
+        return env_host.strip()
+    try:
+        # Не отправляет пакетов — просто узнаёт, с какого адреса пошёл бы трафик.
+        s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if ip and not ip.startswith("127."):
+            return ip
+    except Exception:
+        pass
+    return "172.20.0.1"
+
+
 def is_internal_ip(ip: str) -> bool:
     """True, если адрес служебный (или IPv6) и не годится как внешний адрес ВМ."""
     if not ip or ":" in ip:

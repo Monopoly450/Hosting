@@ -29,7 +29,8 @@ DOMAIN_RE = re.compile(
 
 
 def host_ip() -> str:
-    return os.getenv("AEGIS_HOST_IP") or os.getenv("HOST_IP") or "127.0.0.1"
+    from app.core.netutils import detect_host_ip
+    return detect_host_ip()
 
 
 def acme_email() -> str:

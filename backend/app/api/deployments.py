@@ -169,8 +169,8 @@ def _systemd_service(name: str, workdir: str, exec_cmd: str, app_port: int) -> s
 
 
 def _get_host() -> str:
-    import os
-    return os.getenv("AEGIS_HOST_IP") or os.getenv("HOST_IP") or "127.0.0.1"
+    from app.core.netutils import detect_host_ip
+    return detect_host_ip()
 
 
 def _enrich(dep: AppDeployment, owner_name: str) -> DeploymentResponse:

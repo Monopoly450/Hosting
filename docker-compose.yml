@@ -76,6 +76,11 @@ services:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin-secret-2026}
       - STORAGE_CLASS=${STORAGE_CLASS:-local-path}
+      # Внешний адрес сервера: ссылки на приложения, адрес push в реестр и
+      # цель A-записей доменов. Пусто — определяется автоматически.
+      - AEGIS_HOST_IP=${AEGIS_HOST_IP:-}
+      - REGISTRY_PORT=${REGISTRY_PORT:-5000}
+      - ACME_EMAIL=${ACME_EMAIL:-}
     logging:
       driver: "json-file"
       options:
@@ -118,6 +123,8 @@ services:
       - AEGIS_SECRET_KEY=${AEGIS_SECRET_KEY:-}
       - ADMIN_TOKEN=${ADMIN_TOKEN}
       - STORAGE_CLASS=${STORAGE_CLASS:-local-path}
+      - AEGIS_HOST_IP=${AEGIS_HOST_IP:-}
+      - REGISTRY_PORT=${REGISTRY_PORT:-5000}
     logging:
       driver: "json-file"
       options:

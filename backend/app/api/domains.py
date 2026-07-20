@@ -67,12 +67,20 @@ def _owned(db, domain_id: int, user: User) -> Domain:
 
 
 def _apply_config(db):
-    """Пересобирает Caddyfile из активных доменов и применяет его."""
-    docker_client = _docker()
-    if not docker_client.is_available():
-        return {"applied": False, "reason": "Docker недоступен"}
-    entries = dsvc.build_entries(db, _k8s())
-    caddyfile = dsvc.build_caddyfile(entries, dsvc.acme_email())
+    """Пересобирает Caddyfile из активных доменов и применяет его.
+
+    Никогда не бросает исключение: применение конфига — побочный эффект
+    добавления/удаления домена, и его сбой не должен ронять сам запрос.
+    """
+    try:
+        docker_client = _docker()
+        if not docker_client.is_available():
+            return {"applied": False, "reason": "Docker недоступен"}
+        entries = dsvc.build_entries(db, _k8s())
+        caddyfile = dsvc.build_caddyfile(entries, dsvc.acme_email())
+    except Exception as e:
+        logger.error(f"Не удалось собрать конфиг Caddy: {e}")
+        return {"applied": False, "reason": str(e)}
     try:
         dsvc.ensure_caddy(docker_client, caddyfile)
         return {"applied": True, "sites": len(entries)}

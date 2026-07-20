@@ -5,7 +5,6 @@
 `docker compose up -d`. Секретные env-переменные генерируются автоматически,
 поэтому установка действительно «в один клик».
 """
-import os
 import secrets
 
 # ---- env-схема: {key, label, default, secret, generate} ----
@@ -275,7 +274,8 @@ def resolve_env(app: dict, overrides: dict) -> dict:
 
 def default_host() -> str:
     """IP/хост, по которому пользователь достучится до приложения снаружи."""
-    return os.getenv("AEGIS_HOST_IP") or os.getenv("HOST_IP") or "127.0.0.1"
+    from app.core.netutils import detect_host_ip
+    return detect_host_ip()
 
 
 def add_public_url(env: dict, host: str, ext_port: int) -> dict:

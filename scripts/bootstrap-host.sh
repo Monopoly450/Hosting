@@ -88,6 +88,16 @@ log "Установка необходимых пакетов (curl, iptables, b
 apt-get update
 apt-get install -y curl iptables bridge-utils jq net-tools openssl nginx fail2ban
 
+# Nginx нужен только как балансировщик (/etc/nginx/conf.d/aegis_balancer_*.conf).
+# Его дефолтный сайт занимает порт 80, а он требуется прокси Caddy для своих
+# доменов: по 80 идёт HTTP-01 проверка Let's Encrypt и редирект на HTTPS.
+# Поэтому дефолтный сайт отключаем, сам nginx оставляем работать.
+if [ -e /etc/nginx/sites-enabled/default ]; then
+    log "Отключение дефолтного сайта nginx (порт 80 нужен Caddy для TLS-сертификатов)..."
+    rm -f /etc/nginx/sites-enabled/default
+    nginx -t &>/dev/null && systemctl reload nginx || true
+fi
+
 # Установка Docker и Docker Compose v2 для запуска панели
 log "Проверка и установка Docker & Docker Compose..."
 if ! command -v docker &> /dev/null; then

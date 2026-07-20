@@ -3,7 +3,6 @@ from app.core.database import get_db
 import os
 import json
 import re
-import socket
 import paramiko
 import secrets
 import string
@@ -57,19 +56,8 @@ def check_vm_ownership(vm_name: str, current_user: User, need: str = "editor"):
 
 def get_host_ip() -> str:
     """Определяет IP хоста, доступный для подов K3s"""
-    env_host = os.getenv("HOST_IP") or os.getenv("AEGIS_HOST_IP")
-    if env_host:
-        return env_host
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        if ip and ip != "127.0.0.1":
-            return ip
-    except Exception:
-        pass
-    return "172.20.0.1"
+    from app.core.netutils import detect_host_ip
+    return detect_host_ip()
 
 # Зависимость для получения клиента K8s
 def get_k8s_client():

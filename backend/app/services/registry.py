@@ -20,8 +20,8 @@ def registry_base_url() -> str:
 
 
 def push_host() -> str:
-    host = os.getenv("AEGIS_HOST_IP") or os.getenv("HOST_IP") or "127.0.0.1"
-    return f"{host}:{REGISTRY_PORT}"
+    from app.core.netutils import detect_host_ip
+    return f"{detect_host_ip()}:{REGISTRY_PORT}"
 
 
 # ------------------------------- HTTP-клиент v2 -----------------------------
