@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket, Boxes, ScrollText, CalendarClock, Bell, Store } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket, Boxes, ScrollText, CalendarClock, Bell, Store, Globe } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -23,6 +23,7 @@ import BackupsPanel from './components/BackupsPanel';
 import AlertsPanel from './components/AlertsPanel';
 import MarketplacePanel from './components/MarketplacePanel';
 import RegistryPanel from './components/RegistryPanel';
+import DomainsPanel from './components/DomainsPanel';
 import S3Panel from './components/S3Panel';
 import VolumesPanel from './components/VolumesPanel';
 import MailPanel from './components/MailPanel';
@@ -420,6 +421,7 @@ const App = () => {
       case 'alerts': return 'Алерты и уведомления';
       case 'marketplace': return 'Маркетплейс приложений';
       case 'registry': return 'Контейнерный реестр';
+      case 'domains': return 'Свои домены и TLS';
       case 's3': return 'S3 Объектное хранилище';
       case 'volumes': return 'Сетевые диски';
       case 'mail': return 'Почтовый хостинг';
@@ -637,6 +639,14 @@ const App = () => {
           >
             <Store size={18} />
             Маркетплейс
+          </button>
+
+          <button
+            className={`nav-item ${activeTab === 'domains' && !selectedVMDetailName ? 'active' : ''}`}
+            onClick={() => navigateToTab('domains')}
+          >
+            <Globe size={18} />
+            Домены и TLS
           </button>
 
           {userRole === 'admin' && (
@@ -903,6 +913,8 @@ const App = () => {
             <MarketplacePanel />
           ) : activeTab === 'registry' ? (
             <RegistryPanel />
+          ) : activeTab === 'domains' ? (
+            <DomainsPanel />
           ) : activeTab === 'docker' ? (
             <DockerPanel />
           ) : activeTab === 'kubernetes' ? (

@@ -266,6 +266,24 @@ class BackupSchedule(Base):
     next_run = Column(DateTime, nullable=True)
 
 
+class Domain(Base):
+    """Свой домен пользователя, проксируемый Caddy на ВМ с автоматическим TLS
+    (Let's Encrypt). Caddy держит сертификаты сам, панель лишь генерирует конфиг."""
+    __tablename__ = "domains"
+
+    id = Column(Integer, primary_key=True, index=True)
+    domain = Column(String, unique=True, index=True, nullable=False)
+    target_type = Column(String, nullable=False, default="deployment")  # "deployment" | "vm"
+    target_id = Column(Integer, nullable=False)
+    target_port = Column(Integer, nullable=False)     # внутренний порт приложения в ВМ
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String, default="pending")        # pending | active | error
+    dns_ok = Column(Boolean, default=False)           # A-запись указывает на наш хост
+    last_checked = Column(DateTime, nullable=True)
+    last_error = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class NotificationChannel(Base):
     """Канал доставки уведомлений об алертах (webhook или Telegram).
     config шифруется (может содержать секреты: bot_token, URL с токеном)."""
