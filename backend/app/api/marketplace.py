@@ -66,7 +66,10 @@ def deploy(req: MarketplaceDeploy, current_user: User = Depends(get_current_user
             if sum(v.disk_gb for v in owned) + req.disk_gb > current_user.max_storage_gb:
                 raise HTTPException(status_code=400, detail=f"Превышена квота на диск (лимит: {current_user.max_storage_gb} ГБ).")
 
-        env = resolve_env(app, req.env)
+        try:
+            env = resolve_env(app, req.env)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         password = generate_random_password()
         app_port = app["app_port"]
 

@@ -71,6 +71,45 @@ def build_caddyfile(entries: list, email: str = "") -> str:
     return "\n".join(lines)
 
 
+CHALLENGE_PREFIX = "_aegis-challenge"
+
+
+def generate_verification_token() -> str:
+    import secrets
+    return "aegis-verify-" + secrets.token_hex(16)
+
+
+def challenge_record_name(domain: str) -> str:
+    return f"{CHALLENGE_PREFIX}.{domain}"
+
+
+def check_ownership(domain: str, token: str) -> tuple:
+    """Проверяет TXT-запись _aegis-challenge.<домен> с нашим токеном.
+
+    Без этого любой пользователь панели мог бы добавить чужой домен, который
+    и так указывает на этот сервер (например, домен самой панели), и увести
+    его трафик на свою ВМ. Поэтому владение подтверждается отдельно от A-записи.
+    """
+    if not token:
+        return False, "нет токена подтверждения"
+    name = challenge_record_name(domain)
+    try:
+        import dns.resolver
+    except ImportError:
+        return False, "на сервере не установлен dnspython"
+    try:
+        answers = dns.resolver.resolve(name, "TXT")
+    except Exception as e:
+        return False, f"TXT-запись {name} не найдена: {e}"
+
+    for rdata in answers:
+        for chunk in getattr(rdata, "strings", []):
+            value = chunk.decode(errors="ignore") if isinstance(chunk, bytes) else str(chunk)
+            if value.strip() == token:
+                return True, "владение подтверждено"
+    return False, f"в TXT-записи {name} нет нужного значения"
+
+
 def check_dns(domain: str, expected_ip: str = None) -> tuple:
     """Проверяет, что A-запись домена указывает на наш хост.
     Возвращает (ok, resolved_ip_or_error)."""
@@ -115,11 +154,18 @@ def resolve_upstream(db, k8s, dom):
 
 
 def build_entries(db, k8s) -> list:
-    """Список {domain, upstream} для доменов, готовых к проксированию."""
+    """Список {domain, upstream} для доменов, готовых к проксированию.
+
+    Требуется И подтверждённое владение (TXT), И корректная A-запись — иначе
+    домен вообще не попадёт в конфиг прокси.
+    """
     from app.models.models import Domain
 
     entries = []
-    for dom in db.query(Domain).filter(Domain.dns_ok == True).all():  # noqa: E712
+    ready = db.query(Domain).filter(
+        Domain.dns_ok == True, Domain.ownership_ok == True  # noqa: E712
+    ).all()
+    for dom in ready:
         upstream, err = resolve_upstream(db, k8s, dom)
         if upstream:
             entries.append({"domain": dom.domain, "upstream": upstream})

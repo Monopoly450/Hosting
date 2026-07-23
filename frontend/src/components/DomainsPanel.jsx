@@ -63,7 +63,13 @@ export default function DomainsPanel() {
             const res = await fetch(`/api/domains/${id}/verify`, { method: 'POST', headers: headers() });
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Ошибка');
-            if (!data.dns_ok) alert(`DNS ещё не готов: ${data.detail}\n\nСоздайте A-запись на ${data.expected_ip} и повторите (изменения DNS могут идти до нескольких часов).`);
+            if (!data.ownership_ok) {
+                alert(`Владение доменом не подтверждено: ${data.ownership_detail}\n\n`
+                    + `Создайте TXT-запись:\n${data.challenge_record}\nсо значением:\n${data.verification_token}\n\n`
+                    + `Затем повторите проверку (изменения DNS могут идти до нескольких часов).`);
+            } else if (!data.dns_ok) {
+                alert(`DNS ещё не готов: ${data.detail}\n\nСоздайте A-запись на ${data.expected_ip} и повторите.`);
+            }
             fetchAll();
         } catch (e) { alert(`Ошибка: ${e.message}`); } finally { setVerifying(null); }
     };
@@ -90,9 +96,11 @@ export default function DomainsPanel() {
 
     const copy = (v, k) => { navigator.clipboard.writeText(v); setCopied(k); setTimeout(() => setCopied(''), 1500); };
 
-    const badge = (d) => d.dns_ok
-        ? <span className="badge" style={{ background: 'rgba(48,164,108,0.15)', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><ShieldCheck size={12} /> активен (TLS)</span>
-        : <span className="badge" style={{ background: 'rgba(245,166,35,0.15)', color: '#f5a623', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={12} /> ожидает DNS</span>;
+    const badge = (d) => {
+        if (d.dns_ok && d.ownership_ok) return <span className="badge" style={{ background: 'rgba(48,164,108,0.15)', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><ShieldCheck size={12} /> активен (TLS)</span>;
+        const text = !d.ownership_ok ? 'нужна TXT-запись' : 'ожидает A-запись';
+        return <span className="badge" style={{ background: 'rgba(245,166,35,0.15)', color: '#f5a623', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={12} /> {text}</span>;
+    };
 
     if (loading) return <div className="panel-container"><div style={{ display: 'flex', justifyContent: 'center', padding: '50px' }}><div className="spinner spinner-lg" /></div></div>;
 
@@ -115,13 +123,17 @@ export default function DomainsPanel() {
             <div className="glass-card" style={{ marginBottom: '20px' }}>
                 <div className="section-title"><Globe size={16} /> Как подключить домен</div>
                 <p className="text-muted" style={{ fontSize: '0.85rem' }}>
-                    У регистратора домена создайте <b>A-запись</b>, указывающую на IP этого сервера, затем нажмите «Проверить» у домена.
+                    Нужны <b>две записи</b>. TXT подтверждает, что домен принадлежит вам (без неё чужой домен
+                    можно было бы увести на свою ВМ), A — направляет трафик на этот сервер.
                     После успешной проверки сертификат выпустится автоматически (порты 80 и 443 должны быть открыты снаружи).
                 </p>
                 <div className="copy-field">
                     <code style={{ fontFamily: 'var(--font-mono)' }}>A  @  →  {status?.host_ip || '—'}</code>
                     <button className="btn-icon" onClick={() => copy(status?.host_ip || '', 'ip')}>{copied === 'ip' ? <Check size={16} color="var(--status-success)" /> : <Copy size={16} />}</button>
                 </div>
+                <p className="text-muted" style={{ fontSize: '0.78rem', marginTop: '8px' }}>
+                    TXT-запись для подтверждения владения индивидуальна для каждого домена — она показана в таблице ниже.
+                </p>
                 {status && !status.running && (
                     <div className="alert alert-danger" style={{ marginTop: '10px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                         <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
@@ -161,6 +173,15 @@ export default function DomainsPanel() {
                                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{d.target_port}</td>
                                     <td>
                                         {badge(d)}
+                                        {!d.ownership_ok && d.verification_token && (
+                                            <div style={{ marginTop: '6px' }}>
+                                                <div className="text-muted" style={{ fontSize: '0.7rem' }}>TXT {d.challenge_record}</div>
+                                                <div className="copy-field" style={{ marginTop: '2px' }}>
+                                                    <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>{d.verification_token}</code>
+                                                    <button className="btn-icon" onClick={() => copy(d.verification_token, `t${d.id}`)}>{copied === `t${d.id}` ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}</button>
+                                                </div>
+                                            </div>
+                                        )}
                                         {d.last_error && <div className="text-muted" style={{ fontSize: '0.72rem', marginTop: '4px' }} title={d.last_error}>{d.last_error}</div>}
                                     </td>
                                     <td>

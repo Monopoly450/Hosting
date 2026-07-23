@@ -43,6 +43,9 @@ class DomainInfo(BaseModel):
     target_port: int
     status: str
     dns_ok: bool
+    ownership_ok: bool
+    challenge_record: str          # имя TXT-записи, которую нужно создать
+    verification_token: Optional[str]
     last_error: Optional[str]
     last_checked: Optional[str]
     url: str
@@ -52,6 +55,9 @@ def _to_info(d: Domain) -> DomainInfo:
     return DomainInfo(
         id=d.id, domain=d.domain, target_type=d.target_type, target_id=d.target_id,
         target_port=d.target_port, status=d.status or "pending", dns_ok=bool(d.dns_ok),
+        ownership_ok=bool(d.ownership_ok),
+        challenge_record=dsvc.challenge_record_name(d.domain),
+        verification_token=d.verification_token,
         last_error=d.last_error, last_checked=d.last_checked.isoformat() if d.last_checked else None,
         url=f"https://{d.domain}",
     )
@@ -143,6 +149,7 @@ def create_domain(req: DomainCreate, current_user: User = Depends(get_current_us
         dom = Domain(
             domain=name, target_type=req.target_type, target_id=req.target_id,
             target_port=port, owner_id=current_user.id, status="pending", dns_ok=False,
+            ownership_ok=False, verification_token=dsvc.generate_verification_token(),
         )
         db.add(dom)
         db.commit()
@@ -159,16 +166,34 @@ def verify_domain(domain_id: int, current_user: User = Depends(get_current_user)
     db = SessionLocal()
     try:
         dom = _owned(db, domain_id, current_user)
-        ok, detail = dsvc.check_dns(dom.domain)
-        dom.dns_ok = ok
+
+        # 1) Владение доменом (TXT), 2) маршрутизация (A-запись).
+        # Порядок важен: пока владение не доказано, домен в конфиг не попадает,
+        # даже если A-запись уже указывает на этот сервер.
+        own_ok, own_detail = dsvc.check_ownership(dom.domain, dom.verification_token)
+        dns_ok, dns_detail = dsvc.check_dns(dom.domain)
+
+        dom.ownership_ok = own_ok
+        dom.dns_ok = dns_ok
         dom.last_checked = datetime.utcnow()
-        dom.last_error = None if ok else detail
-        dom.status = "active" if ok else "pending"
+        ready = own_ok and dns_ok
+        dom.status = "active" if ready else "pending"
+        dom.last_error = None if ready else (own_detail if not own_ok else dns_detail)
         db.commit()
 
-        applied = _apply_config(db) if ok else {"applied": False, "reason": "DNS не подтверждён"}
+        applied = _apply_config(db) if ready else {
+            "applied": False,
+            "reason": "Владение доменом не подтверждено" if not own_ok else "DNS не подтверждён",
+        }
         db.refresh(dom)
-        return {"dns_ok": ok, "detail": detail, "expected_ip": dsvc.host_ip(), **applied}
+        return {
+            "ownership_ok": own_ok, "ownership_detail": own_detail,
+            "dns_ok": dns_ok, "detail": dns_detail,
+            "expected_ip": dsvc.host_ip(),
+            "challenge_record": dsvc.challenge_record_name(dom.domain),
+            "verification_token": dom.verification_token,
+            **applied,
+        }
     finally:
         db.close()
 

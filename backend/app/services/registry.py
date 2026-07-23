@@ -4,6 +4,7 @@
 import json
 import logging
 import os
+import re
 import urllib.request
 
 logger = logging.getLogger("app.services.registry")
@@ -13,6 +14,21 @@ REGISTRY_VOLUME = "aegis-registry-data"
 REGISTRY_IMAGE = "registry:2"
 REGISTRY_PORT = int(os.getenv("REGISTRY_PORT", "5000"))
 MANIFEST_ACCEPT = "application/vnd.docker.distribution.manifest.v2+json"
+
+# Имена репозиториев и тегов подставляются в URL запроса к реестру, поэтому
+# проверяем их по формату Docker: каждый сегмент обязан начинаться с буквы или
+# цифры. Это заодно исключает "..", ведущий за пределы своего репозитория.
+_SEGMENT = r"[a-z0-9]+(?:(?:\.|_|__|-+)[a-z0-9]+)*"
+REPO_RE = re.compile(rf"^{_SEGMENT}(?:/{_SEGMENT})*$")
+TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$")
+
+
+def is_valid_repo(name: str) -> bool:
+    return bool(name) and len(name) <= 255 and bool(REPO_RE.match(name))
+
+
+def is_valid_tag(tag: str) -> bool:
+    return bool(tag) and bool(TAG_RE.match(tag))
 
 
 def registry_base_url() -> str:

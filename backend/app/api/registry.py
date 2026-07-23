@@ -64,13 +64,26 @@ def repositories():
     return out
 
 
+def _check_repo(repo: str):
+    if not reg.is_valid_repo(repo):
+        raise HTTPException(status_code=400, detail="Некорректное имя репозитория")
+
+
+def _check_tag(tag: str):
+    if not reg.is_valid_tag(tag):
+        raise HTTPException(status_code=400, detail="Некорректное имя тега")
+
+
 @router.get("/repositories/{repo:path}/tags")
 def tags(repo: str):
+    _check_repo(repo)
     return {"repo": repo, "tags": _guard_registry_call(lambda: _client().list_tags(repo))}
 
 
 @router.delete("/repositories/{repo:path}/tags/{tag}")
 def delete_tag(repo: str, tag: str):
+    _check_repo(repo)
+    _check_tag(tag)
     try:
         _guard_registry_call(lambda: _client().delete_tag(repo, tag))
     except HTTPException:

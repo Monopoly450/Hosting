@@ -257,13 +257,27 @@ def get_app(app_id: str):
     return _BY_ID.get(app_id)
 
 
+def sanitize_env_value(value) -> str:
+    """Значение уходит строкой в .env внутри cloud-init. Перевод строки позволил
+    бы дописать в файл произвольные переменные, поэтому такие значения отклоняем
+    (а не «чиним» молча — пользователь должен увидеть ошибку)."""
+    val = "" if value is None else str(value)
+    if any(ch in val for ch in ("\n", "\r", "\0")):
+        raise ValueError("Значение переменной не может содержать перенос строки")
+    return val
+
+
 def resolve_env(app: dict, overrides: dict) -> dict:
     """Собирает финальные значения env: пользовательские переопределения,
-    иначе default, иначе генерация (для generate=True)."""
+    иначе default, иначе генерация (для generate=True).
+
+    Учитываются только переменные из схемы приложения — произвольные ключи
+    от пользователя в .env не попадают.
+    """
     overrides = overrides or {}
     resolved = {}
     for e in app["env"]:
-        val = overrides.get(e["key"])
+        val = sanitize_env_value(overrides.get(e["key"]))
         if not val:
             val = e.get("default") or ""
         if not val and e.get("generate"):
