@@ -120,6 +120,22 @@ export default function RegistryPanel() {
                             <code style={{ fontFamily: 'var(--font-mono)' }}>{info?.push_host}</code>
                             <button className="btn-icon" onClick={() => copy(info.push_host, 'host')}>{copied === 'host' ? <Check size={16} color="var(--status-success)" /> : <Copy size={16} />}</button>
                         </div>
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                            <div style={{ flex: '1 1 160px' }}>
+                                <div className="text-muted" style={{ fontSize: '0.72rem' }}>Логин</div>
+                                <div className="copy-field">
+                                    <code style={{ fontFamily: 'var(--font-mono)' }}>{info?.username}</code>
+                                    <button className="btn-icon" onClick={() => copy(info.username, 'user')}>{copied === 'user' ? <Check size={16} color="var(--status-success)" /> : <Copy size={16} />}</button>
+                                </div>
+                            </div>
+                            <div style={{ flex: '1 1 220px' }}>
+                                <div className="text-muted" style={{ fontSize: '0.72rem' }}>Пароль</div>
+                                <div className="copy-field">
+                                    <code style={{ fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>{info?.password || '—'}</code>
+                                    {info?.password && <button className="btn-icon" onClick={() => copy(info.password, 'pass')}>{copied === 'pass' ? <Check size={16} color="var(--status-success)" /> : <Copy size={16} />}</button>}
+                                </div>
+                            </div>
+                        </div>
                         <pre style={{ background: 'var(--bg-surface-hover)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '12px', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', margin: 0, overflowX: 'auto' }}>{(info?.examples || []).join('\n')}</pre>
                         {info?.insecure_note && <p className="text-muted" style={{ fontSize: '0.76rem', marginTop: '10px' }}>{info.insecure_note}</p>}
                     </div>

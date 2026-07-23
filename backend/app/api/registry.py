@@ -18,7 +18,9 @@ def get_docker_client():
 
 
 def _client() -> reg.RegistryClient:
-    return reg.RegistryClient()
+    creds = reg.load_credentials()
+    auth = (creds["user"], creds["password"]) if creds else None
+    return reg.RegistryClient(auth=auth)
 
 
 def _guard_registry_call(fn):
@@ -96,14 +98,20 @@ def delete_tag(repo: str, tag: str):
 @router.get("/info")
 def info():
     host = reg.push_host()
+    creds = reg.load_credentials()
+    user = creds["user"] if creds else reg.REGISTRY_USER
+    password = creds["password"] if creds else None
     return {
         "push_host": host,
         "endpoint": reg.registry_base_url(),
+        "username": user,
+        "password": password,   # виден только администратору (роутер admin-gated)
         "insecure_note": (
             "Реестр работает по HTTP. Добавьте его в insecure-registries демона Docker: "
             f'{{"insecure-registries": ["{host}"]}} в /etc/docker/daemon.json и перезапустите docker.'
         ),
         "examples": [
+            f"echo '<пароль>' | docker login {host} -u {user} --password-stdin",
             f"docker tag my-image:latest {host}/my-image:latest",
             f"docker push {host}/my-image:latest",
             f"docker pull {host}/my-image:latest",

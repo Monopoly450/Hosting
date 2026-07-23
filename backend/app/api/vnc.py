@@ -24,13 +24,13 @@ async def vnc_proxy(
     token: str = Query(None)
 ):
     # Проверяем авторизационный токен (разрешаем прямой ADMIN_TOKEN либо JWT токен владельца/админа)
-    from app.core.auth import ADMIN_TOKEN, decode_access_token
+    from app.core.auth import ADMIN_TOKEN, decode_access_token, secure_eq
     from app.models.models import User, VMTask
     from app.db import SessionLocal
 
     is_authorized = False
     if token:
-        if token == ADMIN_TOKEN:
+        if secure_eq(token, ADMIN_TOKEN):
             is_authorized = True
         else:
             payload = decode_access_token(token)

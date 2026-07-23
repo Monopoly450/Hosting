@@ -64,14 +64,14 @@ async def ssh_terminal_proxy(
     name: str,
     token: str = Query(None)
 ):
-    from app.core.auth import ADMIN_TOKEN, decode_access_token
+    from app.core.auth import ADMIN_TOKEN, decode_access_token, secure_eq
     from app.models.models import User, VMTask
     from app.db import SessionLocal
 
     # 1. Авторизация
     is_authorized = False
     if token:
-        if token == ADMIN_TOKEN:
+        if secure_eq(token, ADMIN_TOKEN):
             is_authorized = True
         else:
             payload = decode_access_token(token)

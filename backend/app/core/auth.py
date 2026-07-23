@@ -24,6 +24,14 @@ security_bearer = HTTPBearer(auto_error=False)
 
 # --- УТИЛИТЫ БЕЗОПАСНОСТИ (Без внешних зависимостей) ---
 
+def secure_eq(a, b) -> bool:
+    """Сравнение секретов за постоянное время (защита от timing-атак).
+    Безопасно при None/несовпадении типов — тогда просто False."""
+    if not isinstance(a, str) or not isinstance(b, str):
+        return False
+    return hmac.compare_digest(a, b)
+
+
 def hash_password(password: str) -> str:
     """Хэширует пароль с помощью PBKDF2-HMAC-SHA256"""
     salt = os.urandom(16)
@@ -88,7 +96,7 @@ async def verify_admin_token(
     db: AsyncSession = Depends(get_db)
 ):
     # 1. Проверяем прямой X-Admin-Token (для старых клиентов и оркестратора)
-    if x_admin_token and x_admin_token == ADMIN_TOKEN:
+    if x_admin_token and secure_eq(x_admin_token, ADMIN_TOKEN):
         return x_admin_token
 
     # 2. Персональный API-токен админа (aeg_...)
@@ -155,7 +163,7 @@ async def get_current_user(
             return api_user
 
     # 1. Если передан системный X-Admin-Token (например, от оркестратора или админа)
-    if x_admin_token and x_admin_token == ADMIN_TOKEN:
+    if x_admin_token and secure_eq(x_admin_token, ADMIN_TOKEN):
         # Ищем или создаем виртуального суперпользователя admin
         res = await db.execute(select(User).filter_by(username="admin"))
         admin_user = res.scalars().first()

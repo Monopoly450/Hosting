@@ -17,3 +17,4 @@ minio==7.2.5
 cryptography==42.0.8
 qrcode==7.4.2
 dnspython==2.6.1
+bcrypt==4.1.3

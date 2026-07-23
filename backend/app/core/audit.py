@@ -7,14 +7,14 @@ logger = logging.getLogger("app.core.audit")
 def resolve_username(request) -> str:
     """Определяет, кто выполняет запрос: по Bearer-токену или X-Admin-Token."""
     try:
-        from app.core.auth import decode_access_token, ADMIN_TOKEN
+        from app.core.auth import decode_access_token, ADMIN_TOKEN, secure_eq
         auth = request.headers.get("authorization") or request.headers.get("Authorization")
         if auth and auth.lower().startswith("bearer "):
             payload = decode_access_token(auth.split(" ", 1)[1])
             if payload and payload.get("sub"):
                 return payload["sub"]
         xtok = request.headers.get("x-admin-token") or request.headers.get("X-Admin-Token")
-        if xtok and xtok == ADMIN_TOKEN:
+        if xtok and secure_eq(xtok, ADMIN_TOKEN):
             return "admin"
     except Exception:
         pass
