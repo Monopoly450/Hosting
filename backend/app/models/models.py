@@ -305,6 +305,9 @@ class Domain(Base):
     target_port = Column(Integer, nullable=False)     # внутренний порт приложения в ВМ
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     status = Column(String, default="pending")        # pending | active | error
+    # Подтверждение владения доменом: TXT-запись _aegis-challenge.<домен>
+    verification_token = Column(String, nullable=True)
+    ownership_ok = Column(Boolean, default=False)
     dns_ok = Column(Boolean, default=False)           # A-запись указывает на наш хост
     last_checked = Column(DateTime, nullable=True)
     last_error = Column(String, nullable=True)

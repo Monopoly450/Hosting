@@ -53,8 +53,11 @@ def _channel_summary(ctype: str, cfg: dict) -> str:
 
 def _validate_channel_config(ctype: str, cfg: dict):
     if ctype == "webhook":
-        if not cfg.get("url", "").startswith(("http://", "https://")):
-            raise HTTPException(status_code=400, detail="webhook: нужен корректный url (http/https)")
+        from app.core.ssrf import validate_public_url
+        try:
+            validate_public_url(cfg.get("url", ""))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"webhook: {e}")
     elif ctype == "telegram":
         if not cfg.get("bot_token") or not cfg.get("chat_id"):
             raise HTTPException(status_code=400, detail="telegram: нужны bot_token и chat_id")

@@ -147,7 +147,13 @@ def format_message(rule, state: str, value) -> str:
             f"{rule.metric} = {value}% (порог {rule.comparator} {rule.threshold}%)")
 
 
-def _http_post_json(url: str, payload: dict, timeout: int = 10):
+def _http_post_json(url: str, payload: dict, timeout: int = 10, check_ssrf: bool = True):
+    """POST JSON. Адрес проверяется повторно перед каждой отправкой: DNS мог
+    измениться после сохранения канала (DNS rebinding), да и сам канал мог быть
+    создан до появления проверки."""
+    if check_ssrf:
+        from app.core.ssrf import validate_public_url
+        validate_public_url(url)
     data = json.dumps(payload).encode()
     req = urllib.request.Request(url, data=data, method="POST",
                                  headers={"Content-Type": "application/json"})
