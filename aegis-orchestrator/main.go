@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -280,10 +282,17 @@ func authMiddleware(next http.Handler) http.Handler {
 
 		token := r.Header.Get("X-Admin-Token")
 		if token == "" {
-			token = r.URL.Query().Get("token")
+			// Токен в URL попадает в логи прокси, историю браузера и Referer,
+			// поэтому принимаем его только там, где иначе никак: EventSource
+			// не умеет отправлять собственные заголовки.
+			if strings.HasSuffix(r.URL.Path, "/stream") {
+				token = r.URL.Query().Get("token")
+			}
 		}
 
-		if token != adminToken {
+		// Сравнение за постоянное время — чтобы по времени ответа нельзя было
+		// подбирать токен посимвольно.
+		if subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) != 1 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{

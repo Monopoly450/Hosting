@@ -1962,6 +1962,26 @@ WantedBy=multi-user.target
 
 POOLS_FILE = "/app/data/balancer_pools.json"
 
+# Порты, которые уже слушает сама платформа. Балансировщик поднимается nginx'ом
+# в сети хоста, поэтому пул на занятом порту не даст nginx перезагрузиться —
+# и вместе с ним отвалятся ОСТАЛЬНЫЕ пулы. Особенно опасны 8080/8443 (сама
+# панель) и 80/443 (прокси доменов: без 80 не пройдёт проверка Let's Encrypt).
+RESERVED_HOST_PORTS = {
+    25, 143, 587, 993,   # почтовый сервер
+    80, 443,             # aegis-caddy: домены и выпуск TLS-сертификатов
+    3306,                # MariaDB
+    5000,                # aegis-registry: приватный реестр образов
+    5432,                # PostgreSQL
+    5672, 15672,         # RabbitMQ и его веб-консоль
+    8000,                # API бэкенда
+    8001,                # Go-оркестратор
+    8080, 8443,          # веб-панель (frontend)
+    8081, 8444,          # кабинет пользователя
+    8082,                # webmail
+    9000, 9001,          # MinIO: S3 API и консоль
+}
+
+
 class BalancerPoolCreate(BaseModel):
     name: str
     port: int
@@ -2015,8 +2035,16 @@ def create_balancer_pool(payload: BalancerPoolCreate, client: K8sClient = Depend
         raise HTTPException(status_code=400, detail=f"Пул с именем {payload.name} уже существует")
         
     # 2. Проверяем порты
-    if payload.port in [8000, 5432, 5672, 15672]:
-        raise HTTPException(status_code=400, detail="Этот порт зарезервирован системой")
+    if payload.port in RESERVED_HOST_PORTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Порт {payload.port} занят самой платформой. "
+                   "Пул на нём не даст nginx перезагрузиться и сломает остальные пулы. "
+                   "Выберите свободный порт (например, из диапазона 10000–20000)."
+        )
+    if payload.backend_port in RESERVED_HOST_PORTS and payload.backend_port not in (80, 443):
+        # backend_port — порт ВНУТРИ ВМ, там 80/443 совершенно нормальны
+        logger.warning(f"Балансировщик {payload.name}: необычный порт бэкенда {payload.backend_port}")
          
     # 3. Собираем IP-адреса виртуальных машин
     servers = []
