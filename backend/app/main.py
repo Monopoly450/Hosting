@@ -1,7 +1,10 @@
 import os
 import logging
-from fastapi import FastAPI, Depends
+import uuid
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.api import vms, host, vnc, images, docker_admin, external_servers, infra, clusters, auth, databases, s3, volumes, snapshots, mail, deployments, kubernetes as kubernetes_api, ssh_terminal, audit, tokens, backups, alerts, marketplace, registry as registry_api, domains as domains_api, projects as projects_api
@@ -134,6 +137,44 @@ if settings.BACKEND_CORS_ORIGINS:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+# --- Санитизация серверных ошибок ---
+# Во многих обработчиках внутренние сбои оборачиваются как
+# HTTPException(500, detail=str(e)). Это отдаёт наружу трейсбеки kubernetes,
+# пути на диске, SQL и адреса внутренних сервисов. Чинить 60+ мест по одному
+# рискованно, поэтому подменяем текст централизованно — и только для 5xx:
+# сообщения 4xx осмысленные (квоты, валидация, TOTP_REQUIRED) и нужны клиенту.
+# Полный текст уходит в лог с коротким кодом, чтобы админ нашёл его по обращению.
+
+def _log_and_mask(request: Request, detail, exc: Exception = None) -> str:
+    error_id = uuid.uuid4().hex[:12]
+    logger.error(
+        "[%s] %s %s -> %s", error_id, request.method, request.url.path, detail,
+        exc_info=exc is not None,
+    )
+    return error_id
+
+
+@app.exception_handler(HTTPException)
+async def masked_http_exception_handler(request: Request, exc: HTTPException):
+    if exc.status_code >= 500:
+        error_id = _log_and_mask(request, exc.detail)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": f"Внутренняя ошибка сервера. Код обращения: {error_id}"},
+            headers=getattr(exc, "headers", None),
+        )
+    return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    error_id = _log_and_mask(request, repr(exc), exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Внутренняя ошибка сервера. Код обращения: {error_id}"},
+    )
+
 
 # Подключение роутеров с валидацией токена
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])

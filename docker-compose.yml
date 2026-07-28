@@ -10,7 +10,7 @@ services:
     environment:
       - POSTGRES_DB=aegis
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -28,8 +28,8 @@ services:
       - "127.0.0.1:5672:5672"
       - "127.0.0.1:15672:15672"
     environment:
-      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-guest}
-      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-guest}
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:?RABBITMQ_USER не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:?RABBITMQ_PASS не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
       interval: 10s
@@ -68,13 +68,13 @@ services:
       - PORT=8000
       - HOST=0.0.0.0
       - IMAGES_DIR=/app/data/images
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5432/aegis}
-      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@localhost:5672/}
-      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
+      - RABBITMQ_URL=${RABBITMQ_URL:?RABBITMQ_URL не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:?ADMIN_TOKEN не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
       - AEGIS_SECRET_KEY=${AEGIS_SECRET_KEY:-}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin-secret-2026}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
       - STORAGE_CLASS=${STORAGE_CLASS:-local-path}
       # Внешний адрес сервера: ссылки на приложения, адрес push в реестр и
       # цель A-записей доменов. Пусто — определяется автоматически.
@@ -117,11 +117,11 @@ services:
       - /run/lvm:/run/lvm:rw
     environment:
       - IMAGES_DIR=/app/data/images
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@localhost:5432/aegis}
-      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://guest:guest@localhost:5672/}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
+      - RABBITMQ_URL=${RABBITMQ_URL:?RABBITMQ_URL не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
       - AEGIS_SECRET_KEY=${AEGIS_SECRET_KEY:-}
-      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:?ADMIN_TOKEN не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
       - STORAGE_CLASS=${STORAGE_CLASS:-local-path}
       - AEGIS_HOST_IP=${AEGIS_HOST_IP:-}
       - REGISTRY_PORT=${REGISTRY_PORT:-5000}
@@ -160,8 +160,8 @@ services:
       - ./data:/app/data:rw
     environment:
       - PORT=8001
-      - DB_CONN_STR=${DB_CONN_STR}
-      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - DB_CONN_STR=${DB_CONN_STR:?DB_CONN_STR не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
+      - ADMIN_TOKEN=${ADMIN_TOKEN:?ADMIN_TOKEN не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
     logging:
       driver: "json-file"
       options:
@@ -175,7 +175,7 @@ services:
       # Только localhost: пользовательские БД теперь живут в изолированных K8s-подах
       - "127.0.0.1:3306:3306"
     environment:
-      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD:-mariadb-root-secret-2026}
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
     volumes:
       - mariadb_data:/var/lib/mysql
     healthcheck:
@@ -195,7 +195,7 @@ services:
       - "127.0.0.1:9001:9001"
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin-secret-2026}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
