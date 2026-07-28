@@ -27,26 +27,19 @@ def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_c
             raise HTTPException(status_code=400, detail="Кластер с таким именем уже существует.")
             
         # Проверяем лимиты квот для обычных пользователей (студентов)
-        if current_user.role != "admin":
-            owned_vms = db.query(VMTask).filter(VMTask.owner_id == current_user.id).all()
-            total_vms = len(owned_vms)
-            total_cpus = sum(vm.cpu_cores for vm in owned_vms)
-            total_ram = sum(vm.memory_gb * 1024 for vm in owned_vms)
-            total_storage = sum(vm.disk_gb for vm in owned_vms)
-            
-            req_vms = len(req.vms)
-            req_cpus = sum(vm.cpu_cores for vm in req.vms)
-            req_ram = sum(vm.memory_gb * 1024 for vm in req.vms)
-            req_storage = sum(vm.disk_gb for vm in req.vms)
-            
-            if total_vms + req_vms > current_user.max_vms:
-                raise HTTPException(status_code=400, detail=f"Создание кластера превысит лимит ВМ (Лимит: {current_user.max_vms}, будет занято: {total_vms + req_vms}).")
-            if total_cpus + req_cpus > current_user.max_vcpus:
-                raise HTTPException(status_code=400, detail=f"Создание кластера превысит лимит CPU (Лимит: {current_user.max_vcpus}, будет занято: {total_cpus + req_cpus}).")
-            if total_ram + req_ram > current_user.max_ram_mb:
-                raise HTTPException(status_code=400, detail=f"Создание кластера превысит лимит RAM (Лимит: {current_user.max_ram_mb} МБ, будет занято: {total_ram + req_ram} МБ).")
-            if total_storage + req_storage > current_user.max_storage_gb:
-                raise HTTPException(status_code=400, detail=f"Создание кластера превысит лимит диска (Лимит: {current_user.max_storage_gb} ГБ, будет занято: {total_storage + req_storage} ГБ).")
+        # Кластер создаёт сразу несколько ВМ — считаем их суммарно, под
+        # блокировкой строки пользователя (иначе два параллельных создания
+        # кластера вместе вышли бы за лимит).
+        from app.core.quotas import enforce_quota
+        from app.core.ratelimit import check_rate_limit
+        check_rate_limit(current_user, "create_cluster")
+        enforce_quota(
+            db, current_user,
+            add_vms=len(req.vms),
+            add_vcpus=sum(vm.cpu_cores for vm in req.vms),
+            add_ram_gb=sum(vm.memory_gb for vm in req.vms),
+            add_storage_gb=sum(vm.disk_gb for vm in req.vms),
+        )
 
         cluster = Cluster(name=req.name, network_name=f"{req.name}-net", owner_id=current_user.id)
         db.add(cluster)

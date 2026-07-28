@@ -1183,25 +1183,14 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
             raise HTTPException(status_code=400, detail=f"Недостаточно свободного дискового пространства на хосте. Запрошено: {req.disk_gb} ГБ, доступно для выделения: {available_disk} ГБ (всего на хосте: {host_disk_gb} ГБ).")
 
         # Проверяем лимиты квот для обычных пользователей (студентов)
-        if current_user.role != "admin":
-            owned_vms = db.query(VMTask).filter(VMTask.owner_id == current_user.id).all()
-            total_vms = len(owned_vms)
-            total_cpus = sum(vm.cpu_cores for vm in owned_vms)
-            total_ram = sum(vm.memory_gb * 1024 for vm in owned_vms)
-            total_storage = sum(vm.disk_gb for vm in owned_vms)
-            
-            if total_vms + 1 > current_user.max_vms:
-                db.close()
-                raise HTTPException(status_code=400, detail=f"Превышена квота на количество виртуальных машин ({current_user.max_vms}).")
-            if total_cpus + req.cpu_cores > current_user.max_vcpus:
-                db.close()
-                raise HTTPException(status_code=400, detail=f"Превышена квота на ядра процессора (Ваш лимит: {current_user.max_vcpus}, будет занято: {total_cpus + req.cpu_cores}).")
-            if total_ram + (req.memory_gb * 1024) > current_user.max_ram_mb:
-                db.close()
-                raise HTTPException(status_code=400, detail=f"Превышена квота на объем оперативной памяти (Ваш лимит: {current_user.max_ram_mb} МБ, будет занято: {total_ram + req.memory_gb * 1024} МБ).")
-            if total_storage + req.disk_gb > current_user.max_storage_gb:
-                db.close()
-                raise HTTPException(status_code=400, detail=f"Превышена квота на дисковое пространство (Ваш лимит: {current_user.max_storage_gb} ГБ, будет занято: {total_storage + req.disk_gb} ГБ).")
+        # Квота проверяется под блокировкой строки пользователя и в той же
+        # транзакции, что и вставка ВМ, — иначе два параллельных запроса
+        # прошли бы проверку одновременно и превысили лимит.
+        from app.core.quotas import enforce_quota
+        from app.core.ratelimit import check_rate_limit
+        check_rate_limit(current_user, "create_vm")
+        enforce_quota(db, current_user, add_vms=1, add_vcpus=req.cpu_cores,
+                      add_ram_gb=req.memory_gb, add_storage_gb=req.disk_gb)
 
         # Проверяем, нет ли уже такой ВМ
         existing = db.query(VMTask).filter(VMTask.name == req.name).first()

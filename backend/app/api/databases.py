@@ -73,6 +73,9 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
     if req.engine not in ["postgresql", "mysql"]:
         raise HTTPException(status_code=400, detail="Поддерживаются только postgresql и mysql.")
 
+    from app.core.ratelimit import check_rate_limit
+    check_rate_limit(current_user, "create_database")
+
     db = SessionLocal()
     try:
         # Проверка лимитов для студентов (квота: макс 3 базы данных)

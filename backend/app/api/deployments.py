@@ -241,17 +241,14 @@ def create_deployment(req: DeploymentCreate, current_user: User = Depends(get_cu
         if db.query(VMTask).filter(VMTask.name == req.name).first():
             raise HTTPException(status_code=400, detail="ВМ с таким именем уже существует.")
 
-        # Квоты студента (деплой создаёт выделенную ВМ)
-        if current_user.role != "admin":
-            owned = db.query(VMTask).filter(VMTask.owner_id == current_user.id).all()
-            if len(owned) + 1 > current_user.max_vms:
-                raise HTTPException(status_code=400, detail=f"Превышена квота на количество ВМ ({current_user.max_vms}).")
-            if sum(v.cpu_cores for v in owned) + req.cpu_cores > current_user.max_vcpus:
-                raise HTTPException(status_code=400, detail=f"Превышена квота на ядра CPU (лимит: {current_user.max_vcpus}).")
-            if sum(v.memory_gb * 1024 for v in owned) + req.memory_gb * 1024 > current_user.max_ram_mb:
-                raise HTTPException(status_code=400, detail=f"Превышена квота на ОЗУ (лимит: {current_user.max_ram_mb} МБ).")
-            if sum(v.disk_gb for v in owned) + req.disk_gb > current_user.max_storage_gb:
-                raise HTTPException(status_code=400, detail=f"Превышена квота на диск (лимит: {current_user.max_storage_gb} ГБ).")
+        # Квоты студента (деплой создаёт выделенную ВМ). Проверка идёт под
+        # блокировкой строки пользователя, чтобы параллельные запросы не смогли
+        # проскочить лимит вдвоём.
+        from app.core.quotas import enforce_quota
+        from app.core.ratelimit import check_rate_limit
+        check_rate_limit(current_user, "create_deployment")
+        enforce_quota(db, current_user, add_vms=1, add_vcpus=req.cpu_cores,
+                      add_ram_gb=req.memory_gb, add_storage_gb=req.disk_gb)
 
         password = generate_random_password()
         cloud_init = build_deploy_cloud_init(
