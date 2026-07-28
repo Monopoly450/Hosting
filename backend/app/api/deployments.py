@@ -283,7 +283,9 @@ def create_deployment(req: DeploymentCreate, current_user: User = Depends(get_cu
         db.commit()
         db.refresh(dep)
 
-        publish_task("vm_tasks", {"task_id": vm.id, "action": "create_vm"})
+        from app.queue_client import publish_task_or_fail_task
+        if not publish_task_or_fail_task("vm_tasks", {"task_id": vm.id, "action": "create_vm"}, db, vm):
+            raise HTTPException(status_code=503, detail="Сервис очередей недоступен, попробуйте позже.")
         return _enrich(dep, current_user.username)
     except HTTPException:
         raise

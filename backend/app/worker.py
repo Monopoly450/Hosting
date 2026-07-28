@@ -437,6 +437,20 @@ def scheduled_backup_daemon():
         time.sleep(60)
 
 
+def stuck_tasks_daemon():
+    """Разбирает задачи, зависшие в Pending: очередь могла быть недоступна в
+    момент постановки, либо воркер перезапустился после подтверждения
+    сообщения. Такая запись занимает квоту, поэтому её нужно закрывать."""
+    logger.info("Starting stuck tasks daemon thread...")
+    from .services.stuck_tasks import reap_stuck_tasks
+    while True:
+        try:
+            reap_stuck_tasks(k8s)
+        except Exception as e:
+            logger.error(f"Error in stuck tasks daemon loop: {e}")
+        time.sleep(300)
+
+
 def alerts_daemon():
     """Движок алертов: раз в минуту считывает метрики и шлёт уведомления
     при смене состояния правил (ok<->firing)."""
@@ -468,6 +482,10 @@ def main():
     # Движок алертов и уведомлений
     alerts_thread = threading.Thread(target=alerts_daemon, daemon=True)
     alerts_thread.start()
+
+    # Разбор задач, зависших в Pending
+    stuck_thread = threading.Thread(target=stuck_tasks_daemon, daemon=True)
+    stuck_thread.start()
     
     while True:
         try:

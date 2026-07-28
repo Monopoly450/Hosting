@@ -1235,12 +1235,14 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         task.static_ip = compute_static_ip(task.id)
         db.commit()
 
-        # Отправляем в RabbitMQ
-        publish_task("vm_tasks", {
-            "task_id": task.id,
-            "action": "create_vm"
-        })
-        
+        # Отправляем в RabbitMQ. Если очередь недоступна, запись уже
+        # закоммичена — помечаем её как Error, чтобы она не висела в Pending
+        # и не занимала квоту.
+        from app.queue_client import publish_task_or_fail_task
+        if not publish_task_or_fail_task("vm_tasks", {"task_id": task.id, "action": "create_vm"}, db, task):
+            db.close()
+            raise HTTPException(status_code=503, detail="Сервис очередей недоступен, попробуйте позже.")
+
         db.close()
         return {"status": "creating", "name": req.name, "task_id": task.id}
     except HTTPException:
