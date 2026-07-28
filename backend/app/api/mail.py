@@ -1,3 +1,4 @@
+import os
 import re
 import logging
 import docker
@@ -13,7 +14,11 @@ logger = logging.getLogger("app.api.mail")
 
 class MailboxCreateRequest(BaseModel):
     email: str = Field(..., description="Email адрес (например, dev@project.local)")
-    password: str = Field(..., description="Пароль для почтового ящика")
+    # Раньше пароль не проверялся вообще — можно было завести ящик с пустым
+    # паролем. Управляющие символы запрещаем: они не наберутся в почтовом
+    # клиенте и ломают передачу аргументов серверу.
+    password: str = Field(..., min_length=8, max_length=128,
+                          description="Пароль для почтового ящика (минимум 8 символов)")
 
 class MailboxResponse(BaseModel):
     id: int
@@ -23,24 +28,37 @@ class MailboxResponse(BaseModel):
     created_at: str
 
 def manage_docker_mailserver(action: str, email: str, password: str = None) -> bool:
-    """Управление почтовыми ящиками внутри контейнера docker-mailserver"""
+    """Управление почтовыми ящиками внутри контейнера docker-mailserver.
+
+    Команда передаётся СПИСКОМ аргументов: строку docker SDK разбирает через
+    shlex, и тогда пароль с пробелом молча превращался в два аргумента (ящик
+    заводился с другим паролем), а пароль с апострофом ронял разбор с
+    ValueError. Со списком значение уходит как есть.
+    """
+    if action == "add":
+        cmd = ["setup", "email", "add", email, password]
+    elif action == "del":
+        cmd = ["setup", "email", "del", email]
+    else:
+        return False
+
     try:
         client = docker.from_env()
         container = client.containers.get("aegis-mailserver")
-        if action == "add":
-            cmd = f"setup email add {email} {password}"
-        elif action == "del":
-            cmd = f"setup email del {email}"
-        else:
-            return False
-            
         exit_code, output = container.exec_run(cmd)
-        logger.info(f"Mailserver command: {cmd}, exit: {exit_code}, output: {output.decode().strip()}")
+        # Пароль в лог не пишем
+        logger.info(f"Mailserver {action} {email}: exit={exit_code}, "
+                    f"output={output.decode(errors='ignore').strip()[:200]}")
         return exit_code == 0
     except Exception as e:
-        logger.warning(f"docker-mailserver is not reachable (either not running or offline): {e}")
-        # Возвращаем True для локального тестирования/разработки
-        return True
+        # Раньше здесь возвращался True «для локальной разработки»: панель
+        # рапортовала об успехе и сохраняла в БД ящик, которого на сервере нет.
+        # Пользователь потом не мог войти в почту без каких-либо объяснений.
+        if os.getenv("MAIL_ALLOW_OFFLINE", "").lower() in ("1", "true", "yes"):
+            logger.warning(f"docker-mailserver недоступен, MAIL_ALLOW_OFFLINE включён: {e}")
+            return True
+        logger.error(f"docker-mailserver недоступен: {e}")
+        return False
 
 @router.post("", response_model=MailboxResponse, status_code=status.HTTP_201_CREATED)
 def create_mailbox(req: MailboxCreateRequest, current_user: User = Depends(get_current_user)):
@@ -48,6 +66,11 @@ def create_mailbox(req: MailboxCreateRequest, current_user: User = Depends(get_c
         raise HTTPException(
             status_code=400,
             detail="Некорректный формат email адреса."
+        )
+    if any(ch in req.password for ch in ("\n", "\r", "\0", "\t")):
+        raise HTTPException(
+            status_code=400,
+            detail="Пароль не может содержать переносы строк и табуляцию."
         )
 
     db = SessionLocal()
