@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request
 from pydantic import BaseModel, Field
 
 from app.db import SessionLocal
@@ -37,7 +37,7 @@ def catalog(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/deploy", status_code=status.HTTP_201_CREATED)
-def deploy(req: MarketplaceDeploy, current_user: User = Depends(get_current_user)):
+def deploy(req: MarketplaceDeploy, request: Request, current_user: User = Depends(get_current_user)):
     app = get_app(req.app_id)
     if not app:
         raise HTTPException(status_code=404, detail="Приложение не найдено в каталоге")
@@ -90,7 +90,10 @@ def deploy(req: MarketplaceDeploy, current_user: User = Depends(get_current_user
 
         # Фаза 2: внешний адрес известен — прокидываем его в приложение и только
         # теперь формируем cloud-init (воркер прочитает его при publish_task).
-        env = add_public_url(env, default_host(), ext_port)
+        # Адрес берём из запроса: по публичному IP из локальной сети часто
+        # не пройти (NAT-петля), а по локальному — не выйти из интернета.
+        from app.api.deployments import host_for_links
+        env = add_public_url(env, host_for_links(request), ext_port)
         vm.custom_user_data = build_marketplace_cloud_init(app, env, password)
         # Тот же пароль, что попал в cloud-init: воркер положит именно его в
         # Secret, иначе SSH-доступ панели к ВМ не заработает.

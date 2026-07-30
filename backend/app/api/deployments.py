@@ -3,7 +3,7 @@ import json
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request
 from pydantic import BaseModel, Field
 
 from app.db import SessionLocal
@@ -187,8 +187,30 @@ def _get_host() -> str:
     return detect_host_ip()
 
 
-def _enrich(dep: AppDeployment, owner_name: str) -> DeploymentResponse:
-    """Дополняет запись деплоя живым статусом ВМ, IP и внешним URL."""
+def host_for_links(request=None) -> str:
+    """Адрес сервера, подходящий для ссылок в ответе.
+
+    Берём его из того, как клиент обратился к панели, а не из общей настройки.
+    Одного правильного значения тут не существует: домены и Let's Encrypt
+    требуют публичный адрес (AEGIS_HOST_IP), но по нему из локальной сети часто
+    не пройти — NAT-петля поддерживается далеко не везде. Поэтому если панель
+    открыта по 192.168.x, ссылки на приложения тоже должны быть локальными, а
+    если по домену — на домен.
+    """
+    if request is not None:
+        # X-Forwarded-Host важен: панель отдаётся через nginx
+        forwarded = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+        candidate = forwarded.split(":")[0] or request.url.hostname
+        if candidate and candidate not in ("localhost", "127.0.0.1", "::1"):
+            return candidate
+    return _get_host()
+
+
+def _enrich(dep: AppDeployment, owner_name: str, request=None) -> DeploymentResponse:
+    """Дополняет запись деплоя живым статусом ВМ, IP и внешним URL.
+
+    request нужен, чтобы ссылки указывали на тот адрес, по которому открыта
+    панель (см. host_for_links)."""
     vm_status = None
     ip = None
     app_url = None
@@ -203,7 +225,7 @@ def _enrich(dep: AppDeployment, owner_name: str) -> DeploymentResponse:
             ips = vm.get("ips", [])
             ip = pick_external_ip(ips) if ips else None
             ssh_port = vm.get("ssh_port")
-            host = _get_host()
+            host = host_for_links(request)
             if ssh_port:
                 ssh_command = f"ssh ubuntu@{host} -p {ssh_port}"
             # Внешний порт приложения хранится в ports_config ВМ (int_port == app_port)
@@ -238,7 +260,7 @@ def _enrich(dep: AppDeployment, owner_name: str) -> DeploymentResponse:
 
 
 @router.post("", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
-def create_deployment(req: DeploymentCreate, current_user: User = Depends(get_current_user)):
+def create_deployment(req: DeploymentCreate, request: Request, current_user: User = Depends(get_current_user)):
     if req.stack not in STACKS:
         raise HTTPException(status_code=400, detail="Неизвестный тип стека.")
     if req.stack == "custom" and not (req.run_command and req.run_command.strip()):
@@ -304,7 +326,7 @@ def create_deployment(req: DeploymentCreate, current_user: User = Depends(get_cu
         from app.queue_client import publish_task_or_fail_task
         if not publish_task_or_fail_task("vm_tasks", {"task_id": vm.id, "action": "create_vm"}, db, vm):
             raise HTTPException(status_code=503, detail="Сервис очередей недоступен, попробуйте позже.")
-        return _enrich(dep, current_user.username)
+        return _enrich(dep, current_user.username, request)
     except HTTPException:
         raise
     except Exception as e:
@@ -315,7 +337,7 @@ def create_deployment(req: DeploymentCreate, current_user: User = Depends(get_cu
 
 
 @router.get("", response_model=List[DeploymentResponse])
-def list_deployments(current_user: User = Depends(get_current_user)):
+def list_deployments(request: Request, current_user: User = Depends(get_current_user)):
     db = SessionLocal()
     try:
         if current_user.role == "admin":
@@ -325,7 +347,7 @@ def list_deployments(current_user: User = Depends(get_current_user)):
         res = []
         for d in deps:
             owner = db.query(User).filter(User.id == d.owner_id).first()
-            res.append(_enrich(d, owner.username if owner else "—"))
+            res.append(_enrich(d, owner.username if owner else "—", request))
         return res
     finally:
         db.close()
