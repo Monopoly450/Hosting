@@ -293,7 +293,7 @@ export default function DeploymentsPanel() {
                     <div className="slide-over-content" style={{ maxWidth: '760px', width: '100%' }} onClick={e => e.stopPropagation()}>
                         
                         {/* Header */}
-                        <div className="slide-over-header" style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px' }}>
+                        <div className="slide-over-header">
                             <div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                     <h2 style={{ margin: 0 }}>{selectedDep.name}</h2>
@@ -330,7 +330,9 @@ export default function DeploymentsPanel() {
                         </div>
 
                         {/* Tab Content */}
-                        <div className="slide-over-body" style={{ flex: 1, padding: '24px', overflowY: 'auto' }}>
+                        {/* flex-колонка, чтобы вкладки логов и нагрузки могли занять всю
+                            доступную высоту вместо фиксированных пикселей. */}
+                        <div className="slide-over-body" style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                             
                             {/* OVERVIEW TAB */}
                             {consoleTab === 'overview' && (
@@ -395,14 +397,16 @@ export default function DeploymentsPanel() {
 
                             {/* LOGS TAB */}
                             {consoleTab === 'logs' && (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', height: '480px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                /* flex: 1 вместо height: 480px — иначе на всю высоту панели
+                                   логи занимали половину, а под ними оставалась пустота. */
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', flex: 1, minHeight: '320px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
                                         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Включает логи клонирования Git, установки пакетов и работы запущенного контейнера/службы.</span>
-                                        <button className="btn btn-secondary btn-sm" onClick={() => fetchLogs(selectedDep.id)} disabled={loadingLogs} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <button className="btn btn-secondary btn-sm" onClick={() => fetchLogs(selectedDep.id)} disabled={loadingLogs} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                                             <RefreshCw size={14} className={loadingLogs ? 'spinner' : ''} /> Обновить
                                         </button>
                                     </div>
-                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#090d16', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--terminal-bg)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
                                         <pre style={{
                                             flex: 1,
                                             overflow: 'auto',
@@ -410,7 +414,7 @@ export default function DeploymentsPanel() {
                                             padding: '16px',
                                             fontFamily: 'var(--font-mono)',
                                             fontSize: '0.8rem',
-                                            color: '#38bdf8',
+                                            color: 'var(--terminal-fg)',
                                             lineHeight: '1.5',
                                             whiteSpace: 'pre-wrap',
                                             wordBreak: 'break-all',
@@ -424,20 +428,22 @@ export default function DeploymentsPanel() {
 
                             {/* METRICS (PROMETHEUS) TAB */}
                             {consoleTab === 'metrics' && (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                /* Как и логи, тянется на всю высоту: график в 320px посреди
+                                   высокой панели оставлял под собой пустое место. */
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1, minHeight: '320px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
                                         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>История нагрузки CPU и памяти на выделенной виртуальной машине (данные из Prometheus).</span>
-                                        <button className="btn btn-secondary btn-sm" onClick={() => fetchMetrics(selectedDep.vm_name)} disabled={loadingMetrics} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <button className="btn btn-secondary btn-sm" onClick={() => fetchMetrics(selectedDep.vm_name)} disabled={loadingMetrics} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                                             <RefreshCw size={14} className={loadingMetrics ? 'spinner' : ''} /> Обновить
                                         </button>
                                     </div>
-                                    <div className="glass-card" style={{ padding: '20px' }}>
+                                    <div className="glass-card" style={{ padding: '20px', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                                         {loadingMetrics ? (
-                                            <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}><div className="spinner spinner-lg" /></div>
+                                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}><div className="spinner spinner-lg" /></div>
                                         ) : metricsHistory.length === 0 ? (
-                                            <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px 0' }}>История метрик пуста (возможно, ВМ только запустилась).</div>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, textAlign: 'center', color: 'var(--text-muted)' }}>История метрик пуста (возможно, ВМ только запустилась).</div>
                                         ) : (
-                                            <div style={{ height: '320px', width: '100%' }}>
+                                            <div style={{ flex: 1, minHeight: 0, width: '100%' }}>
                                                 <ResponsiveContainer width="100%" height="100%">
                                                     <AreaChart data={metricsHistory} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
                                                         <defs>
@@ -469,21 +475,33 @@ export default function DeploymentsPanel() {
 
                             {/* SETTINGS / MANAGE TAB */}
                             {consoleTab === 'settings' && (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                                    <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid var(--accent-primary)' }}>
-                                        <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', color: 'var(--text-heading)' }}>Переразвернуть приложение</h3>
-                                        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0 0 16px 0', lineHeight: '1.4' }}>
-                                            Система подключится к ВМ деплоя по SSH, выполнит команду <code>git pull</code> из вашей ветки, скачает свежие коммиты и перезапустит контейнеры или системную службу приложения. Удобно для обновления бота или сайта при отправке изменений в GitHub.
-                                        </p>
-                                        <button className="btn btn-primary" onClick={() => handleRedeploy(selectedDep.id)} disabled={redeploying} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <RefreshCw size={15} className={redeploying ? 'spinner' : ''} />
-                                            {redeploying ? 'Переразвертывание...' : 'Переразвернуть из GitHub'}
-                                        </button>
-                                    </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    {isMarketplace(selectedDep) ? (
+                                        /* Передеплой тянет git pull в /opt/app — у приложения из
+                                           маркетплейса нет ни репозитория, ни этого каталога, так
+                                           что кнопка гарантированно возвращала ошибку git. */
+                                        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid var(--status-info)' }}>
+                                            <h3 className="section-title" style={{ fontSize: '1rem', margin: '0 0 8px 0' }}><Package size={16}/> Обновление приложения</h3>
+                                            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.5' }}>
+                                                Приложение установлено из маркетплейса, а не из репозитория, поэтому передеплой через <code>git pull</code> к нему не применяется. Обновлять его нужно средствами самого приложения — либо подключиться к ВМ по SSH с вкладки «Обзор».
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid var(--accent-primary)' }}>
+                                            <h3 className="section-title" style={{ fontSize: '1rem', margin: '0 0 8px 0' }}><RefreshCw size={16}/> Переразвернуть приложение</h3>
+                                            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0 0 16px 0', lineHeight: '1.5' }}>
+                                                Система подключится к ВМ деплоя по SSH, выполнит команду <code>git pull</code> из вашей ветки, скачает свежие коммиты и перезапустит контейнеры или системную службу приложения. Удобно для обновления бота или сайта при отправке изменений в GitHub.
+                                            </p>
+                                            <button className="btn btn-primary" onClick={() => handleRedeploy(selectedDep.id)} disabled={redeploying} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <RefreshCw size={15} className={redeploying ? 'spinner' : ''} />
+                                                {redeploying ? 'Переразвертывание...' : 'Переразвернуть из GitHub'}
+                                            </button>
+                                        </div>
+                                    )}
 
                                     <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid var(--status-danger)' }}>
-                                        <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', color: 'var(--status-danger)' }}>Опасная зона</h3>
-                                        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0 0 16px 0', lineHeight: '1.4' }}>
+                                        <h3 className="section-title" style={{ fontSize: '1rem', margin: '0 0 8px 0', color: 'var(--status-danger)' }}><Trash2 size={16}/> Опасная зона</h3>
+                                        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0 0 16px 0', lineHeight: '1.5' }}>
                                             Удаление деплоя полностью сотрет эту виртуальную машину со всеми локальными данными, базами данных и файлами вашего бота/приложения. Отменить это действие невозможно.
                                         </p>
                                         <button className="btn btn-danger" onClick={() => handleDelete(selectedDep.id)} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>

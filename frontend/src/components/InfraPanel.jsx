@@ -230,11 +230,11 @@ const InfraPanel = () => {
 
         {/* Git Output Terminal */}
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: 0, overflow: 'hidden' }}>
-          <div style={{ background: '#0f172a', padding: '12px 16px', borderBottom: '1px solid #1e293b', color: '#94a3b8', fontSize: '0.8rem', fontWeight: 600, display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ background: 'var(--terminal-bg)', padding: '12px 16px', borderBottom: '1px solid var(--terminal-border)', color: 'var(--terminal-muted)', fontSize: '0.8rem', fontWeight: 600, display: 'flex', justifyContent: 'space-between' }}>
             <span>ЛОГ СБОРКИ / ОБНОВЛЕНИЯ</span>
             <span>git pull & build</span>
           </div>
-          <div style={{ flex: 1, background: '#0f172a', padding: '0 16px 16px', color: '#f8fafc', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+          <div style={{ flex: 1, background: 'var(--terminal-bg)', padding: '0 16px 16px', color: 'var(--terminal-fg)', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
             {gitOutput || 'Ожидание запуска...'}
           </div>
         </div>
@@ -268,14 +268,14 @@ const InfraPanel = () => {
           </div>
         </div>
 
-        <div style={{ height: '350px', background: '#0f172a', borderRadius: 'var(--radius-md)', padding: '16px', color: '#f8fafc', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+        <div style={{ height: '350px', background: 'var(--terminal-bg)', borderRadius: 'var(--radius-md)', padding: '16px', color: 'var(--terminal-fg)', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
           {logsText ? (
             <>
               {logsText}
               <div ref={logsEndRef} />
             </>
           ) : (
-            <div style={{ color: '#64748b', textAlign: 'center', marginTop: '100px' }}>Нет логов</div>
+            <div style={{ color: 'var(--terminal-muted)', textAlign: 'center', marginTop: '100px' }}>Нет логов</div>
           )}
         </div>
       </div>
@@ -332,14 +332,14 @@ const InfraPanel = () => {
           </div>
         )}
 
-        <div style={{ height: '250px', background: '#0f172a', borderRadius: 'var(--radius-md)', padding: '16px', color: '#10b981', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+        <div style={{ height: '250px', background: 'var(--terminal-bg)', borderRadius: 'var(--radius-md)', padding: '16px', color: '#10b981', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
           {cmdOutput ? (
             <>
               {cmdOutput}
               <div ref={cmdOutputEndRef} />
             </>
           ) : (
-            <span style={{ color: '#64748b' }}>Терминал готов...</span>
+            <span style={{ color: 'var(--terminal-muted)' }}>Терминал готов...</span>
           )}
         </div>
 

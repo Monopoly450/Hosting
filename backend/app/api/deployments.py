@@ -482,6 +482,16 @@ def redeploy_app(dep_id: int, current_user: User = Depends(get_current_user)):
         if current_user.role != "admin" and dep.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail="Доступ запрещён.")
 
+        # У приложения из маркетплейса нет репозитория: branch хранит прочерк, а
+        # каталога /opt/app не существует — команды ниже сделали бы
+        # «git reset --hard origin/-» и вернули невнятную ошибку git.
+        if dep.stack == "marketplace":
+            raise HTTPException(
+                status_code=400,
+                detail="Приложение установлено из маркетплейса, а не из репозитория: "
+                       "передеплой через git к нему не применяется.",
+            )
+
         if not dep.vm_name:
             raise HTTPException(status_code=400, detail="Виртуальная машина еще не создана.")
 

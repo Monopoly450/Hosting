@@ -515,7 +515,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       )}
 
       {activeTab === 'terminal' && (
-        <div className="glass-card" style={{ padding: 0, overflow: 'hidden', background: '#0b0f19', borderRadius: 'var(--radius-lg)' }}>
+        <div className="glass-card" style={{ padding: 0, overflow: 'hidden', background: 'var(--terminal-bg)', borderRadius: 'var(--radius-lg)' }}>
           <SshTerminal name={vmName} />
         </div>
       )}

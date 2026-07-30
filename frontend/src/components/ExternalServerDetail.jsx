@@ -408,8 +408,8 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
                 {/* Окно терминала */}
                 <div style={{ 
                   flex: 1,
-                  background: '#1d1d1f', 
-                  color: '#f5f5f7', 
+                  background: 'var(--terminal-bg)', 
+                  color: 'var(--terminal-fg)', 
                   padding: '20px', 
                   fontFamily: 'var(--font-mono)', 
                   fontSize: '0.85rem',

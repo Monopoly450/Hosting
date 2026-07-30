@@ -19,6 +19,8 @@ const SshTerminal = ({ name, isInline = false }) => {
     const term = new Terminal({
       cursorBlink: true,
       theme: {
+        // Литералы, а не var(--terminal-*): xterm рисует на canvas и CSS-переменную
+        // не разрешит. Значения совпадают с токенами --terminal-bg/--terminal-fg.
         background: '#0b0f19',
         foreground: '#f8fafc',
         cursor: '#38bdf8',
@@ -142,7 +144,7 @@ const SshTerminal = ({ name, isInline = false }) => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: isInline ? '360px' : '520px', background: '#0b0f19', borderRadius: 'var(--radius-md)', position: 'relative', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: isInline ? '360px' : '520px', background: 'var(--terminal-bg)', borderRadius: 'var(--radius-md)', position: 'relative', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
       <style>{`
         @keyframes terminal-spin {
           to { transform: rotate(360deg); }

@@ -149,7 +149,7 @@ const VncConsole = ({ name, username, password, onClose, isInline = false }) => 
   if (isInline) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0', flex: 1, minHeight: '400px' }}>
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', justifyContent: 'flex-start', background: '#0f172a', padding: '12px 16px', borderBottom: '1px solid #1e293b', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', justifyContent: 'flex-start', background: 'var(--terminal-bg)', padding: '12px 16px', borderBottom: '1px solid var(--terminal-border)', flexWrap: 'wrap' }}>
           {status === 'connected' ? (
             <>
               <button className="btn btn-primary btn-sm" onClick={handleSendCtrlAltDel} type="button" style={{ height: '28px' }}>

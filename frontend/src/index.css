@@ -61,6 +61,18 @@
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', Consolas, monospace;
 
+  /* Консоли и логи. Намеренно не переопределяются в тёмной теме: терминал
+     тёмный всегда. Раньше каждая панель задавала свой цвет вручную — логи
+     деплоя были #090d16 с голубым текстом, логи инфраструктуры #0f172a
+     со светлым, и рядом это выглядело как разные приложения.
+     Значения совпадают с темой xterm.js в SshTerminal: там цвет уходит в canvas
+     обычной строкой, var() не подходит, поэтому токен подстроен под неё, а не
+     наоборот — так HTML-консоли и настоящий терминал выглядят одинаково. */
+  --terminal-bg: #0B0F19;
+  --terminal-fg: #F8FAFC;
+  --terminal-muted: #64748B;
+  --terminal-border: rgba(255, 255, 255, 0.09);
+
   /* Shadows (Removed dropshadows for brutalist minimalism) */
   --shadow-xs: none;
   --shadow-sm: none;
@@ -678,7 +690,9 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
      flex-shrink: 0, чтобы длинный список в теле не сплющивал заголовок. */
   min-height: 70px;
   flex-shrink: 0;
-  padding: 0 24px;
+  /* Вертикальные отступы, а не padding: 0: с нулём двухстрочный заголовок
+     прижимался к верхней кромке панели. */
+  padding: 16px 24px;
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
