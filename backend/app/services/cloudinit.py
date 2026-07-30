@@ -47,8 +47,12 @@ def externalize_cloudinit(k8s, manifest: dict, vm_name: str, namespace: str = "d
         if not needs_secret(userdata):
             continue
         secret_name = k8s.create_cloudinit_secret(vm_name, userdata, namespace)
-        # Заменяем inline-данные ссылкой на Secret
-        volume["cloudInitNoCloud"] = {"userDataSecretRef": {"name": secret_name}}
+        # Заменяем inline-данные ссылкой на Secret.
+        # Поле называется именно secretRef: userDataSecretRef в схеме KubeVirt
+        # нет, неизвестное поле молча отбрасывается, и валидатор ругается
+        # «must have at least one userdatasource set».
+        # networkDataSecretRef — это уже про network-data, не про userdata.
+        volume["cloudInitNoCloud"] = {"secretRef": {"name": secret_name}}
         moved = True
         logger.info(
             f"cloud-init для ВМ {vm_name} ({len(userdata.encode())} байт) вынесен "
