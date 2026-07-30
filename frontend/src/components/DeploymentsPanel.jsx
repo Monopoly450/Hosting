@@ -334,68 +334,60 @@ export default function DeploymentsPanel() {
                             
                             {/* OVERVIEW TAB */}
                             {consoleTab === 'overview' && (
-                                <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: '24px' }}>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                                        <div className="glass-card" style={{ padding: '16px' }}>
-                                            <h3 className="section-title" style={{ fontSize: '0.95rem', margin: '0 0 12px 0' }}><Globe size={16}/> Ссылка приложения</h3>
-                                            {selectedDep.app_url ? (
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                                    <a href={selectedDep.app_url} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ width: '100%', justifyContent: 'space-between', padding: '10px 14px', gap: '10px' }}>
-                                                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-primary)', fontWeight: 600, flexShrink: 0 }}><ExternalLink size={16} /> Открыть сайт</span>
-                                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedDep.app_url}</span>
-                                                    </a>
-                                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Внешнее подключение проброшено автоматически на выделенный порт приложения.</span>
-                                                </div>
-                                            ) : (
-                                                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Генерируется... Приложение еще не готово или выключено.</span>
-                                            )}
-                                        </div>
-
-                                        <div className="glass-card" style={{ padding: '16px' }}>
-                                            <h3 className="section-title" style={{ fontSize: '0.95rem', margin: '0 0 12px 0' }}><Terminal size={16}/> SSH Подключение к ВМ</h3>
-                                            {selectedDep.ssh_command ? (
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                                    <div className="copy-field" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
-                                                        <code style={{ fontSize: '0.8rem' }}>{selectedDep.ssh_command}</code>
-                                                        <button className="btn-icon" onClick={() => copy(selectedDep.ssh_command, 'ssh-console')} title="Копировать">
-                                                            {copied === 'ssh-console' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
-                                                        </button>
-                                                    </div>
-                                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Подключение по SSH к ВМ деплоя через jump-сервер хостинга.</span>
-                                                </div>
-                                            ) : (
-                                                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Генерируется... Виртуальная машина еще не создана.</span>
-                                            )}
-                                        </div>
+                                /* Один поток на всю ширину, а не две колонки: правая колонка
+                                   со спецификацией была вдвое короче левой, обзор обрывался
+                                   на середине панели и выглядел сломанным. */
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    <div className="glass-card" style={{ padding: '16px' }}>
+                                        <h3 className="section-title" style={{ fontSize: '0.95rem', margin: '0 0 12px 0' }}><Globe size={16}/> Ссылка приложения</h3>
+                                        {selectedDep.app_url ? (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
+                                                <a href={selectedDep.app_url} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ maxWidth: '100%', padding: '10px 14px', gap: '10px' }}>
+                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-primary)', fontWeight: 600, flexShrink: 0 }}><ExternalLink size={16} /> Открыть сайт</span>
+                                                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedDep.app_url}</span>
+                                                </a>
+                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Внешнее подключение проброшено автоматически на выделенный порт приложения.</span>
+                                            </div>
+                                        ) : (
+                                            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Генерируется... Приложение еще не готово или выключено.</span>
+                                        )}
                                     </div>
 
-                                    {/* Sidebar Info */}
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                                        <div className="glass-card" style={{ padding: '16px', background: 'var(--card-bg-subtle)' }}>
-                                            <h3 className="section-title" style={{ fontSize: '0.9rem', margin: '0 0 12px 0' }}><Layers size={14}/> Спецификация ВМ</h3>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.85rem' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                    <span style={{ color: 'var(--text-secondary)' }}>Имя ВМ:</span>
-                                                    <span style={{ fontWeight: 600 }}>{selectedDep.vm_name || '—'}</span>
+                                    <div className="glass-card" style={{ padding: '16px' }}>
+                                        <h3 className="section-title" style={{ fontSize: '0.95rem', margin: '0 0 12px 0' }}><Terminal size={16}/> SSH-подключение к ВМ</h3>
+                                        {selectedDep.ssh_command ? (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                <div className="copy-field" style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                                                    <code style={{ fontSize: '0.8rem' }}>{selectedDep.ssh_command}</code>
+                                                    <button className="btn-icon" onClick={() => copy(selectedDep.ssh_command, 'ssh-console')} title="Копировать">
+                                                        {copied === 'ssh-console' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                                                    </button>
                                                 </div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                    <span style={{ color: 'var(--text-secondary)' }}>Статус ВМ:</span>
-                                                    <span style={{ fontWeight: 600, color: selectedDep.vm_status === 'Running' ? 'var(--status-success)' : 'var(--text-muted)' }}>{selectedDep.vm_status || '—'}</span>
-                                                </div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                    <span style={{ color: 'var(--text-secondary)' }}>IP ВМ:</span>
-                                                    <span style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{selectedDep.ip || '—'}</span>
-                                                </div>
-                                                <hr style={{ border: 'none', borderBottom: '1px solid var(--border-subtle)', margin: '4px 0' }} />
-                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                    <span style={{ color: 'var(--text-secondary)' }}>Стек:</span>
-                                                    <span style={{ fontWeight: 600 }}>{selectedDep.stack_label}</span>
-                                                </div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                    <span style={{ color: 'var(--text-secondary)' }}>Порт (int):</span>
-                                                    <span style={{ fontWeight: 600 }}>{selectedDep.app_port}</span>
-                                                </div>
+                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Подключение по SSH к ВМ деплоя через jump-сервер хостинга.</span>
                                             </div>
+                                        ) : (
+                                            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Генерируется... Виртуальная машина еще не создана.</span>
+                                        )}
+                                    </div>
+
+                                    <div className="glass-card" style={{ padding: '16px', background: 'var(--card-bg-subtle)' }}>
+                                        <h3 className="section-title" style={{ fontSize: '0.95rem', margin: '0 0 14px 0' }}><Layers size={16}/> Спецификация ВМ</h3>
+                                        {/* Плитки вместо строк «метка — значение»: на всю ширину панели
+                                            строки растягивались, оставляя провал между меткой и значением. */}
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '14px', fontSize: '0.85rem' }}>
+                                            {[
+                                                { label: 'Имя ВМ', value: selectedDep.vm_name || '—' },
+                                                { label: 'Статус ВМ', value: selectedDep.vm_status || '—', color: selectedDep.vm_status === 'Running' ? 'var(--status-success)' : 'var(--text-muted)' },
+                                                { label: 'IP ВМ', value: selectedDep.ip || '—', mono: true },
+                                                { label: 'Стек', value: selectedDep.stack_label },
+                                                { label: 'Внутренний порт', value: selectedDep.app_port, mono: true },
+                                                { label: 'Владелец', value: selectedDep.owner_username || '—' },
+                                            ].map(f => (
+                                                <div key={f.label} style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0 }}>
+                                                    <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{f.label}</span>
+                                                    <span style={{ fontWeight: 600, color: f.color || 'var(--text-primary)', fontFamily: f.mono ? 'var(--font-mono)' : 'inherit', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.value}</span>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
                                 </div>
