@@ -174,7 +174,7 @@ export default function MailPanel() {
                             ))}
                             {mailboxes.length === 0 && (
                                 <tr>
-                                    <td colSpan="6" style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
+                                    <td colSpan="6" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
                                         <Mail size={32} style={{ marginBottom: '8px', opacity: 0.5 }} />
                                         <div>Нет активных почтовых ящиков. Создайте первый!</div>
                                     </td>

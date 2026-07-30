@@ -6,6 +6,11 @@
    ===================================================================== */
 
 :root {
+  /* Тема панели задаётся нами, а не системой: без этого при тёмной ОС браузер
+     нарисовал бы нативные select/чекбоксы/скроллбары тёмными поверх светлой
+     темы. Парная строка color-scheme: dark — в блоке [data-theme="dark"]. */
+  color-scheme: light;
+
   /* Surfaces (Selectel/AWS/DigitalOcean theme) */
   --bg-body: #F8F9FA;
   --bg-surface: #ffffff;
@@ -424,6 +429,39 @@ body {
   outline: none;
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 4px var(--accent-primary-light);
+}
+
+/* Нативные <select>. Для одиночного выбора в панелях используется CustomSelect,
+   но там, где нужен multiple (выбор ВМ в кластер), нативный незаменим — а без
+   этих правил он рисуется системным светлым контролом поверх тёмной темы.
+   appearance: none убирает системную стрелку, вместо неё — своя в фоне. */
+select.form-control {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  padding-right: 38px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+/* У multiple стрелка не нужна: список раскрыт, и место занимать нечем */
+select.form-control[multiple] {
+  padding-right: 14px;
+  background-image: none;
+}
+select.form-control option {
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  padding: 8px 10px;
+}
+select.form-control option:checked {
+  background: var(--accent-primary);
+  color: #fff;
+}
+select.form-control optgroup {
+  background-color: var(--bg-base, var(--bg-surface));
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
 /* Range inputs */
@@ -1072,6 +1110,12 @@ font { background-color: transparent !important; }
 
 /* =========================== Dark Theme =========================== */
 [data-theme="dark"] {
+  /* Без color-scheme браузер рисует НАТИВНЫЕ элементы (select и его список,
+     чекбоксы, скроллбары, подсветку автозаполнения, курсор ввода) в системной
+     светлой схеме — она перекрывает наши цвета, и поля выглядят светло-серыми
+     заплатками на тёмном фоне. Одна строка приводит их в соответствие теме. */
+  color-scheme: dark;
+
   --bg-body: #0F131C;
   --bg-surface: #171E2E;
   --bg-surface-hover: #222B3E;

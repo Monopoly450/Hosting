@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Globe, Plus, Trash2, X, ShieldCheck, RefreshCw, Copy, Check, AlertTriangle, ExternalLink } from 'lucide-react';
+import CustomSelect from './CustomSelect';
 
 export default function DomainsPanel() {
     const isAdmin = localStorage.getItem('aegis_role') === 'admin';
@@ -234,19 +235,25 @@ export default function DomainsPanel() {
                                 </div>
                                 <div className="input-group" style={{ marginBottom: 0 }}>
                                     <label className="input-label">Направить на</label>
-                                    <select className="form-control" value={targetType} onChange={e => { setTargetType(e.target.value); setTarget(''); }}>
-                                        <option value="deployment">Приложение (деплой)</option>
-                                        <option value="vm">Виртуальную машину</option>
-                                    </select>
+                                    <CustomSelect
+                                        value={targetType}
+                                        onChange={e => { setTargetType(e.target.value); setTarget(''); }}
+                                        options={[
+                                            { value: 'deployment', label: 'Приложение (деплой)' },
+                                            { value: 'vm', label: 'Виртуальную машину' },
+                                        ]}
+                                    />
                                 </div>
                                 <div className="input-group" style={{ marginBottom: 0 }}>
                                     <label className="input-label">{targetType === 'deployment' ? 'Деплой' : 'Виртуальная машина'}</label>
-                                    <select className="form-control" value={target} onChange={e => setTarget(e.target.value)} required>
-                                        <option value="">— выберите —</option>
-                                        {targetType === 'deployment'
-                                            ? deployments.map(x => <option key={x.id} value={x.id}>{x.name} (порт {x.app_port})</option>)
-                                            : vms.filter(v => v.id).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-                                    </select>
+                                    <CustomSelect
+                                        value={target}
+                                        onChange={e => setTarget(e.target.value)}
+                                        placeholder="— выберите —"
+                                        options={targetType === 'deployment'
+                                            ? deployments.map(x => ({ value: x.id, label: `${x.name} (порт ${x.app_port})` }))
+                                            : vms.filter(v => v.id).map(x => ({ value: x.id, label: x.name }))}
+                                    />
                                 </div>
                                 <div className="input-group" style={{ marginBottom: 0 }}>
                                     <label className="input-label">Внутренний порт {targetType === 'deployment' && <span className="text-muted">(по умолчанию — порт деплоя)</span>}</label>

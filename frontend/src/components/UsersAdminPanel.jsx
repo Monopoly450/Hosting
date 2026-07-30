@@ -221,7 +221,7 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
                             ))}
                             {users.length === 0 && (
                                 <tr>
-                                    <td colSpan="9" style={{ textAlign: 'center', padding: '20px', color: '#888' }}>
+                                    <td colSpan="9" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
                                         Нет зарегистрированных пользователей
                                     </td>
                                 </tr>

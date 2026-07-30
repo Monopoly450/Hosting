@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FolderKanban, Plus, Trash2, X, Users, Server, Database, Rocket, UserPlus, Link2 } from 'lucide-react';
+import CustomSelect from './CustomSelect';
 
 const ROLE_LABEL = { owner: 'владелец', editor: 'редактор', viewer: 'наблюдатель', admin: 'админ' };
 const ROLE_HINT = {
@@ -204,11 +205,15 @@ export default function ProjectsPanel() {
                                     </div>
                                     <div className="input-group" style={{ marginBottom: 0, width: '130px' }}>
                                         <label className="input-label">Роль</label>
-                                        <select className="form-control" value={memberRole} onChange={e => setMemberRole(e.target.value)}>
-                                            <option value="viewer">наблюдатель</option>
-                                            <option value="editor">редактор</option>
-                                            <option value="owner">владелец</option>
-                                        </select>
+                                        <CustomSelect
+                                            value={memberRole}
+                                            onChange={e => setMemberRole(e.target.value)}
+                                            options={[
+                                                { value: 'viewer', label: 'наблюдатель' },
+                                                { value: 'editor', label: 'редактор' },
+                                                { value: 'owner', label: 'владелец' },
+                                            ]}
+                                        />
                                     </div>
                                     <button type="submit" className="btn btn-secondary btn-sm" disabled={busy || !memberName.trim()}><UserPlus size={14} /></button>
                                 </form>
@@ -224,20 +229,26 @@ export default function ProjectsPanel() {
                             <form onSubmit={assign} style={{ display: 'flex', gap: '6px', alignItems: 'flex-end' }}>
                                 <div className="input-group" style={{ marginBottom: 0, width: '140px' }}>
                                     <label className="input-label">Тип</label>
-                                    <select className="form-control" value={resType} onChange={e => { setResType(e.target.value); setResId(''); }}>
-                                        <option value="vm">Виртуалка</option>
-                                        <option value="database">База данных</option>
-                                        <option value="deployment">Деплой</option>
-                                    </select>
+                                    <CustomSelect
+                                        value={resType}
+                                        onChange={e => { setResType(e.target.value); setResId(''); }}
+                                        options={[
+                                            { value: 'vm', label: 'Виртуалка' },
+                                            { value: 'database', label: 'База данных' },
+                                            { value: 'deployment', label: 'Деплой' },
+                                        ]}
+                                    />
                                 </div>
                                 <div className="input-group" style={{ marginBottom: 0, flex: 1 }}>
                                     <label className="input-label">Ресурс</label>
-                                    <select className="form-control" value={resId} onChange={e => setResId(e.target.value)} required>
-                                        <option value="">— выберите —</option>
-                                        {(resources[resType] || []).map(r => (
-                                            <option key={r.id} value={r.id}>{r.name || r.db_name}</option>
-                                        ))}
-                                    </select>
+                                    <CustomSelect
+                                        value={resId}
+                                        onChange={e => setResId(e.target.value)}
+                                        placeholder="— выберите —"
+                                        options={(resources[resType] || []).map(r => ({
+                                            value: r.id, label: r.name || r.db_name,
+                                        }))}
+                                    />
                                 </div>
                                 <button type="submit" className="btn btn-secondary btn-sm" disabled={busy || !resId}><Link2 size={14} /></button>
                             </form>

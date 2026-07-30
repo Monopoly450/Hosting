@@ -1152,7 +1152,7 @@ function VMSnapshotsList({ vmName, vmStatus }) {
                             ))}
                             {snapshots.length === 0 && (
                                 <tr>
-                                    <td colSpan="4" style={{ textAlign: 'center', padding: '20px', color: '#888' }}>
+                                    <td colSpan="4" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
                                         Снимков пока нет
                                     </td>
                                 </tr>

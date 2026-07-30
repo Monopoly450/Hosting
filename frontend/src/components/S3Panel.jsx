@@ -492,7 +492,7 @@ export default function S3Panel() {
                             ))}
                             {buckets.length === 0 && (
                                 <tr>
-                                    <td colSpan="7" style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
+                                    <td colSpan="7" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
                                         <FolderOpen size={32} style={{ marginBottom: '8px', opacity: 0.5 }} />
                                         <div>Нет active бакетов S3. Создайте первый!</div>
                                     </td>

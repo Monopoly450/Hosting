@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CalendarClock, Plus, Trash2, X, Play, Server, Database, Clock, CheckCircle2, AlertTriangle, Power } from 'lucide-react';
+import CustomSelect from './CustomSelect';
 
 const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const pad = (n) => String(n).padStart(2, '0');
@@ -205,37 +206,39 @@ export default function BackupsPanel() {
 
                                 <div className="input-group" style={{ marginBottom: 0 }}>
                                     <label className="input-label">Что бэкапить</label>
-                                    <select className="form-control" value={target} onChange={e => setTarget(e.target.value)} required>
-                                        <option value="">— выберите объект —</option>
-                                        {vms.length > 0 && (
-                                            <optgroup label="Виртуальные машины">
-                                                {vms.filter(v => v.id).map(v => <option key={`vm-${v.id}`} value={`vm:${v.id}`}>🖥 {v.name}</option>)}
-                                            </optgroup>
-                                        )}
-                                        {databases.length > 0 && (
-                                            <optgroup label="Базы данных">
-                                                {databases.map(d => <option key={`db-${d.id}`} value={`database:${d.id}`}>🗄 {d.db_name}</option>)}
-                                            </optgroup>
-                                        )}
-                                    </select>
+                                    <CustomSelect
+                                        value={target}
+                                        onChange={e => setTarget(e.target.value)}
+                                        placeholder="— выберите объект —"
+                                        options={[
+                                            ...vms.filter(v => v.id).map(v => ({ value: `vm:${v.id}`, label: `🖥 ${v.name}` })),
+                                            ...databases.map(d => ({ value: `database:${d.id}`, label: `🗄 ${d.db_name}` })),
+                                        ]}
+                                    />
                                 </div>
 
                                 <div className="input-group" style={{ marginBottom: 0 }}>
                                     <label className="input-label">Частота</label>
-                                    <select className="form-control" value={frequency} onChange={e => setFrequency(e.target.value)}>
-                                        <option value="hourly">Каждый час</option>
-                                        <option value="daily">Ежедневно</option>
-                                        <option value="weekly">Еженедельно</option>
-                                    </select>
+                                    <CustomSelect
+                                        value={frequency}
+                                        onChange={e => setFrequency(e.target.value)}
+                                        options={[
+                                            { value: 'hourly', label: 'Каждый час' },
+                                            { value: 'daily', label: 'Ежедневно' },
+                                            { value: 'weekly', label: 'Еженедельно' },
+                                        ]}
+                                    />
                                 </div>
 
                                 <div style={{ display: 'flex', gap: '12px' }}>
                                     {frequency === 'weekly' && (
                                         <div className="input-group" style={{ marginBottom: 0, flex: 1 }}>
                                             <label className="input-label">День недели</label>
-                                            <select className="form-control" value={weekday} onChange={e => setWeekday(e.target.value)}>
-                                                {WEEKDAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
-                                            </select>
+                                            <CustomSelect
+                                                value={weekday}
+                                                onChange={e => setWeekday(e.target.value)}
+                                                options={WEEKDAYS.map((d, i) => ({ value: i, label: d }))}
+                                            />
                                         </div>
                                     )}
                                     {frequency !== 'hourly' && (

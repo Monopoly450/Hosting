@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, BellRing, Plus, Trash2, X, Send, Power, Server, HardDrive, Webhook, MessageCircle, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import CustomSelect from './CustomSelect';
 
 const METRICS = {
     vm: [
@@ -244,10 +245,14 @@ export default function AlertsPanel() {
                                 </div>
                                 <div className="input-group" style={{ marginBottom: 0 }}>
                                     <label className="input-label">Тип</label>
-                                    <select className="form-control" value={chType} onChange={e => setChType(e.target.value)}>
-                                        <option value="webhook">Webhook</option>
-                                        <option value="telegram">Telegram</option>
-                                    </select>
+                                    <CustomSelect
+                                        value={chType}
+                                        onChange={e => setChType(e.target.value)}
+                                        options={[
+                                            { value: 'webhook', label: 'Webhook' },
+                                            { value: 'telegram', label: 'Telegram' },
+                                        ]}
+                                    />
                                 </div>
                                 {chType === 'webhook' ? (
                                     <div className="input-group" style={{ marginBottom: 0 }}>
@@ -289,34 +294,46 @@ export default function AlertsPanel() {
                                 </div>
                                 <div className="input-group" style={{ marginBottom: 0 }}>
                                     <label className="input-label">Объект</label>
-                                    <select className="form-control" value={rTargetType} onChange={e => setRTargetType(e.target.value)}>
-                                        <option value="vm">Виртуальная машина</option>
-                                        {isAdmin && <option value="host">Хост (сервер целиком)</option>}
-                                    </select>
+                                    <CustomSelect
+                                        value={rTargetType}
+                                        onChange={e => setRTargetType(e.target.value)}
+                                        options={[
+                                            { value: 'vm', label: 'Виртуальная машина' },
+                                            ...(isAdmin ? [{ value: 'host', label: 'Хост (сервер целиком)' }] : []),
+                                        ]}
+                                    />
                                 </div>
                                 {rTargetType === 'vm' && (
                                     <div className="input-group" style={{ marginBottom: 0 }}>
                                         <label className="input-label">Виртуальная машина</label>
-                                        <select className="form-control" value={rTarget} onChange={e => setRTarget(e.target.value)} required>
-                                            <option value="">— выберите ВМ —</option>
-                                            {vms.filter(v => v.id).map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                                        </select>
+                                        <CustomSelect
+                                            value={rTarget}
+                                            onChange={e => setRTarget(e.target.value)}
+                                            placeholder="— выберите ВМ —"
+                                            options={vms.filter(v => v.id).map(v => ({ value: v.id, label: v.name }))}
+                                        />
                                     </div>
                                 )}
                                 <div className="input-group" style={{ marginBottom: 0 }}>
                                     <label className="input-label">Метрика</label>
-                                    <select className="form-control" value={rMetric} onChange={e => setRMetric(e.target.value)}>
-                                        {availableMetrics.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                                    </select>
+                                    <CustomSelect
+                                        value={rMetric}
+                                        onChange={e => setRMetric(e.target.value)}
+                                        options={availableMetrics}
+                                    />
                                 </div>
                                 {rMetric !== 'status' && (
                                     <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
                                         <div className="input-group" style={{ marginBottom: 0, width: '110px' }}>
                                             <label className="input-label">Условие</label>
-                                            <select className="form-control" value={rComparator} onChange={e => setRComparator(e.target.value)}>
-                                                <option value=">">больше &gt;</option>
-                                                <option value="<">меньше &lt;</option>
-                                            </select>
+                                            <CustomSelect
+                                                value={rComparator}
+                                                onChange={e => setRComparator(e.target.value)}
+                                                options={[
+                                                    { value: '>', label: 'больше >' },
+                                                    { value: '<', label: 'меньше <' },
+                                                ]}
+                                            />
                                         </div>
                                         <div className="input-group" style={{ marginBottom: 0, flex: 1 }}>
                                             <label className="input-label">Порог, %</label>
@@ -326,10 +343,15 @@ export default function AlertsPanel() {
                                 )}
                                 <div className="input-group" style={{ marginBottom: 0 }}>
                                     <label className="input-label">Канал уведомления</label>
-                                    <select className="form-control" value={rChannel} onChange={e => setRChannel(e.target.value)}>
-                                        <option value="">Без уведомления (только статус)</option>
-                                        {channels.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
-                                    </select>
+                                    <CustomSelect
+                                        value={rChannel}
+                                        onChange={e => setRChannel(e.target.value)}
+                                        placeholder="Без уведомления (только статус)"
+                                        options={[
+                                            { value: '', label: 'Без уведомления (только статус)' },
+                                            ...channels.map(c => ({ value: c.id, label: `${c.name} (${c.type})` })),
+                                        ]}
+                                    />
                                 </div>
                             </div>
                             <div className="modal-actions">

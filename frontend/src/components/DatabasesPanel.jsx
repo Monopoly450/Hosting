@@ -1040,7 +1040,7 @@ export default function DatabasesPanel() {
                             ))}
                             {databases.length === 0 && (
                                 <tr>
-                                    <td colSpan="9" style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
+                                    <td colSpan="9" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
                                         <Database size={32} style={{ marginBottom: '8px', opacity: 0.5 }} />
                                         <div>Нет активных баз данных. Создайте первую!</div>
                                     </td>

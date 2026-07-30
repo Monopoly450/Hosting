@@ -195,7 +195,7 @@ export default function VolumesPanel() {
                                         {v.attached_vm_name ? (
                                             <span style={{ fontWeight: 600 }}>{v.attached_vm_name}</span>
                                         ) : (
-                                            <span style={{ color: '#888', fontStyle: 'italic' }}>—</span>
+                                            <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>—</span>
                                         )}
                                     </td>
                                     <td>{v.created_at}</td>
@@ -232,7 +232,7 @@ export default function VolumesPanel() {
                             ))}
                             {volumes.length === 0 && (
                                 <tr>
-                                    <td colSpan="7" style={{ textAlign: 'center', padding: '30px', color: '#888' }}>
+                                    <td colSpan="7" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
                                         <HardDrive size={32} style={{ marginBottom: '8px', opacity: 0.5 }} />
                                         <div>Нет активных сетевых дисков. Создайте первый!</div>
                                     </td>
