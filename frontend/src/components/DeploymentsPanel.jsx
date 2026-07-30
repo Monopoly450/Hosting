@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Rocket, Plus, Trash2, X, Github, GitBranch, ExternalLink, Copy, Check, Server, Cpu, Terminal, Package, RefreshCw, Activity, Settings, Calendar, Globe, Layers, Shield } from 'lucide-react';
+import { Rocket, Plus, Trash2, X, Github, GitBranch, ExternalLink, Copy, Check, Server, Cpu, Terminal, Package, RefreshCw, Activity, Settings, Calendar, Globe, Layers, Shield, Network } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip } from 'recharts';
 import CustomSelect from './CustomSelect';
 
@@ -13,6 +13,12 @@ const STACKS = [
 ];
 
 const DEFAULT_PORTS = { compose: 3000, dockerfile: 8080, node: 3000, python: 8000, static: 80, custom: 3000 };
+
+// Деплой из маркетплейса не имеет ни репозитория, ни ветки: бэкенд пишет туда
+// синтетическое marketplace://<id> и прочерк. Без этой развилки в карточке
+// висела оранжевая «ссылка» в никуда и ветка «-» рядом с иконкой git.
+const isMarketplace = (d) => d.stack === 'marketplace';
+const marketplaceAppId = (d) => (d.repo_url || '').replace('marketplace://', '');
 
 export default function DeploymentsPanel() {
     const [deps, setDeps] = useState([]);
@@ -53,12 +59,12 @@ export default function DeploymentsPanel() {
             if (!res.ok) throw new Error((await res.json()).detail || 'Ошибка загрузки деплоев');
             const data = await res.json();
             setDeps(data);
-            
-            // Если сейчас открыта панель управления конкретным деплоем, обновим объект в стейте
-            if (selectedDep) {
-                const fresh = data.find(d => d.id === selectedDep.id);
-                if (fresh) setSelectedDep(fresh);
-            }
+
+            // Если сейчас открыта панель управления конкретным деплоем, обновим объект
+            // в стейте. Обязательно через функциональную форму: обычное чтение
+            // selectedDep взялось бы из замыкания на момент запуска запроса, и ответ,
+            // прилетевший после закрытия панели, открывал бы её заново.
+            setSelectedDep(prev => (prev ? data.find(d => d.id === prev.id) || prev : null));
             setError('');
         } catch (e) {
             setError(e.message);
@@ -67,11 +73,14 @@ export default function DeploymentsPanel() {
         }
     };
 
+    // Пустой массив зависимостей важен: с [selectedDep] каждый ответ подставлял
+    // новый объект из JSON, эффект перезапускался и сразу дёргал fetchDeps снова —
+    // при открытой панели это был бесконечный цикл запросов вместо опроса раз в 5с.
     useEffect(() => {
         fetchDeps();
         const t = setInterval(fetchDeps, 5000);
         return () => clearInterval(t);
-    }, [selectedDep]);
+    }, []);
 
     const onStackChange = (v) => {
         setStack(v);
@@ -238,20 +247,30 @@ export default function DeploymentsPanel() {
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.82rem' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
-                                    <Github size={13} />
-                                    <a href={d.repo_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)', textDecoration: 'none', wordBreak: 'break-all' }}>
-                                        {d.repo_url.replace('https://', '')}
-                                    </a>
+                                    {isMarketplace(d) ? (
+                                        <><Package size={13} /> <span>{marketplaceAppId(d)}</span></>
+                                    ) : (
+                                        <>
+                                            <Github size={13} />
+                                            <a href={d.repo_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)', textDecoration: 'none', wordBreak: 'break-all' }}>
+                                                {d.repo_url.replace('https://', '')}
+                                            </a>
+                                        </>
+                                    )}
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
-                                    <GitBranch size={13} /> {d.branch} · порт {d.app_port}
+                                    {isMarketplace(d)
+                                        ? <><Network size={13} /> порт {d.app_port}</>
+                                        : <><GitBranch size={13} /> {d.branch} · порт {d.app_port}</>}
                                 </div>
                             </div>
 
                             {d.app_url && (
-                                <a href={d.app_url} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ justifyContent: 'space-between' }}>
-                                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><ExternalLink size={14} /> Открыть приложение</span>
-                                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{d.app_url.replace('http://', '')}</span>
+                                <a href={d.app_url} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ justifyContent: 'space-between', gap: '10px' }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}><ExternalLink size={14} /> Открыть приложение</span>
+                                    {/* .btn режет по overflow: hidden, поэтому адрес сжимаем сами
+                                        с многоточием — иначе на узкой карточке он обрубался посреди порта. */}
+                                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-muted)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.app_url.replace('http://', '')}</span>
                                 </a>
                             )}
 
@@ -271,7 +290,7 @@ export default function DeploymentsPanel() {
             {/* ПОДРОБНАЯ ПАНЕЛЬ КОНСОЛИ ДЕПЛОЯ (Drawer/Slide-over) */}
             {selectedDep && (
                 <div className="slide-over-overlay" onClick={() => setSelectedDep(null)}>
-                    <div className="slide-over-content" style={{ maxWidth: '850px', width: '90%' }} onClick={e => e.stopPropagation()}>
+                    <div className="slide-over-content" style={{ maxWidth: '760px', width: '100%' }} onClick={e => e.stopPropagation()}>
                         
                         {/* Header */}
                         <div className="slide-over-header" style={{ borderBottom: '1px solid var(--border-subtle)', paddingBottom: '16px' }}>
@@ -281,8 +300,14 @@ export default function DeploymentsPanel() {
                                     {statusBadge(selectedDep)}
                                 </div>
                                 <p className="text-muted" style={{ fontSize: '0.8rem', margin: '4px 0 0 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Github size={14} /> <a href={selectedDep.repo_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)' }}>{selectedDep.repo_url}</a>
-                                    · <GitBranch size={14} /> <strong>{selectedDep.branch}</strong>
+                                    {isMarketplace(selectedDep) ? (
+                                        <><Package size={14} /> Приложение из маркетплейса: <strong>{marketplaceAppId(selectedDep)}</strong></>
+                                    ) : (
+                                        <>
+                                            <Github size={14} /> <a href={selectedDep.repo_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)' }}>{selectedDep.repo_url}</a>
+                                            · <GitBranch size={14} /> <strong>{selectedDep.branch}</strong>
+                                        </>
+                                    )}
                                 </p>
                             </div>
                             <button className="btn-close" onClick={() => setSelectedDep(null)} type="button"><X size={18} /></button>
@@ -315,9 +340,9 @@ export default function DeploymentsPanel() {
                                             <h3 className="section-title" style={{ fontSize: '0.95rem', margin: '0 0 12px 0' }}><Globe size={16}/> Ссылка приложения</h3>
                                             {selectedDep.app_url ? (
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                                    <a href={selectedDep.app_url} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ width: '100%', justifyContent: 'space-between', padding: '10px 14px' }}>
-                                                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-primary)', fontWeight: 600 }}><ExternalLink size={16} /> Открыть сайт</span>
-                                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{selectedDep.app_url}</span>
+                                                    <a href={selectedDep.app_url} target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ width: '100%', justifyContent: 'space-between', padding: '10px 14px', gap: '10px' }}>
+                                                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-primary)', fontWeight: 600, flexShrink: 0 }}><ExternalLink size={16} /> Открыть сайт</span>
+                                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedDep.app_url}</span>
                                                     </a>
                                                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Внешнее подключение проброшено автоматически на выделенный порт приложения.</span>
                                                 </div>

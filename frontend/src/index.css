@@ -335,6 +335,10 @@ body {
   white-space: nowrap;
   position: relative;
   overflow: hidden;
+  /* Класс навешивают и на <a> (ссылки «Открыть приложение»). Без сброса
+     ссылка-кнопка приезжает с браузерным подчёркиванием и выглядит иначе,
+     чем такая же кнопка на <button> рядом. */
+  text-decoration: none;
 }
 .btn:active { transform: none; }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -387,6 +391,7 @@ body {
 .btn-close {
   width: 34px;
   height: 34px;
+  flex-shrink: 0;
   border-radius: var(--radius-sm);
   background: var(--bg-surface-hover);
   border: none;
@@ -668,12 +673,17 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
 }
 .slide-over-body { flex: 1; overflow-y: auto; padding: 24px; }
 .slide-over-header {
-  height: 70px;
+  /* min-height, а не height: у части панелей под заголовком есть вторая строка
+     (репозиторий и ветка деплоя) — при жёсткой высоте она вылезала за рамку.
+     flex-shrink: 0, чтобы длинный список в теле не сплющивал заголовок. */
+  min-height: 70px;
+  flex-shrink: 0;
   padding: 0 24px;
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
 }
 .slide-over-header h2 { font-size: 1.25rem; font-weight: 700; margin: 0; color: var(--text-heading); }
 
@@ -1188,6 +1198,11 @@ font { background-color: transparent !important; }
   --bg-dark: var(--bg-body);
   --bg-hover: var(--bg-surface-hover);
   --bg-input: var(--bg-surface);
+  /* Подложка чуть темнее поверхности — вложенные блоки внутри карточек
+     (спецификация ВМ, пулы балансировщика, строки итогов). Использовалась
+     в девяти местах, но никогда не была объявлена: браузер отбрасывал
+     объявление, и блоки сливались с картой. */
+  --card-bg-subtle: var(--bg-surface-hover);
   --text-white: #ffffff;
 }
 
