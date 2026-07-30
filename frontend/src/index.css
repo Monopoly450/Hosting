@@ -518,6 +518,37 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
   font-weight: 600;
   letter-spacing: 0.3px;
 }
+
+/* Фильтр-чипы (категории маркетплейса). Раньше это были btn-primary/btn-secondary:
+   выбранная категория заливалась сплошным оранжевым и кричала громче карточек,
+   которые фильтрует. Активное состояние повторяет активный пункт меню — мягкая
+   заливка акцентом плюс акцентный текст. */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+}
+.filter-chip:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-heading);
+  border-color: var(--border-hover);
+}
+.filter-chip.active {
+  background: var(--sidebar-active-bg);
+  border-color: var(--sidebar-active-border);
+  color: var(--sidebar-active-text);
+}
 .badge-success { background-color: var(--status-success-bg); color: var(--status-success); }
 .badge-warning { background-color: var(--status-warning-bg); color: var(--status-warning); }
 .badge-danger { background-color: var(--status-danger-bg); color: var(--status-danger); }

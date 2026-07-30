@@ -17,47 +17,6 @@ const InfraPanel = () => {
   const [cmdOutput, setCmdOutput] = useState('');
   const [cmdLoading, setCmdLoading] = useState(false);
 
-  const [vms, setVms] = useState([]);
-  const [vmsLoading, setVmsLoading] = useState(false);
-
-  const fetchVms = async () => {
-    setVmsLoading(true);
-    try {
-      const response = await fetch('/api/vms');
-      if (response.ok) {
-        const data = await response.json();
-        setVms(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch VMs:', err);
-    } finally {
-      setVmsLoading(false);
-    }
-  };
-
-  const getSshIp = (vm) => {
-    if (!vm.ips || vm.ips.length === 0) return null;
-    for (let ip of vm.ips) {
-      if (!ip.startsWith('10.244.') && !ip.startsWith('10.42.') && !ip.startsWith('10.0.2.') && !ip.startsWith('127.0.') && !ip.includes(':')) {
-        return ip;
-      }
-    }
-    for (let ip of vm.ips) {
-      if ((ip.startsWith('10.42.') || ip.startsWith('10.244.')) && !ip.includes(':')) {
-        return ip;
-      }
-    }
-    for (let ip of vm.ips) {
-      if (!ip.includes(':')) return ip;
-    }
-    return vm.ips[0] || null;
-  };
-
-  const isPrivateIp = (ip) => {
-    if (!ip) return false;
-    return ip.startsWith('172.') || ip.startsWith('10.') || ip.startsWith('192.168.');
-  };
-
   const logsEndRef = useRef(null);
   const cmdOutputEndRef = useRef(null);
 
@@ -133,7 +92,6 @@ const InfraPanel = () => {
   useEffect(() => {
     fetchGitInfo();
     fetchLogs();
-    fetchVms();
   }, []);
 
   useEffect(() => {
@@ -297,40 +255,6 @@ const InfraPanel = () => {
           ))}
         </div>
 
-        {vms.filter(vm => vm.status === 'Running' && getSshIp(vm) && isPrivateIp(getSshIp(vm))).length > 0 && (
-          <div style={{ background: 'var(--status-warning-bg)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--status-warning)' }}>
-            <strong style={{ color: 'var(--status-warning)', display: 'block', marginBottom: '8px', fontSize: '0.9rem' }}>⚠️ Найдена ВМ в приватной сети (требуется NAT)</strong>
-            {vms.filter(vm => vm.status === 'Running' && getSshIp(vm) && isPrivateIp(getSshIp(vm))).map(vm => {
-              const ip = getSshIp(vm);
-              const port = vm.ssh_port || 2222;
-              const cmd1 = `iptables -t nat -A PREROUTING -p tcp --dport ${port} -j DNAT --to-destination ${ip}:22`;
-              const cmd2 = `iptables -A FORWARD -p tcp -d ${ip} --dport 22 -j ACCEPT`;
-              return (
-                <div key={vm.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-surface)', padding: '12px', borderRadius: 'var(--radius-sm)', marginTop: '8px' }}>
-                  <span style={{ fontSize: '0.85rem' }}>{vm.name} (IP: <code>{ip}</code>)</span>
-                  <button className="btn btn-primary btn-sm" onClick={async () => {
-                    if (window.confirm(`Выполнить проброс портов на хосте для ${vm.name}?`)) {
-                      setCmdLoading(true);
-                      setCmdOutput(prev => prev + `\n$ ${cmd1}\n$ ${cmd2}\n`);
-                      try {
-                        let response = await fetch('/api/infra/execute-command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: cmd1 }) });
-                        let data = await response.json();
-                        setCmdOutput(prev => prev + (data.output || '') + '\n');
-                        response = await fetch('/api/infra/execute-command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: cmd2 }) });
-                        data = await response.json();
-                        setCmdOutput(prev => prev + (data.output || '') + '\nУспешно применены правила проброса!\n');
-                      } catch (err) {
-                        setCmdOutput(prev => prev + `Ошибка: ${err.message}\n`);
-                      } finally {
-                        setCmdLoading(false);
-                      }
-                    }
-                  }}>⚡ NAT Порт {port}</button>
-                </div>
-              );
-            })}
-          </div>
-        )}
 
         <div style={{ height: '250px', background: 'var(--terminal-bg)', borderRadius: 'var(--radius-md)', padding: '16px', color: '#10b981', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
           {cmdOutput ? (

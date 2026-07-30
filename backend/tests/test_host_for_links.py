@@ -126,8 +126,14 @@ def test_registry_endpoints_pass_the_request():
     assert "reg.push_host()" not in src, "адрес push должен зависеть от запроса"
 
 
-def test_domains_keep_using_the_configured_public_address():
-    """Для A-записи и ACME нужен именно публичный адрес, а не адрес запроса."""
+def test_domains_show_the_address_the_panel_was_opened_on():
+    """Подсказка «A @ → ...» показывает адрес этого сервера, а не AEGIS_HOST_IP.
+
+    Раньше здесь стоял detect_host_ip(), который в первую очередь читает
+    AEGIS_HOST_IP: однажды заданная переменная показывалась и тогда, когда
+    панель открыта по совсем другому адресу. Публичность адреса проверяется
+    отдельно — см. тест ниже про предупреждение.
+    """
     path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "app", "api", "domains.py",
@@ -135,5 +141,22 @@ def test_domains_keep_using_the_configured_public_address():
     with open(path, encoding="utf-8") as f:
         src = f.read()
 
-    assert "dsvc.host_ip()" in src
-    assert "host_for_links" not in src
+    assert "host_for_links(request)" in src
+
+
+def test_domains_verify_against_the_same_address_it_shows():
+    """DNS сверяется с тем же адресом, который показан пользователю.
+
+    Если подсказка и проверка расходятся, пользователь пропишет A-запись ровно
+    так, как ему показали, а верификация всё равно не пройдёт.
+    """
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "app", "api", "domains.py",
+    )
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+
+    assert "expected = host_for_links(request)" in src
+    assert "check_dns(dom.domain, expected_ip=expected)" in src
+    assert '"expected_ip": expected' in src

@@ -190,8 +190,15 @@ def is_private_host_ip(ip: str = None) -> bool:
     return addr.is_private or addr.is_loopback or addr.is_link_local
 
 
-def caddy_status(docker_client) -> dict:
-    current_ip = host_ip()
+def caddy_status(docker_client, host: str = "") -> dict:
+    """host — адрес, по которому открыта панель (см. netutils.host_for_links).
+
+    Раньше здесь всегда стоял detect_host_ip(), а он в первую очередь читает
+    AEGIS_HOST_IP. Если переменную однажды задали, подсказка «A @ → ...»
+    показывала её вместо фактического адреса сервера, даже когда панель
+    открыта по совсем другому адресу.
+    """
+    current_ip = host or host_ip()
     info = {
         "docker": False,
         "running": False,

@@ -106,19 +106,16 @@ export default function MarketplacePanel() {
                 <>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '18px' }}>
                         {categories.map(c => (
-                            <button key={c} className={`btn btn-sm ${category === c ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setCategory(c)}>{c}</button>
+                            <button key={c} type="button" className={`filter-chip ${category === c ? 'active' : ''}`} onClick={() => setCategory(c)}>{c}</button>
                         ))}
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '16px' }}>
                         {visible.map(app => (
                             <div key={app.id} className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <div style={{ fontSize: '2rem', lineHeight: 1 }}>{app.icon}</div>
-                                    <div>
-                                        <div style={{ fontWeight: 700 }}>{app.name}</div>
-                                        <span className="badge" style={{ fontSize: '0.7rem' }}>{app.category}</span>
-                                    </div>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--text-heading)' }}>{app.name}</div>
+                                    <span className="badge" style={{ fontSize: '0.7rem', flexShrink: 0 }}>{app.category}</span>
                                 </div>
                                 <p className="text-muted" style={{ fontSize: '0.82rem', flex: 1, margin: 0 }}>{app.description}</p>
                                 {app.requires_https && (
@@ -138,7 +135,7 @@ export default function MarketplacePanel() {
                 <div className="modal-overlay" onClick={() => setSelected(null)}>
                     <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '460px' }}>
                         <div className="modal-header">
-                            <h2>{selected.icon} Установить {selected.name}</h2>
+                            <h2>Установить {selected.name}</h2>
                             <button className="btn-close" onClick={() => setSelected(null)} type="button"><X size={18} /></button>
                         </div>
                         <form onSubmit={doDeploy}>

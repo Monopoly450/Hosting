@@ -3,13 +3,14 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request
 from pydantic import BaseModel, Field
 
 from app.db import SessionLocal
 from app.models.models import User, Domain, AppDeployment, VMTask
 from app.core.auth import get_current_user
 from app.core.docker_client import HostDockerClient
+from app.core.netutils import host_for_links
 from app.services import domains as dsvc
 
 router = APIRouter()
@@ -96,9 +97,9 @@ def _apply_config(db):
 
 
 @router.get("/status")
-def status_(current_user: User = Depends(get_current_user)):
+def status_(request: Request, current_user: User = Depends(get_current_user)):
     """Статус прокси и данные для настройки DNS."""
-    st = dsvc.caddy_status(_docker())
+    st = dsvc.caddy_status(_docker(), host=host_for_links(request))
     st["acme_email"] = dsvc.acme_email()
     return st
 
@@ -160,18 +161,23 @@ def create_domain(req: DomainCreate, current_user: User = Depends(get_current_us
 
 
 @router.post("/{domain_id}/verify")
-def verify_domain(domain_id: int, current_user: User = Depends(get_current_user)):
+def verify_domain(domain_id: int, request: Request, current_user: User = Depends(get_current_user)):
     """Проверяет A-запись и, если всё верно, включает домен в конфиг Caddy
     (после этого Caddy сам выпустит сертификат Let's Encrypt)."""
     db = SessionLocal()
     try:
         dom = _owned(db, domain_id, current_user)
 
+        # Тот же адрес, что панель показывает в подсказке «A @ → ...». Если
+        # сверять с другим, пользователь пропишет ровно то, что ему показали,
+        # а проверка всё равно не пройдёт.
+        expected = host_for_links(request)
+
         # 1) Владение доменом (TXT), 2) маршрутизация (A-запись).
         # Порядок важен: пока владение не доказано, домен в конфиг не попадает,
         # даже если A-запись уже указывает на этот сервер.
         own_ok, own_detail = dsvc.check_ownership(dom.domain, dom.verification_token)
-        dns_ok, dns_detail = dsvc.check_dns(dom.domain)
+        dns_ok, dns_detail = dsvc.check_dns(dom.domain, expected_ip=expected)
 
         dom.ownership_ok = own_ok
         dom.dns_ok = dns_ok
@@ -189,7 +195,7 @@ def verify_domain(domain_id: int, current_user: User = Depends(get_current_user)
         return {
             "ownership_ok": own_ok, "ownership_detail": own_detail,
             "dns_ok": dns_ok, "detail": dns_detail,
-            "expected_ip": dsvc.host_ip(),
+            "expected_ip": expected,
             "challenge_record": dsvc.challenge_record_name(dom.domain),
             "verification_token": dom.verification_token,
             **applied,
