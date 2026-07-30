@@ -174,8 +174,30 @@ def build_entries(db, k8s) -> list:
 
 # --------------------------- Управление Caddy -------------------------------
 
+def is_private_host_ip(ip: str = None) -> bool:
+    """True, если адрес хоста не виден из интернета.
+
+    Let's Encrypt проверяет домен, обращаясь к порту 80 ИЗВНЕ. Если A-запись
+    указывает на адрес из приватного диапазона (192.168.x, 10.x, 172.16–31.x),
+    проверка не пройдёт никогда, а неудачные попытки расходуют лимиты ACME.
+    Поэтому предупреждаем до того, как пользователь начнёт править DNS.
+    """
+    import ipaddress
+    try:
+        addr = ipaddress.ip_address(ip or host_ip())
+    except ValueError:
+        return False
+    return addr.is_private or addr.is_loopback or addr.is_link_local
+
+
 def caddy_status(docker_client) -> dict:
-    info = {"docker": False, "running": False, "host_ip": host_ip()}
+    current_ip = host_ip()
+    info = {
+        "docker": False,
+        "running": False,
+        "host_ip": current_ip,
+        "host_ip_is_private": is_private_host_ip(current_ip),
+    }
     if not docker_client or not docker_client.is_available():
         return info
     info["docker"] = True

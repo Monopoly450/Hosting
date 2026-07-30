@@ -134,6 +134,29 @@ export default function DomainsPanel() {
                 <p className="text-muted" style={{ fontSize: '0.78rem', marginTop: '8px' }}>
                     TXT-запись для подтверждения владения индивидуальна для каждого домена — она показана в таблице ниже.
                 </p>
+
+                {status?.host_ip_is_private && (
+                    <div className="alert alert-danger" style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                        <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                        <div style={{ fontSize: '0.84rem' }}>
+                            <b>Адрес {status.host_ip} — локальный, из интернета он недоступен.</b>
+                            <p style={{ margin: '6px 0 0' }}>
+                                Let's Encrypt проверяет домен, обращаясь к порту 80 извне, поэтому сертификат
+                                на такой адрес выпустить не получится, а неудачные попытки расходуют лимиты.
+                            </p>
+                            <p style={{ margin: '6px 0 0' }}>
+                                Если у сервера есть «белый» IP за NAT: пропишите его в переменной
+                                <code style={{ margin: '0 4px' }}>AEGIS_HOST_IP</code> и настройте на роутере
+                                проброс портов 80 и 443 на этот сервер. Тогда A-запись нужно указывать
+                                на публичный адрес.
+                            </p>
+                            <p style={{ margin: '6px 0 0' }}>
+                                Без публичного адреса домены и автоматический TLS работать не будут —
+                                приложения остаются доступными по IP и порту.
+                            </p>
+                        </div>
+                    </div>
+                )}
                 {status && !status.running && (
                     <div className="alert alert-danger" style={{ marginTop: '10px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                         <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />

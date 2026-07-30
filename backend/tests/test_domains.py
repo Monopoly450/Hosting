@@ -1,6 +1,8 @@
 import os
 import sys
 
+import pytest
+
 os.environ.setdefault("ADMIN_TOKEN", "test-admin-token")
 os.environ.setdefault("AEGIS_SECRET_KEY", "test-secret-key")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/aegis")
@@ -96,3 +98,48 @@ def test_caddyfile_tar_roundtrip():
     with tarfile.open(fileobj=buf, mode="r") as tar:
         member = tar.getmember("Caddyfile")
         assert tar.extractfile(member).read().decode() == "hello { }"
+
+
+# ---------------------- публичность адреса хоста ----------------------------
+
+@pytest.mark.parametrize("ip", [
+    "192.168.31.10",   # адрес из скриншота: сервер в локальной сети
+    "192.168.1.1",
+    "10.0.0.5",
+    "172.16.0.10",
+    "172.31.255.254",
+    "127.0.0.1",
+    "169.254.169.254",
+])
+def test_private_addresses_detected(ip):
+    """Let's Encrypt стучится на порт 80 ИЗВНЕ: на такой адрес сертификат
+    не выпустится, и предупредить нужно до правки DNS."""
+    assert d.is_private_host_ip(ip) is True
+
+
+@pytest.mark.parametrize("ip", ["185.177.219.140", "8.8.8.8", "1.1.1.1"])
+def test_public_addresses_pass(ip):
+    assert d.is_private_host_ip(ip) is False
+
+
+@pytest.mark.parametrize("ip", ["203.0.113.10", "198.51.100.7"])
+def test_documentation_ranges_also_unreachable(ip):
+    """Адреса из RFC 5737 (примеры в документации) не маршрутизируются —
+    сертификат на них тоже не выпустится."""
+    assert d.is_private_host_ip(ip) is True
+
+
+def test_garbage_value_is_not_reported_as_private():
+    """Имя хоста вместо адреса не должно выдавать ложное предупреждение."""
+    assert d.is_private_host_ip("host.example.com") is False
+
+
+def test_status_reports_whether_host_is_reachable(monkeypatch):
+    monkeypatch.setenv("AEGIS_HOST_IP", "192.168.31.10")
+
+    class NoDocker:
+        def is_available(self): return False
+
+    st = d.caddy_status(NoDocker())
+    assert st["host_ip"] == "192.168.31.10"
+    assert st["host_ip_is_private"] is True
