@@ -115,7 +115,7 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                 k8s_vm_map = {v["name"]: v for v in all_k8s_vms}
                 
                 if k8s_vm_map is not None:
-                    from app.models.models import User, UserDatabase, UserVolume
+                    from app.models.models import User, UserDatabase, UserVolume, AppDeployment
                     db_vms = db.query(VMTask).all()
                     
                     # Удаляем только не создающиеся (не Pending/Provisioning) записи, которых нет в K8s
@@ -129,9 +129,18 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                             (vm.created_at is None or (now_utc - vm.created_at).total_seconds() > 300)
                         )
                         if vm.name not in k8s_vm_map and (vm.status not in ["Pending", "Provisioning"] or is_stuck_pending):
-                            # Безопасно отвязываем базы данных и сетевые диски
+                            # Отвязываем ВСЁ, что ссылается на эту ВМ по внешнему
+                            # ключу, иначе db.delete падает с ForeignKeyViolation,
+                            # commit откатывается и синхронизация статусов ломается
+                            # целиком — не только для этой записи.
                             db.query(UserDatabase).filter(UserDatabase.associated_vm_id == vm.id).update({"associated_vm_id": None})
                             db.query(UserVolume).filter(UserVolume.attached_vm_id == vm.id).update({"attached_vm_id": None})
+                            # Деплой без своей ВМ работать не может. Запись не удаляем
+                            # (это данные пользователя), но помечаем как сломанную —
+                            # так видно, что произошло, и её можно удалить вручную.
+                            db.query(AppDeployment).filter(AppDeployment.vm_id == vm.id).update(
+                                {"vm_id": None, "status": "Error"}
+                            )
                             db.delete(vm)
                         elif vm.name in k8s_vm_map:
                             # Обновляем статус в БД на актуальный из K8s

@@ -187,6 +187,11 @@ class VMTask(Base):
     iso_url = Column(String, nullable=True)
     ssh_key = Column(String, nullable=True)
     static_ip = Column(String, nullable=True)  # стабильный IP на мосту br-vms (172.20.0.x)
+    # Пароль, реально прописанный в cloud-init (шифруется Fernet).
+    # Нужен, когда cloud-init задан извне — деплои и маркетплейс генерируют
+    # пароль сами, и воркер обязан положить в Secret именно его, иначе панель
+    # не сможет зайти в ВМ по SSH (логи сборки, терминал, подсказка подключения).
+    vm_password = Column(String, nullable=True)
     
     # Queue / State
     status = Column(String, default="Pending") # Pending, Provisioning, Running, Error

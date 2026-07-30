@@ -204,12 +204,21 @@ def delete_cluster(cluster_id: int, current_user: User = Depends(get_current_use
         
         # Получаем все ВМ в кластере
         vms = db.query(VMTask).filter(VMTask.cluster_id == cluster_id).all()
+        from app.models.models import UserDatabase, UserVolume, AppDeployment
         for vm in vms:
             # Отправляем задачу на удаление каждой ВМ
             publish_task("vm_tasks", {
                 "task_id": vm.id,
                 "action": "delete_vm"
             })
+            # Отвязываем всё, что ссылается на ВМ по внешнему ключу: иначе
+            # удаление кластера падает с ForeignKeyViolation, если к какой-то
+            # его машине была привязана БД, сетевой диск или деплой.
+            db.query(UserDatabase).filter(UserDatabase.associated_vm_id == vm.id).update({"associated_vm_id": None})
+            db.query(UserVolume).filter(UserVolume.attached_vm_id == vm.id).update({"attached_vm_id": None})
+            db.query(AppDeployment).filter(AppDeployment.vm_id == vm.id).update(
+                {"vm_id": None, "status": "Error"}
+            )
             db.delete(vm)
             
         # Удаляем сетевое окружение кластера через воркер

@@ -1311,6 +1311,9 @@ def clone_vm(name: str, req: VMCloneRequest, current_user: User = Depends(get_cu
             network_drives=source.network_drives,
             cloud_init_template=source.cloud_init_template,
             custom_user_data=source.custom_user_data,
+            # Клон загрузится с cloud-init исходной ВМ, значит и пароль внутри
+            # будет тот же — переносим его, чтобы Secret клона не разошёлся.
+            vm_password=source.vm_password,
             iso_url=source.iso_url,
             ssh_key=source.ssh_key,
             owner_id=current_user.id,

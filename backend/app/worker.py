@@ -23,6 +23,7 @@ try:
     from .models.models import VMTask, Cluster
     from .core.database import Base
     from .core.k8s_client import K8sClient
+    from .services.vm_credentials import resolve_vm_password
 
     # Инициализация таблиц (выполняется бэкендом, убираем для избежания взаимных блокировок)
     # Base.metadata.create_all(bind=engine)
@@ -84,7 +85,11 @@ def process_vm_task(db: Session, task_id: int):
         # Вызываем логику создания ВМ
         from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password, default_user_for, generate_mac_address
 
-        generated_password = generate_random_password()
+        # Если cloud-init пришёл извне (деплой, маркетплейс), пароль в него уже
+        # вписан, а generate_linux_manifest сгенерированный игнорирует. Тогда в
+        # Secret нужно положить именно сохранённый пароль — иначе SSH из панели
+        # (логи сборки, терминал, подсказка подключения) не заработает.
+        generated_password = resolve_vm_password(task)
 
         # Windows/Proxmox/TrueNAS ставятся с ISO; всё остальное — Linux-образ с cloud-init
         is_iso = task.os_type in ["windows", "proxmox", "truenas"]
@@ -161,7 +166,9 @@ def process_clone_task(db: Session, task_id: int, source_name: str):
 
         from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password, default_user_for
 
-        generated_password = generate_random_password()
+        # У клона cloud-init копируется из исходной ВМ, поэтому пароль тоже
+        # должен браться сохранённый, а не новый (см. resolve_vm_password).
+        generated_password = resolve_vm_password(task)
 
         if task.os_type in ["windows", "proxmox", "truenas"]:
             manifest = generate_windows_manifest(FakeReq())

@@ -255,10 +255,14 @@ def create_deployment(req: DeploymentCreate, current_user: User = Depends(get_cu
             req.name, req.repo_url, req.branch, req.stack, req.app_port, req.run_command, password
         )
 
+        # Пароль уже вписан в cloud_init — сохраняем его же, иначе воркер
+        # положит в Secret другой, и панель не сможет зайти в ВМ по SSH.
+        from app.core.crypto import encrypt_secret
         vm = VMTask(
             name=req.name, os_type="ubuntu",
             cpu_cores=req.cpu_cores, memory_gb=req.memory_gb, disk_gb=req.disk_gb,
             custom_user_data=cloud_init, owner_id=current_user.id, status="Pending",
+            vm_password=encrypt_secret(password),
         )
         db.add(vm)
         db.commit()

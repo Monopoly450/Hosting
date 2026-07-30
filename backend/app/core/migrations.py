@@ -50,6 +50,8 @@ MIGRATION_STATEMENTS = [
     "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS ssh_key VARCHAR;",
     # Стабильный IP на мосту br-vms
     "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS static_ip VARCHAR;",
+    # Пароль из кастомного cloud-init (деплои, маркетплейс) — шифрованный
+    "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS vm_password VARCHAR;",
     # Подтверждение владения доменом (TXT-челлендж)
     "ALTER TABLE domains ADD COLUMN IF NOT EXISTS verification_token VARCHAR;",
     "ALTER TABLE domains ADD COLUMN IF NOT EXISTS ownership_ok BOOLEAN DEFAULT FALSE;",

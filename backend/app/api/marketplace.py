@@ -92,6 +92,10 @@ def deploy(req: MarketplaceDeploy, current_user: User = Depends(get_current_user
         # теперь формируем cloud-init (воркер прочитает его при publish_task).
         env = add_public_url(env, default_host(), ext_port)
         vm.custom_user_data = build_marketplace_cloud_init(app, env, password)
+        # Тот же пароль, что попал в cloud-init: воркер положит именно его в
+        # Secret, иначе SSH-доступ панели к ВМ не заработает.
+        from app.core.crypto import encrypt_secret
+        vm.vm_password = encrypt_secret(password)
         db.commit()
 
         dep = AppDeployment(
