@@ -60,6 +60,20 @@ class DeploymentResponse(BaseModel):
 _GIT_URL_RE = re.compile(r"^https://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+$")
 
 
+def _is_vm_missing(exc: Exception) -> bool:
+    """Отличает «ВМ не существует» от прочих сбоев обращения к Kubernetes.
+
+    Нужно, чтобы не показывать пользователю сырой ответ API с заголовками:
+    отсутствие ВМ и недоступность кластера — разные ситуации с разными
+    действиями со стороны пользователя.
+    """
+    status = getattr(exc, "status", None)
+    if status == 404:
+        return True
+    text = str(exc).lower()
+    return "not found" in text or '"code":404' in text or "(404)" in text
+
+
 def _validate_repo(url: str):
     if not _GIT_URL_RE.match(url) or " " in url:
         raise HTTPException(status_code=400, detail="Укажите корректный https-URL репозитория (например, https://github.com/user/repo).")
@@ -378,7 +392,19 @@ def get_deployment_logs(dep_id: int, current_user: User = Depends(get_current_us
             k8s = K8sClient()
             vm = k8s.get_vm(dep.vm_name)
         except Exception as e:
-            return {"logs": f"Не удалось получить информацию о ВМ: {e}"}
+            # Частый случай: ВМ так и не создалась (сбой воркера или очереди).
+            # Показывать сырой ответ Kubernetes с заголовками бессмысленно —
+            # объясняем, что произошло и что делать.
+            if _is_vm_missing(e):
+                return {"logs": (
+                    f"Виртуальная машина «{dep.vm_name}» не найдена в кластере — "
+                    "скорее всего, она не была создана из-за сбоя при развёртывании.\n\n"
+                    "Логи собираются внутри ВМ, поэтому показать их нечего.\n"
+                    "Удалите этот деплой и создайте приложение заново."
+                )}
+            logger.warning(f"Логи деплоя {dep.name}: не удалось получить ВМ: {e}")
+            return {"logs": "Не удалось получить информацию о виртуальной машине. "
+                            "Попробуйте позже или проверьте состояние кластера."}
 
         if vm.get("status") != "Running":
             return {"logs": f"Виртуальная машина не запущена. Текущий статус: {vm.get('status', 'Unknown')}"}
@@ -461,7 +487,14 @@ def redeploy_app(dep_id: int, current_user: User = Depends(get_current_user)):
             k8s = K8sClient()
             vm = k8s.get_vm(dep.vm_name)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Не удалось получить информацию о ВМ: {e}")
+            if _is_vm_missing(e):
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Виртуальная машина «{dep.vm_name}» не найдена в кластере. "
+                           "Передеплой невозможен — удалите деплой и создайте заново."
+                )
+            logger.warning(f"Передеплой {dep.name}: не удалось получить ВМ: {e}")
+            raise HTTPException(status_code=502, detail="Не удалось получить информацию о виртуальной машине.")
 
         if vm.get("status") != "Running":
             raise HTTPException(status_code=400, detail="Виртуальная машина должна быть запущена для передеплоя.")
