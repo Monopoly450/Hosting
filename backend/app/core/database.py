@@ -9,12 +9,25 @@ engine = create_async_engine(
     pool_pre_ping=True
 )
 
-# Фабрика асинхронных сессий
+# Фабрика асинхронных сессий.
+#
+# expire_on_commit=False принципиально важен для async-сессии. По умолчанию
+# SQLAlchemy после commit() помечает объекты устаревшими, и первое же обращение
+# к атрибуту тянет SELECT для обновления. В асинхронном режиме такой неявный
+# запрос происходит вне greenlet-контекста и падает:
+#
+#   MissingGreenlet: greenlet_spawn has not been called;
+#   can't call await_only() here
+#
+# Ломалось всё, где после commit читается поле объекта: настройка 2FA
+# (обращение к current_user.username) и вход по резервному коду (расход кода
+# делает commit, после которого читается user.username для выдачи токена).
 SessionLocal = async_sessionmaker(
-    autocommit=False, 
-    autoflush=False, 
+    autocommit=False,
+    autoflush=False,
     bind=engine,
-    class_=AsyncSession
+    class_=AsyncSession,
+    expire_on_commit=False,
 )
 
 # Базовый класс для моделей SQLAlchemy

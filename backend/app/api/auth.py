@@ -101,6 +101,11 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
         )
 
     # Второй фактор (TOTP), если включён у пользователя
+    # Данные для ответа снимаем заранее: проверка второго фактора расходует
+    # резервный код и делает commit, после которого обращение к полям объекта
+    # может потребовать неявного SELECT.
+    username, user_role = user.username, user.role
+
     if user.totp_enabled:
         if not req.otp:
             # Пароль верный — просто нужен код. Не считаем это неудачной попыткой.
@@ -119,12 +124,12 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
     if client_ip in _login_failures:
         del _login_failures[client_ip]
 
-    token = create_access_token({"sub": user.username})
+    token = create_access_token({"sub": username})
     return {
         "access_token": token,
         "token_type": "bearer",
-        "role": user.role,
-        "username": user.username
+        "role": user_role,
+        "username": username
     }
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
@@ -317,11 +322,15 @@ async def totp_setup(current_user: User = Depends(get_current_user), db: AsyncSe
     if current_user.totp_enabled:
         raise HTTPException(status_code=400, detail="2FA уже включена. Сначала отключите её.")
 
+    # Имя читаем ДО commit: даже при expire_on_commit=False не стоит зависеть от
+    # того, останется ли объект «живым» после записи.
+    username = current_user.username
+
     secret = totp_lib.generate_secret()
     current_user.totp_secret = encrypt_secret(secret)  # сохраняем как ожидающий
     await db.commit()
 
-    uri = totp_lib.provisioning_uri(secret, current_user.username)
+    uri = totp_lib.provisioning_uri(secret, username)
 
     # QR — только удобство: подключить приложение можно и вводом ключа вручную.
     # Поэтому сбой отрисовки не должен ломать настройку 2FA целиком.
