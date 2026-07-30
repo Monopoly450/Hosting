@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, status, Request
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from collections import defaultdict
+import logging
 import time
 import json
 from sqlalchemy import select, func, delete
@@ -12,6 +13,8 @@ from app.core.auth import hash_password, verify_password, create_access_token, g
 
 # Простая защита от брутфорса: лимит на 5 неудачных попыток входа за 5 минут
 _login_failures = defaultdict(list)
+
+logger = logging.getLogger("app.api.auth")
 
 router = APIRouter()
 
@@ -319,10 +322,19 @@ async def totp_setup(current_user: User = Depends(get_current_user), db: AsyncSe
     await db.commit()
 
     uri = totp_lib.provisioning_uri(secret, current_user.username)
+
+    # QR — только удобство: подключить приложение можно и вводом ключа вручную.
+    # Поэтому сбой отрисовки не должен ломать настройку 2FA целиком.
+    qr_svg = None
+    try:
+        qr_svg = totp_lib.qr_svg_data_uri(uri)
+    except Exception as e:
+        logger.error(f"Не удалось построить QR-код для 2FA ({current_user.username}): {e}")
+
     return {
         "secret": secret,
         "otpauth_uri": uri,
-        "qr_svg": totp_lib.qr_svg_data_uri(uri),
+        "qr_svg": qr_svg,
     }
 
 

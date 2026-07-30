@@ -121,6 +121,12 @@ export default function MarketplacePanel() {
                                     </div>
                                 </div>
                                 <p className="text-muted" style={{ fontSize: '0.82rem', flex: 1, margin: 0 }}>{app.description}</p>
+                                {app.requires_https && (
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', fontSize: '0.74rem', color: '#f5a623' }}>
+                                        <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: '1px' }} />
+                                        <span>Нужен HTTPS — по IP не откроется</span>
+                                    </div>
+                                )}
                                 <button className="btn btn-primary btn-sm" onClick={() => openInstall(app)}><Rocket size={14} /> Установить</button>
                             </div>
                         ))}
@@ -137,6 +143,12 @@ export default function MarketplacePanel() {
                         </div>
                         <form onSubmit={doDeploy}>
                             <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                {selected.note && (
+                                    <div className="alert" style={{ background: 'rgba(245,166,35,0.12)', border: '1px solid rgba(245,166,35,0.4)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                                        <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px', color: '#f5a623' }} />
+                                        <span style={{ fontSize: '0.84rem' }}>{selected.note}</span>
+                                    </div>
+                                )}
                                 <div className="input-group" style={{ marginBottom: 0 }}>
                                     <label className="input-label">Имя (домен ВМ)</label>
                                     <input className="form-control" value={name} onChange={e => setName(e.target.value)} pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?" required autoFocus />

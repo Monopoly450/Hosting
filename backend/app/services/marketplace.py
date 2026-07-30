@@ -88,6 +88,11 @@ volumes:
         "category": "Файлы",
         "icon": "☁️",
         "app_port": 8081,
+        # Образ Nextcloud с PostgreSQL весит около гигабайта и при первом
+        # запуске ещё разворачивает базу — до этого порт просто не отвечает.
+        "note": ("Первый запуск занимает 5–10 минут: скачиваются образы "
+                 "Nextcloud и PostgreSQL, затем разворачивается база. "
+                 "Пока это идёт, ссылка не открывается — просто подождите."),
         "env": [
             {"key": "DB_PASSWORD", "label": "Пароль БД", "default": "", "secret": True, "generate": True},
         ],
@@ -172,6 +177,12 @@ volumes:
         "category": "Безопасность",
         "icon": "🔐",
         "app_port": 8082,
+        # Браузер выдаёт Web Crypto API только в защищённом контексте, а без
+        # него хранилище паролей не работает. Это требование приложения, а не
+        # нашей установки: по http:// оно не заведётся никогда.
+        "requires_https": True,
+        "note": ("Требует HTTPS: по IP-адресу интерфейс не запустится. "
+                 "Подключите домен на вкладке «Домены и TLS» и открывайте по нему."),
         "env": [
             {"key": "ADMIN_TOKEN", "label": "Admin token", "default": "", "secret": True, "generate": True},
         ],
@@ -246,6 +257,10 @@ def get_catalog() -> list:
         out.append({
             "id": a["id"], "name": a["name"], "description": a["description"],
             "category": a["category"], "icon": a["icon"], "app_port": a["app_port"],
+            # Предупреждения показываем ДО установки: иначе пользователь узнаёт
+            # об ограничении, только наткнувшись на нерабочий интерфейс.
+            "requires_https": a.get("requires_https", False),
+            "note": a.get("note"),
             "env": [{"key": e["key"], "label": e["label"],
                      "secret": e.get("secret", False), "generate": e.get("generate", False)}
                     for e in a["env"]],
