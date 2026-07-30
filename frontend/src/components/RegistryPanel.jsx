@@ -116,6 +116,11 @@ export default function RegistryPanel() {
                             <div className="section-title" style={{ margin: 0 }}><Terminal size={16} /> Как загружать образы</div>
                             <button className="btn btn-danger btn-sm" onClick={stop} disabled={busy}><Square size={13} /> Остановить</button>
                         </div>
+                        <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
+                            Адрес ниже — для команд <code>docker login</code> и <code>docker push</code>.
+                            В браузере он откроет пустую страницу: у реестра нет веб-интерфейса, только API.
+                            Загруженные образы видны в списке ниже.
+                        </p>
                         <div className="copy-field" style={{ marginBottom: '10px' }}>
                             <code style={{ fontFamily: 'var(--font-mono)' }}>{info?.push_host}</code>
                             <button className="btn-icon" onClick={() => copy(info.push_host, 'host')}>{copied === 'host' ? <Check size={16} color="var(--status-success)" /> : <Copy size={16} />}</button>
