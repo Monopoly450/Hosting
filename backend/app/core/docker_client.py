@@ -4,6 +4,25 @@ from docker.errors import DockerException
 
 logger = logging.getLogger("app.docker_client")
 
+
+def ensure_image(cli, image: str, timeout_note: str = ""):
+    """Гарантирует наличие образа локально, скачивая его при необходимости.
+
+    `containers.run()` подтягивает образ сам, а `containers.create()` — нет:
+    он падает с «No such image». Мы используем create (нужно положить файл
+    конфигурации до старта контейнера), поэтому pull выполняем явно.
+    """
+    from docker.errors import ImageNotFound
+    try:
+        cli.images.get(image)
+        return False
+    except ImageNotFound:
+        logger.info(f"Образ {image} не найден локально, скачиваю... {timeout_note}")
+        cli.images.pull(image)
+        logger.info(f"Образ {image} скачан.")
+        return True
+
+
 class HostDockerClient:
     def __init__(self):
         self.client = None

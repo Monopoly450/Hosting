@@ -207,6 +207,9 @@ def ensure_caddy(docker_client, caddyfile: str):
     try:
         c = cli.containers.get(CADDY_CONTAINER)
     except docker.errors.NotFound:
+        from app.core.docker_client import ensure_image
+        ensure_image(cli, CADDY_IMAGE, "(первый запуск может занять минуту)")
+
         c = cli.containers.create(
             CADDY_IMAGE,
             name=CADDY_CONTAINER,

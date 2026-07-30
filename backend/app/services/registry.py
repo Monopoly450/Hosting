@@ -17,7 +17,10 @@ REGISTRY_IMAGE = "registry:2"
 REGISTRY_PORT = int(os.getenv("REGISTRY_PORT", "5000"))
 REGISTRY_USER = "aegis"
 REGISTRY_REALM = "Aegis Registry"
-HTPASSWD_PATH = "/auth/htpasswd"
+# Файл кладём в /etc: put_archive требует, чтобы каталог-получатель уже
+# существовал в образе, а привычного /auth в registry:2 нет — из-за этого
+# провижининг падал с «no such file or directory».
+HTPASSWD_PATH = "/etc/registry-htpasswd"
 MANIFEST_ACCEPT = "application/vnd.docker.distribution.manifest.v2+json"
 
 
@@ -157,13 +160,17 @@ def registry_status(docker_client) -> dict:
 
 
 def _htpasswd_tar(content: str):
-    """Упаковывает файл htpasswd в tar для put_archive в каталог /auth."""
+    """Упаковывает htpasswd в tar для put_archive.
+
+    Имя внутри архива обязано совпадать с basename HTPASSWD_PATH — иначе файл
+    появится под другим именем и registry его не найдёт.
+    """
     import io
     import tarfile
     data = content.encode()
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
-        info = tarfile.TarInfo(name="htpasswd")
+        info = tarfile.TarInfo(name=os.path.basename(HTPASSWD_PATH))
         info.size = len(data)
         info.mode = 0o644
         tar.addfile(info, io.BytesIO(data))
@@ -207,6 +214,9 @@ def provision_registry(docker_client):
             return {"status": "running", "endpoint": registry_base_url()}
     except docker.errors.NotFound:
         pass
+
+    from app.core.docker_client import ensure_image
+    ensure_image(cli, REGISTRY_IMAGE, "(первый запуск может занять минуту)")
 
     container = cli.containers.create(
         REGISTRY_IMAGE,
