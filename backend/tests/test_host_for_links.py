@@ -19,7 +19,7 @@ os.environ.setdefault("IMAGES_DIR", "/tmp/aegis-test-images")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.api.deployments import host_for_links
+from app.core.netutils import host_for_links
 
 
 def request(host=None, forwarded=None):
@@ -96,3 +96,44 @@ def test_marketplace_builds_public_url_from_request():
     assert "add_public_url(env, default_host()" not in src, (
         "PUBLIC_URL должен собираться по адресу запроса, а не по общей настройке"
     )
+
+
+def test_registry_uses_request_host_too():
+    """docker push на публичный IP из локальной сети обычно не проходит."""
+    from app.services.registry import push_host, REGISTRY_PORT
+
+    assert push_host("192.168.31.10") == f"192.168.31.10:{REGISTRY_PORT}"
+
+
+def test_registry_falls_back_without_host(monkeypatch):
+    monkeypatch.setenv("AEGIS_HOST_IP", "203.0.113.9")
+    from app.services.registry import push_host, REGISTRY_PORT
+
+    assert push_host() == f"203.0.113.9:{REGISTRY_PORT}"
+
+
+def test_registry_endpoints_pass_the_request():
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "app", "api", "registry.py",
+    )
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+
+    assert "def info(request: Request)" in src
+    assert "def status(request: Request" in src
+    assert "host_for_links(request)" in src
+    assert "reg.push_host()" not in src, "адрес push должен зависеть от запроса"
+
+
+def test_domains_keep_using_the_configured_public_address():
+    """Для A-записи и ACME нужен именно публичный адрес, а не адрес запроса."""
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "app", "api", "domains.py",
+    )
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+
+    assert "dsvc.host_ip()" in src
+    assert "host_for_links" not in src

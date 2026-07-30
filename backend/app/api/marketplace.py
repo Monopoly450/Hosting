@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from app.db import SessionLocal
 from app.models.models import User, VMTask, AppDeployment
 from app.core.auth import get_current_user
+from app.core.netutils import host_for_links
 from app.services.marketplace import (
     get_catalog, get_app, resolve_env, build_marketplace_cloud_init,
     add_public_url, default_host,
@@ -92,7 +93,6 @@ def deploy(req: MarketplaceDeploy, request: Request, current_user: User = Depend
         # теперь формируем cloud-init (воркер прочитает его при publish_task).
         # Адрес берём из запроса: по публичному IP из локальной сети часто
         # не пройти (NAT-петля), а по локальному — не выйти из интернета.
-        from app.api.deployments import host_for_links
         env = add_public_url(env, host_for_links(request), ext_port)
         vm.custom_user_data = build_marketplace_cloud_init(app, env, password)
         # Тот же пароль, что попал в cloud-init: воркер положит именно его в

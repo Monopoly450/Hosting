@@ -39,6 +39,27 @@ def detect_host_ip() -> str:
     return "172.20.0.1"
 
 
+def host_for_links(request=None) -> str:
+    """Адрес сервера для ссылок и команд, которые увидит пользователь.
+
+    Берётся из того, как клиент обратился к панели, а не из общей настройки.
+    Одного правильного значения не существует: домены и Let's Encrypt требуют
+    публичный адрес (AEGIS_HOST_IP), но по нему из локальной сети часто не
+    пройти — NAT-петля поддерживается далеко не везде. Поэтому если панель
+    открыта по 192.168.x, то и ссылки, и адрес docker push должны быть
+    локальными, а если по домену — на домен.
+
+    Без запроса (фоновые задачи, воркер) остаётся detect_host_ip().
+    """
+    if request is not None:
+        # X-Forwarded-Host важен: панель отдаётся через nginx
+        forwarded = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+        candidate = forwarded.split(":")[0] or request.url.hostname
+        if candidate and candidate not in ("localhost", "127.0.0.1", "::1"):
+            return candidate
+    return detect_host_ip()
+
+
 def is_internal_ip(ip: str) -> bool:
     """True, если адрес служебный (или IPv6) и не годится как внешний адрес ВМ."""
     if not ip or ":" in ip:

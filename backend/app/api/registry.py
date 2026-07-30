@@ -2,9 +2,10 @@
 import logging
 import urllib.error
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 
 from app.core.docker_client import HostDockerClient
+from app.core.netutils import host_for_links
 from app.services import registry as reg
 
 router = APIRouter()
@@ -32,8 +33,8 @@ def _guard_registry_call(fn):
 
 
 @router.get("/status")
-def status(client: HostDockerClient = Depends(get_docker_client)):
-    return reg.registry_status(client)
+def status(request: Request, client: HostDockerClient = Depends(get_docker_client)):
+    return reg.registry_status(client, host_for_links(request))
 
 
 @router.post("/provision")
@@ -96,8 +97,10 @@ def delete_tag(repo: str, tag: str):
 
 
 @router.get("/info")
-def info():
-    host = reg.push_host()
+def info(request: Request):
+    # Адрес берём из того, как открыта панель: из локальной сети docker push
+    # на публичный IP обычно не проходит (NAT-петля), и наоборот.
+    host = reg.push_host(host_for_links(request))
     creds = reg.load_credentials()
     user = creds["user"] if creds else reg.REGISTRY_USER
     password = creds["password"] if creds else None

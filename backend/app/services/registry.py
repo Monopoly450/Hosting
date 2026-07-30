@@ -93,9 +93,11 @@ def registry_base_url() -> str:
     return f"http://localhost:{REGISTRY_PORT}"
 
 
-def push_host() -> str:
+def push_host(host: str = None) -> str:
+    """Адрес для docker login/push. Если передан host — используем его
+    (он берётся из того, как открыта панель), иначе определяем сами."""
     from app.core.netutils import detect_host_ip
-    return f"{detect_host_ip()}:{REGISTRY_PORT}"
+    return f"{host or detect_host_ip()}:{REGISTRY_PORT}"
 
 
 # ------------------------------- HTTP-клиент v2 -----------------------------
@@ -142,11 +144,11 @@ class RegistryClient:
 
 # ------------------------------- Провижининг --------------------------------
 
-def registry_status(docker_client) -> dict:
+def registry_status(docker_client, host: str = None) -> dict:
     """Статус реестра: доступен ли docker и запущен ли контейнер."""
     info = {
         "docker": False, "running": False,
-        "endpoint": registry_base_url(), "push_host": push_host(),
+        "endpoint": registry_base_url(), "push_host": push_host(host),
     }
     if not docker_client or not docker_client.is_available():
         return info

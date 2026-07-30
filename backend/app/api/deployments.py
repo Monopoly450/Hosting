@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from app.db import SessionLocal
 from app.models.models import User, VMTask, AppDeployment
 from app.core.auth import get_current_user
+from app.core.netutils import host_for_links
 
 router = APIRouter()
 logger = logging.getLogger("app.api.deployments")
@@ -185,25 +186,6 @@ def _systemd_service(name: str, workdir: str, exec_cmd: str, app_port: int) -> s
 def _get_host() -> str:
     from app.core.netutils import detect_host_ip
     return detect_host_ip()
-
-
-def host_for_links(request=None) -> str:
-    """Адрес сервера, подходящий для ссылок в ответе.
-
-    Берём его из того, как клиент обратился к панели, а не из общей настройки.
-    Одного правильного значения тут не существует: домены и Let's Encrypt
-    требуют публичный адрес (AEGIS_HOST_IP), но по нему из локальной сети часто
-    не пройти — NAT-петля поддерживается далеко не везде. Поэтому если панель
-    открыта по 192.168.x, ссылки на приложения тоже должны быть локальными, а
-    если по домену — на домен.
-    """
-    if request is not None:
-        # X-Forwarded-Host важен: панель отдаётся через nginx
-        forwarded = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
-        candidate = forwarded.split(":")[0] or request.url.hostname
-        if candidate and candidate not in ("localhost", "127.0.0.1", "::1"):
-            return candidate
-    return _get_host()
 
 
 def _enrich(dep: AppDeployment, owner_name: str, request=None) -> DeploymentResponse:
