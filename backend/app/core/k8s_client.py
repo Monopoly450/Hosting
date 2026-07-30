@@ -157,6 +157,14 @@ class K8sClient:
             except ApiException as e:
                 if e.status != 404:
                     logger.error(f"Не удалось удалить Secret для VM {name}: {e}")
+
+            # 2b. Удаляем Secret с cloud-init (создаётся, когда userData не влез inline)
+            try:
+                self.core_api.delete_namespaced_secret(f"{name}-cloudinit", namespace)
+                logger.info(f"Удален Secret cloud-init для VM: {name}")
+            except ApiException as e:
+                if e.status != 404:
+                    logger.error(f"Не удалось удалить Secret cloud-init для VM {name}: {e}")
                     
             # 3. Удаляем резервные копии этой VM
             try:
@@ -310,6 +318,35 @@ class K8sClient:
             return {"cpu_usage": 0, "memory_usage": 0, "error": str(e)}
 
     # --- ИЗМЕНЕНИЕ РЕСУРСОВ (CPU, RAM, DISK) ---
+
+    def create_cloudinit_secret(self, name: str, userdata: str, namespace="default"):
+        """Создаёт (или обновляет) Secret с cloud-init для ВМ.
+
+        KubeVirt отклоняет манифест, если inline userData больше 2048 байт, и
+        требует ссылаться на Secret. Cloud-init маркетплейса содержит внутри
+        docker-compose и в этот лимит не влезает.
+        """
+        secret_name = f"{name}-cloudinit"
+        secret = client.V1Secret(
+            metadata=client.V1ObjectMeta(
+                name=secret_name,
+                labels={"hosting.antigravity.io/cloudinit-source": name},
+            ),
+            string_data={"userdata": userdata},
+        )
+        try:
+            self.core_api.create_namespaced_secret(namespace, secret)
+            logger.info(f"Создан Secret {secret_name} с cloud-init для ВМ {name} "
+                        f"({len(userdata.encode())} байт)")
+        except ApiException as e:
+            if e.status == 409:
+                # Пересоздание ВМ с тем же именем: заменяем содержимое
+                self.core_api.replace_namespaced_secret(secret_name, namespace, secret)
+                logger.info(f"Обновлён Secret {secret_name} с cloud-init для ВМ {name}")
+            else:
+                logger.error(f"Ошибка создания Secret cloud-init для {name}: {e}")
+                raise
+        return secret_name
 
     def create_credentials_secret(self, name: str, username: str, password: str, namespace="default"):
         """Создает Secret с учетными данными для виртуалки"""

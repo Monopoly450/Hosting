@@ -24,6 +24,7 @@ try:
     from .core.database import Base
     from .core.k8s_client import K8sClient
     from .services.vm_credentials import resolve_vm_password
+    from .services.cloudinit import externalize_cloudinit
 
     # Инициализация таблиц (выполняется бэкендом, убираем для избежания взаимных блокировок)
     # Base.metadata.create_all(bind=engine)
@@ -124,6 +125,9 @@ def process_vm_task(db: Session, task_id: int):
                 if disk.get("cache") != "writeback":
                     disk["disk"]["io"] = "native"
             
+        # KubeVirt не принимает inline cloud-init больше 2048 байт —
+        # выносим его в Secret до создания ВМ.
+        externalize_cloudinit(k8s, manifest, task.name)
         k8s.create_vm_from_manifest(manifest)
         k8s.create_credentials_secret(task.name, username, generated_password)
         
@@ -196,6 +200,9 @@ def process_clone_task(db: Session, task_id: int, source_name: str):
             if "disk" in disk and disk.get("cache") != "writeback":
                 disk["disk"]["io"] = "native"
 
+        # KubeVirt не принимает inline cloud-init больше 2048 байт —
+        # выносим его в Secret до создания ВМ.
+        externalize_cloudinit(k8s, manifest, task.name)
         k8s.create_vm_from_manifest(manifest)
         k8s.create_credentials_secret(task.name, username, generated_password)
 
