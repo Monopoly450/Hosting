@@ -460,6 +460,7 @@ dhcp-range=172.20.0.231,172.20.0.250,12h
 dhcp-option=option:router,172.20.0.1
 dhcp-option=option:dns-server,8.8.8.8,1.1.1.1
 EOF
+systemctl enable dnsmasq
 systemctl restart dnsmasq
 
 cat <<EOF | kubectl apply -f -
@@ -672,10 +673,41 @@ chmod 600 "${PROJECT_DIR}/.env" 2>/dev/null || true
 docker compose up -d --build
 log "Панель запущена."
 
+# aegis-hosting.service выше был только enable'нут, а не запущен — контейнеры
+# подняла прямая команда выше (с --build, чего oneshot-юнит не делает). Без
+# этого systemctl status показал бы "inactive", хотя панель на самом деле
+# работает: Type=oneshot с RemainAfterExit=yes требует явного `start`, чтобы
+# systemd отметил юнит активным. Повторный `docker compose up -d` (уже без
+# --build) идемпотентен и ничего не меняет — просто синхронизирует состояние.
+systemctl start aegis-hosting.service || warn "Не удалось синхронизировать состояние aegis-hosting.service — панель работает, но 'systemctl status' может показывать неактивной до следующего docker compose up."
+
 # ============================== Готово ==============================
 
 source "${PROJECT_DIR}/.env" 2>/dev/null || true
 FINAL_IP=$(detect_host_ip)
+
+# Проверяем автозапуск фактически, а не считаем настроенным по факту вызова
+# `systemctl enable` — если что-то из этого не прошло (например, юнит с
+# ошибкой в синтаксисе), лучше сказать об этом сразу, а не после перезагрузки.
+AUTOSTART_OK=true
+for svc in aegis-network.service aegis-hosting.service; do
+    if ! systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+        warn "$svc не в автозапуске (systemctl is-enabled провалился)."
+        AUTOSTART_OK=false
+    fi
+    if ! systemctl is-active --quiet "$svc" 2>/dev/null; then
+        warn "$svc сейчас не активен (systemctl is-active провалился)."
+        AUTOSTART_OK=false
+    fi
+done
+if ! systemctl is-enabled --quiet docker 2>/dev/null; then
+    warn "docker.service не в автозапуске — панель не поднимется после перезагрузки."
+    AUTOSTART_OK=false
+fi
+if ! systemctl is-enabled --quiet k3s 2>/dev/null; then
+    warn "k3s.service не в автозапуске — панель не поднимется после перезагрузки."
+    AUTOSTART_OK=false
+fi
 
 echo
 echo -e "${GREEN}=========================================================="
@@ -685,9 +717,17 @@ echo " Панель управления:  http://${FINAL_IP:-<IP_сервера
 echo " Логин:               admin"
 echo " Пароль:               ${ADMIN_TOKEN:-<см. .env, поле ADMIN_TOKEN>}"
 echo
+if [ "$AUTOSTART_OK" = true ]; then
+    echo -e " ${GREEN}Автозапуск проверен: br-vms, k3s, docker и панель поднимутся сами после reboot.${NC}"
+else
+    echo -e " ${YELLOW}Автозапуск настроен не полностью — см. предупреждения выше. Панель сейчас работает,"
+    echo -e " но после перезагрузки может не подняться сама. Проверьте: systemctl status aegis-network aegis-hosting${NC}"
+fi
+echo
 echo " Проверить поды кластера:      kubectl get pods -A"
 echo " Проверить контейнеры панели:  docker compose ps"
 echo " Логи бэкенда:                 docker compose logs -f backend"
+echo " Статус автозапуска:           systemctl status aegis-network.service aegis-hosting.service"
 echo
 echo -e "${YELLOW} Важно: AEGIS_SECRET_KEY в .env менять после первого запуска нельзя —"
 echo -e " старые секреты (пароли внешних серверов, БД, ключи S3) перестанут расшифровываться.${NC}"
