@@ -86,6 +86,26 @@ def test_marketplace_cloud_init_without_macs_keeps_old_behavior():
     assert netplan["network"]["ethernets"]["all-eth"]["dhcp4"] is True
 
 
+def test_ip_rule_matching_does_not_hit_other_vms_by_substring():
+    """Реальный баг: голое `vm_ip in line` считало 172.20.0.13 совпавшим с
+    правилом для 172.20.0.130 (один просто префикс другого). При каждой смене
+    IP какой-нибудь ВМ это могло стереть DNAT/FORWARD правило совсем другой
+    машины, у которой адрес не менялся — сайты переставали открываться, а SSH
+    отваливался без видимой причины."""
+    from app.api.vms import _ip_in_rule
+
+    assert not _ip_in_rule(
+        "172.20.0.13",
+        "-A PREROUTING -p tcp --dport 28014 -j DNAT --to-destination 172.20.0.130:80",
+    )
+    assert _ip_in_rule(
+        "172.20.0.13",
+        "-A PREROUTING -p tcp --dport 22013 -j DNAT --to-destination 172.20.0.13:22",
+    )
+    assert _ip_in_rule("172.20.0.13", "-A FORWARD -p tcp -d 172.20.0.13/32 --dport 80 -j ACCEPT")
+    assert not _ip_in_rule("20.0.13", "-A FORWARD -p tcp -d 172.20.0.130 --dport 80 -j ACCEPT")
+
+
 def test_resolve_vm_ip_matches_pick_external_ip():
     """vms.resolve_vm_ip раньше был отдельной копией той же фильтрации и не
     знал про 192.168.100.x (сеть изоляции кластеров) — SSH/терминал ВМ в

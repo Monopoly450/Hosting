@@ -711,23 +711,37 @@ def list_vms(client: K8sClient = Depends(get_k8s_client), current_user: User = D
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def _ip_in_rule(vm_ip: str, line: str) -> bool:
+    """True, если vm_ip встречается в строке правила как целый адрес, а не как
+    случайная подстрока чужого адреса.
+
+    Голое `vm_ip in line` совпадало и с правилом для 172.20.0.130, когда
+    чистили 172.20.0.13 — тот же самый первый октет+сегмент, третий адрес
+    внутри четвёртого. На каждой смене IP какой-нибудь ВМ это могло стереть
+    DNAT/FORWARD правило совершенно другой, ни при чём не бывшей машины —
+    после чего у неё переставали открываться сайты и падал доступ по SSH,
+    хотя её собственный IP не менялся вовсе."""
+    import re
+    return re.search(rf"(?<!\d){re.escape(vm_ip)}(?!\d)", line) is not None
+
+
 def clear_iptables_rules_for_ip(vm_ip: str):
     import subprocess
     nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
-    
+
     # Clear PREROUTING rules
     res = subprocess.run(nsenter_prefix + ["iptables -t nat -S PREROUTING"], capture_output=True, text=True, timeout=5)
     if res.returncode == 0:
         for line in res.stdout.splitlines():
-            if vm_ip in line:
+            if _ip_in_rule(vm_ip, line):
                 del_cmd = line.replace("-A ", "-D ")
                 subprocess.run(nsenter_prefix + [f"iptables -t nat {del_cmd}"], capture_output=True, timeout=5)
-                
+
     # Clear FORWARD rules
     res = subprocess.run(nsenter_prefix + ["iptables -S FORWARD"], capture_output=True, text=True, timeout=5)
     if res.returncode == 0:
         for line in res.stdout.splitlines():
-            if vm_ip in line:
+            if _ip_in_rule(vm_ip, line):
                 del_cmd = line.replace("-A ", "-D ")
                 subprocess.run(nsenter_prefix + [f"iptables {del_cmd}"], capture_output=True, timeout=5)
 
