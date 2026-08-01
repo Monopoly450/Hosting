@@ -76,7 +76,7 @@ fi
 # 2. Установка OpenEBS LVM LocalPV драйвера в Kubernetes
 log "Добавление Helm-репозитория OpenEBS..."
 if ! command -v helm &> /dev/null; then
-    error "Helm не установлен. Запустите сначала bootstrap-host.sh"
+    error "Helm не установлен. Запустите сначала install.sh из корня проекта."
 fi
 
 helm repo add openebs-lvm https://openebs.github.io/lvm-localpv || true
