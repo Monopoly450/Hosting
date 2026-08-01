@@ -5,13 +5,18 @@
 #
 #   sudo ./install.sh
 #
-# Флаг --yes (или -y) отключает вопросы: все пароли генерируются автоматически,
-# для остальных настроек берутся значения по умолчанию — подходит для
-# автоматизированного/повторного разворачивания.
+# Пароли и настройки спрашивает через текстовый мастер в рамках (whiptail) —
+# на каждый вопрос можно нажать OK не вводя ничего, тогда подставится надёжный
+# случайно сгенерированный пароль. Мастер запускается в самом начале, сразу
+# после установки пакетов — дальше 10-15 минут установки K3s/KubeVirt идут
+# без вопросов, можно уходить. Если whiptail недоступен (нет терминала,
+# например при запуске из cron), скрипт сам переключается на обычные текстовые
+# вопросы, а с флагом --yes (или -y) не спрашивает вообще ничего — все пароли
+# генерируются автоматически, подходит для автоматизированного разворачивания.
 #
 # Скрипт делает всё за один прогон: ставит K3s, Multus, KubeVirt, CDI,
-# сетевой мост br-vms, Prometheus, LVM-хранилище, спрашивает пароли и создаёт
-# .env, регистрирует автозапуск и поднимает панель через docker compose.
+# сетевой мост br-vms, Prometheus, LVM-хранилище, создаёт .env, регистрирует
+# автозапуск и поднимает панель через docker compose.
 # Безопасно запускать повторно — уже выполненные шаги пропускаются.
 
 set -e
@@ -112,7 +117,7 @@ log "Активный сетевой интерфейс хоста: $ACTIVE_IFAC
 
 step "Установка системных пакетов"
 apt-get update
-apt-get install -y curl iptables bridge-utils jq net-tools openssl nginx fail2ban
+apt-get install -y curl iptables bridge-utils jq net-tools openssl nginx fail2ban whiptail
 
 # Nginx нужен только как балансировщик (aegis_balancer_*.conf). Его дефолтный
 # сайт занимает порт 80, а он нужен Caddy для HTTP-01 проверки доменов.
@@ -141,6 +146,177 @@ if ! command -v mc &> /dev/null; then
     log "MinIO Client установлен."
 else
     log "MinIO Client уже установлен."
+fi
+
+# ============================== Пароли (.env) ==============================
+#
+# Спрашиваем пароли ЗДЕСЬ, сразу после установки whiptail, а не в конце
+# скрипта — дальше идёт 10-15 минут неинтерактивной установки K3s/KubeVirt,
+# и раньше пользователю приходилось всё это время сидеть и ждать вопросов,
+# вместо того чтобы сразу всё ответить и уйти.
+#
+# whiptail рисует диалог поверх терминала (как в raspi-config/Debian
+# installer): результат читаем через классический трюк с обменом
+# дескрипторов `3>&1 1>&2 2>&3` — whiptail пишет введённое значение в
+# stderr, а рисует поверх текущего stderr, так что после обмена $(...)
+# (который перехватывает только stdout) получает ровно введённый текст.
+# USE_WHIPTAIL вычисляется ОДИН раз здесь, на верхнем уровне скрипта, где
+# stdout/stdin ещё точно указывают на настоящий терминал — если проверять
+# то же самое внутри функций, вызываемых как `x=$(ask_secret ...)`, stdout
+# внутри такого вызова уже будет перенаправлен в канал захвата, а не в tty.
+
+WT_TITLE="ByteBurners Hosting — установка"
+USE_WHIPTAIL=false
+if [ "$AUTO_YES" != true ] && [ -t 0 ] && [ -t 1 ] && command -v whiptail &>/dev/null; then
+    USE_WHIPTAIL=true
+fi
+
+if [ "$USE_WHIPTAIL" = true ]; then
+    whiptail --title "$WT_TITLE" --msgbox \
+"Сейчас потребуется задать несколько паролей.\n\nДля любого поля можно просто нажать OK не вводя ничего — тогда будет использовано надёжное случайно сгенерированное значение. Дальше установка пойдёт без вопросов." \
+        13 70
+fi
+
+ask_secret() {
+    local prompt="$1"
+    local generated
+    generated=$(openssl rand -hex 24)
+    if [ "$AUTO_YES" = true ]; then
+        echo "$generated"
+        return
+    fi
+    local input
+    if [ "$USE_WHIPTAIL" = true ]; then
+        input=$(whiptail --title "$WT_TITLE" --passwordbox \
+            "${prompt}\n\nПусто + OK — использовать случайный сгенерированный пароль." \
+            12 70 3>&1 1>&2 2>&3) || input=""
+    else
+        read -rp "${prompt} [Enter — сгенерировать случайный]: " input
+    fi
+    echo "${input:-$generated}"
+}
+
+ask_value() {
+    local prompt="$1" default="$2"
+    if [ "$AUTO_YES" = true ]; then
+        echo "$default"
+        return
+    fi
+    local input
+    if [ "$USE_WHIPTAIL" = true ]; then
+        input=$(whiptail --title "$WT_TITLE" --inputbox "$prompt" 11 70 "$default" 3>&1 1>&2 2>&3) || input="$default"
+    else
+        read -rp "${prompt} [$default]: " input
+    fi
+    echo "${input:-$default}"
+}
+
+detect_host_ip() {
+    ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="src") print $(i+1)}' | head -n1
+}
+
+generate_env_file() {
+    local env_file="${PROJECT_DIR}/.env"
+
+    if [ -f "$env_file" ]; then
+        log "Файл .env уже существует."
+        if [ "$AUTO_YES" = true ]; then
+            log "Режим --yes: использую существующий .env без изменений."
+            return
+        fi
+        if [ "$USE_WHIPTAIL" = true ]; then
+            if whiptail --title "$WT_TITLE" --yesno \
+                "Найден существующий .env.\n\nОставить его без изменений и не спрашивать пароли заново?" \
+                10 70; then
+                log "Использую существующий .env."
+                return
+            fi
+        else
+            local keep
+            read -rp "Оставить его как есть, не спрашивая пароли заново? [Y/n]: " keep
+            case "$keep" in
+                [nN]*) ;;
+                *) log "Использую существующий .env."; return ;;
+            esac
+        fi
+    fi
+
+    if [ "$USE_WHIPTAIL" != true ]; then
+        echo
+        echo -e "${CYAN}=========================================================="
+        echo " Настройка паролей (.env)"
+        echo " Для каждого пункта можно просто нажать Enter — тогда будет"
+        echo " использовано надёжное случайно сгенерированное значение."
+        echo -e "==========================================================${NC}"
+        echo
+    fi
+
+    local postgres_password admin_token aegis_secret_key rabbitmq_user rabbitmq_pass \
+          minio_user minio_password mariadb_password storage_class detected_ip host_ip \
+          acme_email registry_port
+
+    postgres_password=$(ask_secret "Пароль системной базы данных PostgreSQL")
+    admin_token=$(ask_secret "Токен администратора API (это же будет пароль входа в панель под admin)")
+    aegis_secret_key=$(ask_secret "Ключ шифрования секретов (AEGIS_SECRET_KEY). ВАЖНО: менять после первого запуска НЕЛЬЗЯ — старые секреты перестанут расшифровываться.")
+    rabbitmq_user=$(ask_value "Логин очереди RabbitMQ" "aegis")
+    rabbitmq_pass=$(ask_secret "Пароль очереди RabbitMQ")
+    minio_user=$(ask_value "Логин объектного хранилища MinIO" "minioadmin")
+    minio_password=$(ask_secret "Пароль объектного хранилища MinIO")
+    mariadb_password=$(ask_secret "Пароль root служебной MariaDB")
+    storage_class=$(ask_value "Класс хранения Kubernetes (nfs-storage — только для отказоустойчивого кластера)" "local-path")
+    registry_port=$(ask_value "Порт приватного реестра образов" "5000")
+
+    detected_ip=$(detect_host_ip)
+    host_ip=$(ask_value "Определён адрес сервера: ${detected_ip:-не удалось определить}. Если сервер за NAT и внешний ('белый') IP отличается — введите его, иначе оставьте пустым" "")
+
+    acme_email=$(ask_value "E-mail для уведомлений Let's Encrypt о своих доменах (можно оставить пустым и задать позже)" "")
+
+    {
+        echo "# Сгенерировано install.sh $(date +'%Y-%m-%d %H:%M:%S')"
+        echo
+        echo "POSTGRES_DB=aegis"
+        echo "POSTGRES_USER=postgres"
+        echo "POSTGRES_PASSWORD=${postgres_password}"
+        echo
+        echo "ADMIN_TOKEN=${admin_token}"
+        echo "AEGIS_SECRET_KEY=${aegis_secret_key}"
+        echo
+        echo "DATABASE_URL=postgresql+asyncpg://postgres:${postgres_password}@127.0.0.1:5432/aegis"
+        echo "DB_CONN_STR=postgresql://postgres:${postgres_password}@127.0.0.1:5432/aegis?sslmode=disable"
+        echo
+        echo "RABBITMQ_USER=${rabbitmq_user}"
+        echo "RABBITMQ_PASS=${rabbitmq_pass}"
+        echo "RABBITMQ_URL=amqp://${rabbitmq_user}:${rabbitmq_pass}@localhost:5672/"
+        echo
+        echo "MINIO_ROOT_USER=${minio_user}"
+        echo "MINIO_ROOT_PASSWORD=${minio_password}"
+        echo
+        echo "MARIADB_ROOT_PASSWORD=${mariadb_password}"
+        echo
+        echo "STORAGE_CLASS=${storage_class}"
+        echo "REGISTRY_PORT=${registry_port}"
+        if [ -n "$host_ip" ]; then
+            echo "AEGIS_HOST_IP=${host_ip}"
+        else
+            echo "# AEGIS_HOST_IP=  — не задан, определяется автоматически"
+        fi
+        if [ -n "$acme_email" ]; then
+            echo "ACME_EMAIL=${acme_email}"
+        else
+            echo "# ACME_EMAIL=  — не задан, уведомления Let's Encrypt отключены"
+        fi
+    } > "$env_file"
+
+    chmod 600 "$env_file"
+    log ".env создан (права 600)."
+}
+
+step "Настройка паролей и переменных окружения"
+generate_env_file
+if [ "$USE_WHIPTAIL" = true ]; then
+    whiptail --title "$WT_TITLE" --msgbox \
+"Готово! Дальше установка пойдёт без вопросов — K3s, KubeVirt, сеть и панель управления. Это займёт 10-15 минут, прогресс будет виден в терминале." \
+        11 70
 fi
 
 # ============================== 3. K3s ==============================
@@ -424,130 +600,6 @@ EOT
 systemctl restart fail2ban || true
 systemctl enable fail2ban || true
 log "Fail2Ban настроен и запущен."
-
-# ============================== 10. Пароли (.env) ==============================
-
-# Пишет строку-подсказку в stderr и генерированное/введённое значение — в stdout,
-# чтобы вызов можно было безопасно захватывать через $(...): `read -p` в bash
-# сама печатает подсказку в stderr, поэтому в переменную она не попадёт.
-ask_secret() {
-    local prompt="$1"
-    local generated
-    generated=$(openssl rand -hex 24)
-    if [ "$AUTO_YES" = true ]; then
-        echo "$generated"
-        return
-    fi
-    local input
-    read -rp "${prompt} [Enter — сгенерировать случайный]: " input
-    echo "${input:-$generated}"
-}
-
-ask_value() {
-    local prompt="$1" default="$2"
-    if [ "$AUTO_YES" = true ]; then
-        echo "$default"
-        return
-    fi
-    local input
-    read -rp "${prompt} [$default]: " input
-    echo "${input:-$default}"
-}
-
-detect_host_ip() {
-    ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="src") print $(i+1)}' | head -n1
-}
-
-generate_env_file() {
-    local env_file="${PROJECT_DIR}/.env"
-
-    if [ -f "$env_file" ]; then
-        log "Файл .env уже существует."
-        if [ "$AUTO_YES" = true ]; then
-            log "Режим --yes: использую существующий .env без изменений."
-            return
-        fi
-        local keep
-        read -rp "Оставить его как есть, не спрашивая пароли заново? [Y/n]: " keep
-        case "$keep" in
-            [nN]*) ;;
-            *) log "Использую существующий .env."; return ;;
-        esac
-    fi
-
-    echo
-    echo -e "${CYAN}=========================================================="
-    echo " Настройка паролей (.env)"
-    echo " Для каждого пункта можно просто нажать Enter — тогда будет"
-    echo " использовано надёжное случайно сгенерированное значение."
-    echo -e "==========================================================${NC}"
-    echo
-
-    local postgres_password admin_token aegis_secret_key rabbitmq_user rabbitmq_pass \
-          minio_user minio_password mariadb_password storage_class detected_ip host_ip \
-          acme_email registry_port
-
-    postgres_password=$(ask_secret "Пароль системной базы данных PostgreSQL")
-    admin_token=$(ask_secret "Токен администратора API (это же будет пароль входа в панель под admin)")
-    aegis_secret_key=$(ask_secret "Ключ шифрования секретов (AEGIS_SECRET_KEY, менять после первого запуска НЕЛЬЗЯ)")
-    rabbitmq_user=$(ask_value "Логин очереди RabbitMQ" "aegis")
-    rabbitmq_pass=$(ask_secret "Пароль очереди RabbitMQ")
-    minio_user=$(ask_value "Логин объектного хранилища MinIO" "minioadmin")
-    minio_password=$(ask_secret "Пароль объектного хранилища MinIO")
-    mariadb_password=$(ask_secret "Пароль root служебной MariaDB")
-    storage_class=$(ask_value "Класс хранения Kubernetes (nfs-storage — только для отказоустойчивого кластера)" "local-path")
-    registry_port=$(ask_value "Порт приватного реестра образов" "5000")
-
-    detected_ip=$(detect_host_ip)
-    echo
-    echo "Определённый адрес сервера для ссылок: ${detected_ip:-не удалось определить}"
-    host_ip=$(ask_value "Внешний ('белый') IP, если он отличается от определённого (обычно не нужно — оставьте пустым)" "")
-
-    echo
-    acme_email=$(ask_value "E-mail для уведомлений Let's Encrypt о своих доменах (можно оставить пустым и задать позже)" "")
-
-    {
-        echo "# Сгенерировано install.sh $(date +'%Y-%m-%d %H:%M:%S')"
-        echo
-        echo "POSTGRES_DB=aegis"
-        echo "POSTGRES_USER=postgres"
-        echo "POSTGRES_PASSWORD=${postgres_password}"
-        echo
-        echo "ADMIN_TOKEN=${admin_token}"
-        echo "AEGIS_SECRET_KEY=${aegis_secret_key}"
-        echo
-        echo "DATABASE_URL=postgresql+asyncpg://postgres:${postgres_password}@127.0.0.1:5432/aegis"
-        echo "DB_CONN_STR=postgresql://postgres:${postgres_password}@127.0.0.1:5432/aegis?sslmode=disable"
-        echo
-        echo "RABBITMQ_USER=${rabbitmq_user}"
-        echo "RABBITMQ_PASS=${rabbitmq_pass}"
-        echo "RABBITMQ_URL=amqp://${rabbitmq_user}:${rabbitmq_pass}@localhost:5672/"
-        echo
-        echo "MINIO_ROOT_USER=${minio_user}"
-        echo "MINIO_ROOT_PASSWORD=${minio_password}"
-        echo
-        echo "MARIADB_ROOT_PASSWORD=${mariadb_password}"
-        echo
-        echo "STORAGE_CLASS=${storage_class}"
-        echo "REGISTRY_PORT=${registry_port}"
-        if [ -n "$host_ip" ]; then
-            echo "AEGIS_HOST_IP=${host_ip}"
-        else
-            echo "# AEGIS_HOST_IP=  — не задан, определяется автоматически"
-        fi
-        if [ -n "$acme_email" ]; then
-            echo "ACME_EMAIL=${acme_email}"
-        else
-            echo "# ACME_EMAIL=  — не задан, уведомления Let's Encrypt отключены"
-        fi
-    } > "$env_file"
-
-    chmod 600 "$env_file"
-    log ".env создан (права 600)."
-}
-
-step "Настройка паролей и переменных окружения"
-generate_env_file
 
 # ============================== 11. Автозапуск ==============================
 
