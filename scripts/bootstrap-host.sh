@@ -233,12 +233,17 @@ done
 # Сетевой режим: Принудительный NAT / Masquerade
 log "Настройка сети в режиме NAT / Masquerade на мосту br-vms (Изолированная сеть 172.20.0.0/24)..."
 
-# 1. Создание моста br-vms
-if ! ip link show br-vms &>/dev/null; then
-    ip link add br-vms type bridge
-    ip addr add 172.20.0.1/24 dev br-vms
-    ip link set br-vms up
-fi
+# 1. Создание моста br-vms.
+# Три отдельные проверки, а не одна общая "если моста нет — создать всё":
+# Multus сам создаёт линк с этим именем при первом ADD для NetworkAttachmentDefinition
+# типа bridge (IPAM у неё пустой, поэтому адрес CNI не назначает). Если это
+# происходит раньше этого скрипта — единая проверка "линк уже есть" находит
+# мост БЕЗ адреса 172.20.0.1 и молча пропускает и адрес, и up, поскольку весь
+# блок был одним if. Хост в итоге не может достучаться до всей подсети ВМ —
+# ни проброс портов, ни веб-терминал, ничего.
+ip link show br-vms &>/dev/null || ip link add br-vms type bridge
+ip addr show dev br-vms | grep -q "172.20.0.1/24" || ip addr add 172.20.0.1/24 dev br-vms
+ip link set br-vms up
 
 # 2. Включение IP Forwarding
 sysctl -w net.ipv4.ip_forward=1

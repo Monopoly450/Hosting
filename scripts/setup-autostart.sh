@@ -20,8 +20,15 @@ cat <<'EOF' > /usr/local/bin/aegis-network-setup.sh
 #!/usr/bin/env bash
 set -e
 
-# Создание сетевого моста
-ip link show br-vms &>/dev/null || (ip link add br-vms type bridge && ip addr add 172.20.0.1/24 dev br-vms && ip link set br-vms up)
+# Создание сетевого моста. Три отдельные проверки, не одна общая — иначе если
+# Multus сам создал линк br-vms раньше нас (IPAM у NetworkAttachmentDefinition
+# пустой, CNI адрес не назначает), проверка "линк уже есть" находит мост БЕЗ
+# адреса и пропускает и его, и up, поскольку весь блок был одним ||. При
+# каждом запуске этой службы (в т.ч. на каждой перезагрузке) адрес и
+# состояние моста теперь проверяются и чинятся независимо друг от друга.
+ip link show br-vms &>/dev/null || ip link add br-vms type bridge
+ip addr show dev br-vms | grep -q "172.20.0.1/24" || ip addr add 172.20.0.1/24 dev br-vms
+ip link set br-vms up
 
 # Включение маршрутизации
 /sbin/sysctl -w net.ipv4.ip_forward=1
