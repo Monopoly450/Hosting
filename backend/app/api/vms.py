@@ -299,40 +299,15 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     pod_mac = generate_mac_address(req.name)
     lan_mac = generate_mac_address(req.name + "-lan")
 
-    if static_ip and cluster_network:
-        netplan_content = f"""      network:
-        version: 2
-        ethernets:
-          pod-nic:
-            match:
-              macaddress: "{pod_mac}"
-            dhcp4: true
-            dhcp4-overrides:
-              use-routes: true
-          stable-nic:
-            match:
-              macaddress: "{lan_mac}"
-            dhcp4: false
-            addresses: [{static_ip}/24]"""
-        extra_interface = {"name": "clusternet", "bridge": {}, "macAddress": lan_mac}
-        extra_network = {"name": "clusternet", "multus": {"networkName": cluster_network}}
-    elif static_ip:
-        netplan_content = f"""      network:
-        version: 2
-        ethernets:
-          pod-nic:
-            match:
-              macaddress: "{pod_mac}"
-            dhcp4: true
-            dhcp4-overrides:
-              use-routes: true
-          stable-nic:
-            match:
-              macaddress: "{lan_mac}"
-            dhcp4: false
-            addresses: [{static_ip}/24]"""
-        extra_interface = {"name": "lan", "bridge": {}, "macAddress": lan_mac}
-        extra_network = {"name": "lan", "multus": {"networkName": "bridge-network"}}
+    if static_ip:
+        from app.services.cloudinit import build_stable_netplan_yaml
+        netplan_content = build_stable_netplan_yaml(pod_mac, lan_mac, static_ip)
+        if cluster_network:
+            extra_interface = {"name": "clusternet", "bridge": {}, "macAddress": lan_mac}
+            extra_network = {"name": "clusternet", "multus": {"networkName": cluster_network}}
+        else:
+            extra_interface = {"name": "lan", "bridge": {}, "macAddress": lan_mac}
+            extra_network = {"name": "lan", "multus": {"networkName": "bridge-network"}}
     else:
         netplan_content = """      network:
         version: 2
@@ -766,8 +741,17 @@ def clear_iptables_rules_for_port(ext_port: int):
                 del_cmd = line.replace("-A ", "-D ")
                 subprocess.run(nsenter_prefix + [f"iptables -t nat {del_cmd}"], capture_output=True, timeout=5)
 
-def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_config: str = None, firewall_rules: str = None, os_type: str = "linux"):
-    """Настраивает проброс портов и правила доступа для ВМ с помощью iptables на хосте"""
+def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_config: str = None, firewall_rules: str = None, os_type: str = "linux", old_ip: Optional[str] = None):
+    """Настраивает проброс портов и правила доступа для ВМ с помощью iptables на хосте.
+
+    old_ip — прежний адрес этой же ВМ, если он изменился (перезагрузка сменила
+    pod IP, DHCP выдал новую аренду и т.п.). Правила DNAT по номеру порта и так
+    переустанавливаются (clear_iptables_rules_for_port ниже), а вот FORWARD
+    ACCEPT/DROP для СТАРОГО IP без этого никогда не удалялись: они привязаны к
+    адресу, а не к порту. IP-адреса переиспользуются (и статический пул, и
+    pod-сеть), поэтому со временем чужая ВМ могла получить ранее занятый адрес
+    и унаследовать чужое правило FORWARD — вплоть до DROP, если у прежнего
+    владельца был белый список."""
     import subprocess
     import json
     try:
@@ -812,9 +796,12 @@ def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_c
             except Exception as bridge_err:
                 logger.error(f"Не удалось автонастроить хостовый IP для кластерного моста {vm_id}: {bridge_err}")
 
-        # Очищаем старые правила по IP
+        # Очищаем старые правила по IP (текущему и, если он менялся, прежнему —
+        # см. пояснение про old_ip в docstring выше)
         clear_iptables_rules_for_ip(vm_ip)
-        
+        if old_ip and old_ip != vm_ip:
+            clear_iptables_rules_for_ip(old_ip)
+
         # Парсим список портов
         ports = []
         if ports_config:
@@ -1655,25 +1642,15 @@ def restore_vm_backup(name: str, backup_name: str, client: K8sClient = Depends(g
 
 
 def resolve_vm_ip(ips: list) -> Optional[str]:
-    # Ищем мостовой IP (не внутренний k8s под и не внутренний KubeVirt NAT)
-    for ip in ips:
-        if (
-            not ip.startswith("10.244.") and 
-            not ip.startswith("10.42.") and 
-            not ip.startswith("10.0.2.") and 
-            not ip.startswith("127.0.") and 
-            ":" not in ip
-        ):
-            return ip
-    # Фолбэк на под-сеть K3s (10.42.x.x / 10.244.x.x), к которой есть доступ с хоста
-    for ip in ips:
-        if (ip.startswith("10.42.") or ip.startswith("10.244.")) and ":" not in ip:
-            return ip
-    # Если ничего нет, возвращаем первый IPv4
-    for ip in ips:
-        if ":" not in ip:
-            return ip
-    return ips[0] if ips else None
+    """Совместимый алиас app.core.netutils.pick_external_ip.
+
+    Раньше здесь была отдельная копия той же логики фильтрации, которая не
+    знала про 192.168.100.x (изолированную сеть кластеров) — SSH/терминал
+    ВМ в кластере мог получить как «внешний» адрес изоляции кластера вместо
+    настоящего мостового IP. netutils.pick_external_ip — единая точка правды,
+    её и используют все остальные места (деплои, домены, реестр, файрвол)."""
+    from app.core.netutils import pick_external_ip
+    return pick_external_ip(ips)
 
 
 class VMCommandExecuteRequest(BaseModel):

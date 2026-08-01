@@ -424,10 +424,11 @@ def apply_firewall_reconcile_daemon():
                         continue
                     live_names.add(vm["name"])
                     # Переустанавливаем правила только при изменении IP — без лишней «дёрготни»
-                    if last_ip.get(vm["name"]) != ip:
-                        reconcile_vm_firewall_rules(ip, vm["id"], vm["ports_config"], vm["firewall_rules"], vm["os_type"])
+                    prev_ip = last_ip.get(vm["name"])
+                    if prev_ip != ip:
+                        reconcile_vm_firewall_rules(ip, vm["id"], vm["ports_config"], vm["firewall_rules"], vm["os_type"], old_ip=prev_ip)
                         last_ip[vm["name"]] = ip
-                        logger.info(f"Firewall re-applied for {vm['name']} -> {ip}")
+                        logger.info(f"Firewall re-applied for {vm['name']} -> {ip}" + (f" (was {prev_ip})" if prev_ip else ""))
                 except Exception as ve:
                     logger.error(f"Firewall reconcile for VM {vm['name']}: {ve}")
             # Забываем IP выключенных/удалённых ВМ, чтобы при новом старте правила переустановились

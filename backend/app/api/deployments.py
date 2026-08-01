@@ -81,9 +81,16 @@ def _validate_repo(url: str):
 
 
 def build_deploy_cloud_init(name: str, repo_url: str, branch: str, stack: str,
-                            app_port: int, run_command: Optional[str], password: str) -> str:
+                            app_port: int, run_command: Optional[str], password: str,
+                            pod_mac: str = None, lan_mac: str = None, static_ip: str = None) -> str:
     """Собирает полный #cloud-config: базовая настройка (пароль, сеть, guest-agent)
-    + клонирование репозитория и запуск приложения по выбранному стеку."""
+    + клонирование репозитория и запуск приложения по выбранному стеку.
+
+    pod_mac/lan_mac/static_ip — та же схема сети, что у обычных ВМ (см.
+    build_stable_netplan_yaml в app.services.cloudinit): раньше здесь был
+    свой netplan с dhcp4 на ВСЕ "e*"-интерфейсы, и мостовой интерфейс получал
+    случайный DHCP-адрес вместо статического, привязанного к ID деплоя.
+    """
     default_user = "ubuntu"
     app_dir = "/opt/app"
     rc = (run_command or "").strip()
@@ -130,6 +137,18 @@ def build_deploy_cloud_init(name: str, repo_url: str, branch: str, stack: str,
     clone_cmd = f"git clone --depth 1 --branch {branch} {repo_url} {app_dir} || git clone --depth 1 {repo_url} {app_dir}"
     deploy_yaml = "\n".join(f"  - {step}" for step in deploy_steps)
 
+    from app.services.cloudinit import build_stable_netplan_yaml, GUEST_AGENT_RETRY_RUNCMD
+    if pod_mac and lan_mac:
+        netplan_content = build_stable_netplan_yaml(pod_mac, lan_mac, static_ip)
+    else:
+        netplan_content = """      network:
+        version: 2
+        ethernets:
+          all-eth:
+            match:
+              name: "e*"
+            dhcp4: true"""
+
     return f"""#cloud-config
 ssh_pwauth: True
 disable_root: false
@@ -145,13 +164,7 @@ packages:
 write_files:
   - path: /etc/netplan/99-dhcp.yaml
     content: |
-      network:
-        version: 2
-        ethernets:
-          all-eth:
-            match:
-              name: "e*"
-            dhcp4: true
+{netplan_content}
 runcmd:
   - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
   - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true
@@ -165,7 +178,7 @@ runcmd:
   - usermod -aG docker {default_user} 2>/dev/null || true
   - {clone_cmd}
 {deploy_yaml}
-  - (apt-get install -y qemu-guest-agent && systemctl enable --now qemu-guest-agent) || true
+{GUEST_AGENT_RETRY_RUNCMD}
 """
 
 
@@ -269,18 +282,14 @@ def create_deployment(req: DeploymentCreate, request: Request, current_user: Use
                       add_ram_gb=req.memory_gb, add_storage_gb=req.disk_gb)
 
         password = generate_random_password()
-        cloud_init = build_deploy_cloud_init(
-            req.name, req.repo_url, req.branch, req.stack, req.app_port, req.run_command, password
-        )
 
-        # Пароль уже вписан в cloud_init — сохраняем его же, иначе воркер
-        # положит в Secret другой, и панель не сможет зайти в ВМ по SSH.
-        from app.core.crypto import encrypt_secret
+        # Фаза 1: создаём ВМ, чтобы узнать её id — от него зависят внешний
+        # порт и статический IP на мосту br-vms (тот же порядок, что и в
+        # маркетплейсе: cloud-init нельзя собрать раньше, ему нужен static_ip).
         vm = VMTask(
             name=req.name, os_type="ubuntu",
             cpu_cores=req.cpu_cores, memory_gb=req.memory_gb, disk_gb=req.disk_gb,
-            custom_user_data=cloud_init, owner_id=current_user.id, status="Pending",
-            vm_password=encrypt_secret(password),
+            owner_id=current_user.id, status="Pending",
         )
         db.add(vm)
         db.commit()
@@ -292,8 +301,23 @@ def create_deployment(req: DeploymentCreate, request: Request, current_user: Use
             {"ext_port": 28000 + vm.id, "int_port": req.app_port, "name": "APP"},
         ]
         vm.ports_config = json.dumps(ports)
-        from app.api.vms import compute_static_ip
+        from app.api.vms import compute_static_ip, generate_mac_address
         vm.static_ip = compute_static_ip(vm.id)
+
+        # Фаза 2: static_ip известен — собираем cloud-init с ним же, иначе
+        # мостовой интерфейс уйдёт в DHCP и адрес не будет совпадать с тем,
+        # что показывает панель (и может конфликтовать с чужой статической ВМ).
+        pod_mac = generate_mac_address(vm.name)
+        lan_mac = generate_mac_address(vm.name + "-lan")
+        cloud_init = build_deploy_cloud_init(
+            req.name, req.repo_url, req.branch, req.stack, req.app_port, req.run_command, password,
+            pod_mac=pod_mac, lan_mac=lan_mac, static_ip=vm.static_ip,
+        )
+        vm.custom_user_data = cloud_init
+        # Пароль уже вписан в cloud_init — сохраняем его же, иначе воркер
+        # положит в Secret другой, и панель не сможет зайти в ВМ по SSH.
+        from app.core.crypto import encrypt_secret
+        vm.vm_password = encrypt_secret(password)
         db.commit()
 
         dep = AppDeployment(

@@ -76,9 +76,13 @@ def test_broken_encryption_falls_back_instead_of_crashing():
 # --------------------- пароль сохраняется при создании ----------------------
 
 def test_deployment_stores_the_password_it_wrote():
-    """deployments.py должен сохранять тот же пароль, что попал в cloud-init."""
+    """deployments.py должен сохранять тот же пароль, что попал в cloud-init.
+
+    cloud-init теперь строится ПОСЛЕ создания строки ВМ (нужен static_ip,
+    который зависит от id), поэтому пароль присваивается отдельной строкой,
+    как и в marketplace.py, а не аргументом конструктора VMTask."""
     src = _source("api/deployments.py")
-    assert "vm_password=encrypt_secret(password)" in src
+    assert "vm.vm_password = encrypt_secret(password)" in src
 
 
 def test_marketplace_stores_the_password_it_wrote():

@@ -22,6 +22,59 @@ logger = logging.getLogger("app.services.cloudinit")
 INLINE_LIMIT_BYTES = 1900
 
 
+def build_stable_netplan_yaml(pod_mac: str, lan_mac: str, static_ip: str = None) -> str:
+    """Netplan (отступ 6 пробелов — годится прямо в write_files/content) с
+    интерфейсами, матчащимися по MAC, а не по имени в госте.
+
+    pod-nic (сеть кластера/интернет) — всегда DHCP.
+    stable-nic (мост br-vms) — статический адрес, если он вычислен для этой
+    ВМ; иначе тоже DHCP (для вызовов без static_ip).
+
+    Раньше маркетплейс и деплой из GitHub писали свой netplan с dhcp4 на ВСЕ
+    "e*"-интерфейсы вместо этого. Второй (мостовой) интерфейс из-за этого не
+    получал статический адрес, а брал DHCP-аренду из пула dnsmasq: адрес
+    «плавал» между перезагрузками и мог совпасть с чужой статической ВМ на
+    том же мосту. generate_linux_manifest использует эту же функцию, поэтому
+    расхождения между обычными ВМ и маркетплейсом/деплоем больше не будет.
+    """
+    if static_ip:
+        stable_block = f"""          stable-nic:
+            match:
+              macaddress: "{lan_mac}"
+            dhcp4: false
+            addresses: [{static_ip}/24]"""
+    else:
+        stable_block = f"""          stable-nic:
+            match:
+              macaddress: "{lan_mac}"
+            dhcp4: true"""
+    return f"""      network:
+        version: 2
+        ethernets:
+          pod-nic:
+            match:
+              macaddress: "{pod_mac}"
+            dhcp4: true
+            dhcp4-overrides:
+              use-routes: true
+{stable_block}"""
+
+
+# KubeVirt узнаёт IP мостового (не pod-) интерфейса ТОЛЬКО через qemu-guest-agent
+# — в отличие от pod-сети, адрес которой известен ему и без гостя. Одна
+# неудачная попытка apt-get (например, из-за занятого dpkg-лока
+# unattended-upgrades сразу после загрузки) навсегда лишала ВМ видимого
+# мостового адреса: агент никто не переустанавливал. У обычных ВМ
+# (generate_linux_manifest) уже был цикл до 50 попыток — маркетплейс и деплой
+# из GitHub писали одну попытку без повтора. Теперь у всех одна и та же команда.
+GUEST_AGENT_RETRY_RUNCMD = (
+    "  - i=1; while [ $i -le 50 ]; do (apt-get update && apt-get install -y qemu-guest-agent) "
+    "&& break || (dnf install -y qemu-guest-agent) && break || (yum install -y qemu-guest-agent) "
+    "&& break || sleep 5; i=$((i+1)); done || true\n"
+    "  - systemctl enable --now qemu-guest-agent || true"
+)
+
+
 def _userdata_volumes(manifest: dict):
     """Тома с inline cloud-init внутри манифеста ВМ."""
     spec = (manifest or {}).get("spec", {}).get("template", {}).get("spec", {})

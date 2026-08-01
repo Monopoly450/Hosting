@@ -326,11 +326,31 @@ def _indent(text: str, spaces: int) -> str:
     return "\n".join(pad + line if line else line for line in text.splitlines())
 
 
-def build_marketplace_cloud_init(app: dict, env: dict, password: str, default_user: str = "ubuntu") -> str:
-    """cloud-init: ставит docker, пишет compose и .env, поднимает стек."""
+def build_marketplace_cloud_init(app: dict, env: dict, password: str, default_user: str = "ubuntu",
+                                  pod_mac: str = None, lan_mac: str = None, static_ip: str = None) -> str:
+    """cloud-init: ставит docker, пишет compose и .env, поднимает стек.
+
+    pod_mac/lan_mac/static_ip воспроизводят ту же сеть, что и у обычных ВМ
+    (см. build_stable_netplan_yaml): раньше здесь был свой netplan с dhcp4 на
+    ВСЕ "e*"-интерфейсы, из-за чего мостовой интерфейс получал случайный адрес
+    из пула DHCP вместо статического, привязанного к ID деплоя — адрес плавал
+    между перезагрузками, а внешняя ссылка на приложение переставала работать.
+    """
     env_content = "\n".join(f"{k}={v}" for k, v in env.items())
     compose_block = _indent(app["compose"], 6)
     env_block = _indent(env_content, 6) if env_content else "      # (без переменных)"
+
+    from app.services.cloudinit import build_stable_netplan_yaml, GUEST_AGENT_RETRY_RUNCMD
+    if pod_mac and lan_mac:
+        netplan_content = build_stable_netplan_yaml(pod_mac, lan_mac, static_ip)
+    else:
+        netplan_content = """      network:
+        version: 2
+        ethernets:
+          all-eth:
+            match:
+              name: "e*"
+            dhcp4: true"""
 
     return f"""#cloud-config
 ssh_pwauth: True
@@ -354,13 +374,7 @@ write_files:
 {env_block}
   - path: /etc/netplan/99-dhcp.yaml
     content: |
-      network:
-        version: 2
-        ethernets:
-          all-eth:
-            match:
-              name: "e*"
-            dhcp4: true
+{netplan_content}
 runcmd:
   - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
   - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true
@@ -371,5 +385,5 @@ runcmd:
   - systemctl enable --now docker 2>/dev/null || true
   - usermod -aG docker {default_user} 2>/dev/null || true
   - cd /opt/app && (docker compose up -d || docker-compose up -d) || true
-  - (apt-get install -y qemu-guest-agent && systemctl enable --now qemu-guest-agent) || true
+{GUEST_AGENT_RETRY_RUNCMD}
 """
