@@ -144,74 +144,12 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     default_image, default_user = LINUX_CLOUD_IMAGES.get(req.os_type, (DEFAULT_UBUNTU_IMAGE, "ubuntu"))
     image_url = req.iso_url or default_image
 
-    # Обработка шаблонов cloud-init
-    template_packages = []
-    template_commands = []
-    tmpl = req.cloud_init_template
-    if tmpl == "lamp":
-        # Apache + MariaDB + PHP
-        template_packages.extend(["apache2", "mariadb-server", "php", "libapache2-mod-php", "php-mysql"])
-        template_commands.extend([
-            "systemctl enable --now apache2",
-            "systemctl enable --now mariadb",
-        ])
-    elif tmpl == "lemp":
-        # Nginx + MariaDB + PHP-FPM
-        template_packages.extend(["nginx", "mariadb-server", "php-fpm", "php-mysql"])
-        template_commands.extend([
-            "systemctl enable --now nginx",
-            "systemctl enable --now mariadb",
-            "systemctl enable --now php*-fpm || systemctl enable --now php-fpm || true",
-        ])
-    elif tmpl == "docker":
-        # Docker Engine + Compose plugin
-        template_packages.extend(["docker.io", "docker-compose-v2"])
-        template_commands.extend([
-            "systemctl enable --now docker",
-        ])
-    elif tmpl == "portainer":
-        # Docker + Portainer (веб-UI управления контейнерами на порту 9000)
-        template_packages.extend(["docker.io"])
-        template_commands.extend([
-            "systemctl enable --now docker",
-            "docker volume create portainer_data",
-            "docker run -d -p 9000:9000 --name portainer --restart=always -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data portainer/portainer-ce:latest",
-        ])
-    elif tmpl == "nodejs":
-        # Node.js 20 LTS + pm2
-        template_commands.extend([
-            "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -",
-            "DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs",
-            "npm install -g pm2 || true",
-        ])
-    elif tmpl == "python":
-        # Python 3 + pip + venv (окружение для Flask/FastAPI/Django)
-        template_packages.extend(["python3", "python3-pip", "python3-venv", "python3-dev", "build-essential"])
-        template_commands.extend([
-            "pip3 install --break-system-packages virtualenv gunicorn 2>/dev/null || pip3 install virtualenv gunicorn || true",
-        ])
-    elif tmpl == "postgresql":
-        # PostgreSQL сервер (слушает локально; порт 5432)
-        template_packages.extend(["postgresql", "postgresql-contrib"])
-        template_commands.extend([
-            "systemctl enable --now postgresql",
-        ])
-    elif tmpl == "redis":
-        # Redis сервер (порт 6379)
-        template_packages.extend(["redis-server"])
-        template_commands.extend([
-            "systemctl enable --now redis-server",
-        ])
-    elif tmpl == "wordpress":
-        # Готовый WordPress на Apache + MariaDB + PHP
-        template_packages.extend(["apache2", "mariadb-server", "php", "php-mysql", "php-gd", "php-xml", "php-mbstring", "php-curl", "wget", "tar"])
-        template_commands.extend([
-            "systemctl enable --now apache2 mariadb",
-            "wget -q https://wordpress.org/latest.tar.gz -O /tmp/wp.tar.gz",
-            "tar -xzf /tmp/wp.tar.gz -C /var/www/html/ --strip-components=1",
-            "chown -R www-data:www-data /var/www/html/",
-            "a2enmod rewrite && systemctl restart apache2 || true",
-        ])
+    # Пакеты и команды шаблона окружения — под конкретное семейство ОС.
+    # Раньше здесь были захардкожены дебиановские имена (apache2, docker.io,
+    # redis-server) для ВСЕХ систем, поэтому на RHEL-семействе и прочих
+    # установка падала и шаблон молча не применялся.
+    from app.services.os_profiles import build_template_steps, nfs_client_package
+    template_packages, template_commands = build_template_steps(req.cloud_init_template, req.os_type)
 
     # Обработка пакетов
     packages_yaml = ""
@@ -250,11 +188,15 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
         
         if mounts_list:
             mounts_yaml = "\nmounts:\n" + "\n".join(mounts_list)
-            if "nfs-common" not in packages_yaml:
+            # nfs-common — дебиановское имя; в RHEL пакет называется nfs-utils,
+            # в openSUSE — nfs-client. Без правильного имени монтирование
+            # сетевого диска на не-Debian системах не работало.
+            nfs_pkg = nfs_client_package(req.os_type)
+            if nfs_pkg not in packages_yaml:
                 if packages_yaml:
-                    packages_yaml += "\n  - nfs-common"
+                    packages_yaml += f"\n  - {nfs_pkg}"
                 else:
-                    packages_yaml = "\npackages:\n  - nfs-common"
+                    packages_yaml = f"\npackages:\n  - {nfs_pkg}"
 
     # Специфично для Bitrix
     runcmd_yaml = ""
@@ -289,6 +231,28 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
         ssh_enable_commands = """  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config || true
   - sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config.d/*.conf || true"""
 
+    # Автологин в консоли — через drop-in для systemd-юнита getty. В системах
+    # без systemd (Alpine с OpenRC) этот файл никто не прочитает, а команды
+    # systemctl только зашумят лог ошибками, поэтому там их просто нет.
+    from app.services.cloudinit import GUEST_AGENT_RETRY_RUNCMD
+    from app.services.os_profiles import has_systemd
+    if has_systemd(req.os_type):
+        autologin_yaml = f"""
+write_files:
+  - path: /etc/systemd/system/getty@tty1.service.d/override.conf
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=-/sbin/agetty --autologin {default_user} --noclear %I $TERM"""
+        autologin_runcmd = """
+  - systemctl daemon-reload || true
+  - systemctl restart getty@tty1.service || true"""
+        restart_ssh_cmd = "  - systemctl restart ssh || systemctl restart sshd || true"
+    else:
+        autologin_yaml = ""
+        autologin_runcmd = ""
+        restart_ssh_cmd = "  - rc-service sshd restart || true"
+
     # --- Полностью стабильный IP (не меняется при перезагрузке) ---
     # К pod-интерфейсу (masquerade, интернет) добавляем второй bridge-интерфейс
     # с ФИКСИРОВАННЫМ MAC и СТАТИЧЕСКИМ IP, прописанным в госте через cloud-init.
@@ -299,9 +263,9 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     pod_mac = generate_mac_address(req.name)
     lan_mac = generate_mac_address(req.name + "-lan")
 
+    from app.services.cloudinit import build_network_data
     if static_ip:
-        from app.services.cloudinit import build_stable_netplan_yaml
-        netplan_content = build_stable_netplan_yaml(pod_mac, lan_mac, static_ip)
+        network_data = build_network_data(pod_mac, lan_mac, static_ip)
         if cluster_network:
             extra_interface = {"name": "clusternet", "bridge": {}, "macAddress": lan_mac}
             extra_network = {"name": "clusternet", "multus": {"networkName": cluster_network}}
@@ -309,13 +273,16 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
             extra_interface = {"name": "lan", "bridge": {}, "macAddress": lan_mac}
             extra_network = {"name": "lan", "multus": {"networkName": "bridge-network"}}
     else:
-        netplan_content = """      network:
-        version: 2
-        ethernets:
-          all-eth:
-            match:
-              name: "e*"
-            dhcp4: true"""
+        # Один pod-интерфейс: матчим по его MAC, а не по маске имени "e*" —
+        # имена интерфейсов различаются между дистрибутивами (eth0/ens3/enp1s0),
+        # а MAC мы задаём сами в манифесте.
+        network_data = f"""version: 2
+ethernets:
+  pod-nic:
+    match:
+      macaddress: "{pod_mac}"
+    dhcp4: true
+"""
         extra_interface = None
         extra_network = None
 
@@ -407,29 +374,21 @@ chpasswd:
     {default_user}:{password}
   expire: False
 {users_yaml}
-{packages_yaml}{mounts_yaml}
-write_files:
-  - path: /etc/netplan/99-dhcp.yaml
-    content: |
-{netplan_content}
-  - path: /etc/systemd/system/getty@tty1.service.d/override.conf
-    content: |
-      [Service]
-      ExecStart=
-      ExecStart=-/sbin/agetty --autologin {default_user} --noclear %I $TERM
+{packages_yaml}{mounts_yaml}{autologin_yaml}
 runcmd:
   - echo "root:{password}" | chpasswd
   - echo "{default_user}:{password}" | chpasswd
   - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
 {ssh_enable_commands}
-  - systemctl restart ssh || systemctl restart sshd || true
-  - (netplan apply || systemctl restart systemd-networkd || nmcli con reload) || true
-  - systemctl daemon-reload || true
-  - systemctl restart getty@tty1.service || true
+{restart_ssh_cmd}{autologin_runcmd}
   - while ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; do sleep 2; done
-  - i=1; while [ $i -le 50 ]; do (apt-get update && apt-get install -y qemu-guest-agent) && break || (dnf install -y qemu-guest-agent) && break || (yum install -y qemu-guest-agent) && break || sleep 5; i=$((i+1)); done || true
-  - systemctl enable --now qemu-guest-agent || true{runcmd_yaml}
+{GUEST_AGENT_RETRY_RUNCMD}{runcmd_yaml}
 """,
+                                # Сеть отдаём отдельным документом network-config, а не файлом
+                                # netplan внутри write_files: netplan есть только в Ubuntu, а
+                                # cloud-init рендерит networkData в нативный формат каждой
+                                # системы (NetworkManager, /etc/network/interfaces, networkd).
+                                "networkData": network_data,
                                 "metaData": f"""instance-id: {req.name}
 local-hostname: {req.name}
 """
@@ -917,6 +876,25 @@ def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_c
     except Exception as e:
         logger.error(f"Error in reconcile_vm_firewall_rules for {vm_ip}: {e}")
 
+@router.get("/os-catalog")
+def get_os_catalog(current_user: User = Depends(get_current_user)):
+    """Список ОС и совместимых с каждой шаблонов окружения.
+
+    Нужен интерфейсу, чтобы не предлагать шаблон, который для выбранной
+    системы всё равно не соберётся: набор пакетов у семейств разный, и часть
+    шаблонов описана не для всех (см. app.services.os_profiles).
+    """
+    from app.services.os_profiles import TEMPLATES, supported_templates_for
+
+    return {
+        "templates": [{"value": name, "label": spec["label"]} for name, spec in TEMPLATES.items()],
+        # os_type -> список value шаблонов, применимых к этой ОС
+        "supported": {os_type: supported_templates_for(os_type) for os_type in LINUX_CLOUD_IMAGES},
+        # ОС, которые ставятся с ISO — у них cloud-init нет вообще
+        "iso_install": list(ISO_INSTALL_OS),
+    }
+
+
 @router.get("/balancer/resources", response_model=List[dict])
 def get_balancer_resources(client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     try:
@@ -1104,6 +1082,28 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
                 detail="Свой Cloud-Init скрипт и SSH-ключ нельзя указывать одновременно: "
                        "пропишите ssh_authorized_keys прямо в своём cloud-config."
             )
+
+        # Шаблон окружения существует не для каждой ОС: пакеты и службы у
+        # семейств называются по-разному. Отказываем сразу, а не создаём ВМ,
+        # в которой шаблон молча не сработает (именно так было раньше —
+        # ставились дебиановские имена пакетов на RHEL, установка падала,
+        # и пользователь получал «чистую» ОС без всякого сообщения).
+        tmpl = getattr(req, "cloud_init_template", None)
+        if tmpl:
+            from app.services.os_profiles import template_supported, TEMPLATES
+            if req.os_type in ISO_INSTALL_OS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Шаблоны окружения работают только для Linux-систем с cloud-init, "
+                           f"а «{req.os_type}» ставится с установочного ISO."
+                )
+            if not template_supported(tmpl, req.os_type):
+                label = (TEMPLATES.get(tmpl) or {}).get("label", tmpl)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Шаблон «{label}» не поддерживается для ОС «{req.os_type}». "
+                           f"Выберите другую ОС или создайте ВМ без шаблона."
+                )
 
         db = SessionLocal()
 

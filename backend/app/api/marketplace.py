@@ -46,7 +46,7 @@ def deploy(req: MarketplaceDeploy, request: Request, current_user: User = Depend
         raise HTTPException(status_code=400, detail="Имя может содержать только a-z, 0-9 и дефис")
 
     from app.queue_client import publish_task
-    from app.api.vms import generate_random_password, compute_static_ip, generate_mac_address
+    from app.api.vms import generate_random_password, compute_static_ip
 
     db = SessionLocal()
     try:
@@ -94,11 +94,7 @@ def deploy(req: MarketplaceDeploy, request: Request, current_user: User = Depend
         # Адрес берём из запроса: по публичному IP из локальной сети часто
         # не пройти (NAT-петля), а по локальному — не выйти из интернета.
         env = add_public_url(env, host_for_links(request), ext_port)
-        pod_mac = generate_mac_address(vm.name)
-        lan_mac = generate_mac_address(vm.name + "-lan")
-        vm.custom_user_data = build_marketplace_cloud_init(
-            app, env, password, pod_mac=pod_mac, lan_mac=lan_mac, static_ip=vm.static_ip
-        )
+        vm.custom_user_data = build_marketplace_cloud_init(app, env, password)
         # Тот же пароль, что попал в cloud-init: воркер положит именно его в
         # Secret, иначе SSH-доступ панели к ВМ не заработает.
         from app.core.crypto import encrypt_secret

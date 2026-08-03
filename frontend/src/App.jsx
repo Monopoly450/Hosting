@@ -155,6 +155,10 @@ const App = () => {
   const [cloudInitTemplate, setCloudInitTemplate] = useState('');
   const [customUserData, setCustomUserData] = useState('');
   const [sshKey, setSshKey] = useState('');
+  // Каталог ОС и совместимых с ними шаблонов окружения. Набор пакетов у
+  // семейств Linux разный, поэтому часть шаблонов описана не для всех ОС —
+  // предлагать заведомо неподходящий смысла нет.
+  const [osCatalog, setOsCatalog] = useState(null);
 
   // Default values based on OS
   useEffect(() => {
@@ -180,6 +184,33 @@ const App = () => {
       setDiskGb(30);
     }
   }, [osType]);
+
+  // Каталог ОС/шаблонов грузим один раз — он статический (см. /api/vms/os-catalog).
+  useEffect(() => {
+    fetch('/api/vms/os-catalog')
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => data && setOsCatalog(data))
+      .catch(() => {});
+  }, []);
+
+  // Шаблоны, применимые к выбранной ОС. Пока каталог не загружен — показываем
+  // все, чтобы поле не выглядело пустым; бэкенд всё равно отклонит несовместимую
+  // пару, так что это безопасно.
+  const availableTemplates = React.useMemo(() => {
+    if (!osCatalog) return null;
+    const allowed = osCatalog.supported?.[osType];
+    if (!allowed) return [];   // ISO-система: cloud-init нет, шаблонов тоже
+    return osCatalog.templates.filter(t => allowed.includes(t.value));
+  }, [osCatalog, osType]);
+
+  // Смена ОС может сделать выбранный шаблон недоступным — сбрасываем его,
+  // иначе в поле осталась бы подпись шаблона, который к этой ОС не применится.
+  useEffect(() => {
+    if (!availableTemplates || !cloudInitTemplate) return;
+    if (!availableTemplates.some(t => t.value === cloudInitTemplate)) {
+      setCloudInitTemplate('');
+    }
+  }, [availableTemplates, cloudInitTemplate]);
 
   const fetchVMs = async () => {
     try {
@@ -1128,26 +1159,27 @@ const App = () => {
                               <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Сетевая шара будет смонтирована в /mnt/network_drive.</span>
                             </div>
 
-                            <div className="input-group">
-                              <label className="input-label">Шаблон окружения (Cloud-Init)</label>
-                              <CustomSelect 
-                                value={cloudInitTemplate} 
-                                onChange={e => setCloudInitTemplate(e.target.value)}
-                                placeholder="Без шаблона (Чистая ОС)"
-                                options={[
-                                  { value: '', label: 'Без шаблона (Чистая ОС)' },
-                                  { value: 'lamp', label: 'LAMP (Apache + PHP + MariaDB)' },
-                                  { value: 'lemp', label: 'LEMP (Nginx + PHP-FPM + MariaDB)' },
-                                  { value: 'docker', label: 'Docker (Engine + Compose)' },
-                                  { value: 'portainer', label: 'Portainer (Docker + веб-UI :9000)' },
-                                  { value: 'nodejs', label: 'Node.js 20 LTS (+ pm2)' },
-                                  { value: 'python', label: 'Python 3 (pip + venv + gunicorn)' },
-                                  { value: 'postgresql', label: 'PostgreSQL сервер' },
-                                  { value: 'redis', label: 'Redis сервер' },
-                                  { value: 'wordpress', label: 'WordPress (Apache + MariaDB + PHP)' }
-                                ]}
-                              />
-                            </div>
+                            {/* Для систем с установочного ISO (Windows, Proxmox, TrueNAS)
+                                cloud-init не применяется вообще — поле там прячем. */}
+                            {!(osCatalog?.iso_install || []).includes(osType) && (
+                              <div className="input-group">
+                                <label className="input-label">Шаблон окружения (Cloud-Init)</label>
+                                <CustomSelect
+                                  value={cloudInitTemplate}
+                                  onChange={e => setCloudInitTemplate(e.target.value)}
+                                  placeholder="Без шаблона (Чистая ОС)"
+                                  options={[
+                                    { value: '', label: 'Без шаблона (Чистая ОС)' },
+                                    ...(availableTemplates || []),
+                                  ]}
+                                />
+                                {availableTemplates && (
+                                  <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
+                                    Показаны шаблоны, которые собираются на этой ОС: имена пакетов и служб у семейств Linux различаются.
+                                  </span>
+                                )}
+                              </div>
+                            )}
 
                             <div className="input-group">
                               <label className="input-label">Публичный SSH-ключ (для безопасного входа)</label>

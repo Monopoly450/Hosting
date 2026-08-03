@@ -22,42 +22,50 @@ logger = logging.getLogger("app.services.cloudinit")
 INLINE_LIMIT_BYTES = 1900
 
 
-def build_stable_netplan_yaml(pod_mac: str, lan_mac: str, static_ip: str = None) -> str:
-    """Netplan (отступ 6 пробелов — годится прямо в write_files/content) с
-    интерфейсами, матчащимися по MAC, а не по имени в госте.
+def build_network_data(pod_mac: str, lan_mac: str, static_ip: str = None) -> str:
+    """network-config v2 для поля cloudInitNoCloud.networkData.
 
     pod-nic (сеть кластера/интернет) — всегда DHCP.
     stable-nic (мост br-vms) — статический адрес, если он вычислен для этой
-    ВМ; иначе тоже DHCP (для вызовов без static_ip).
+    ВМ; иначе тоже DHCP. Интерфейсы матчатся по MAC, а не по имени: имена
+    (eth0/ens3/enp1s0) зависят от дистрибутива и порядка устройств.
 
-    Раньше маркетплейс и деплой из GitHub писали свой netplan с dhcp4 на ВСЕ
-    "e*"-интерфейсы вместо этого. Второй (мостовой) интерфейс из-за этого не
-    получал статический адрес, а брал DHCP-аренду из пула dnsmasq: адрес
-    «плавал» между перезагрузками и мог совпасть с чужой статической ВМ на
-    том же мосту. generate_linux_manifest использует эту же функцию, поэтому
-    расхождения между обычными ВМ и маркетплейсом/деплоем больше не будет.
+    Раньше этот же YAML писался файлом в /etc/netplan/99-dhcp.yaml через
+    write_files. Netplan — инструмент Ubuntu, его нет ни в RHEL-семействе
+    (CentOS/Rocky/Alma/Fedora — там NetworkManager), ни в openSUSE (wicked),
+    ни в Arch, ни в Alpine, ни даже в облачных образах Debian. На восьми из
+    десяти поддерживаемых Linux-систем файл просто ложился на диск, и его
+    никто не читал: мостовой интерфейс оставался ненастроенным, статический
+    адрес не применялся — ровно то, что выглядит как «сетевой адаптер не
+    работает на этой ОС».
+
+    networkData обрабатывает сам cloud-init и рендерит в то, чем система
+    реально пользуется: netplan в Ubuntu, sysconfig/NetworkManager в
+    RHEL-семействе, /etc/network/interfaces в Debian и Alpine,
+    systemd-networkd в Arch. Формат v2 — тот же самый, что у netplan,
+    поэтому содержимое не меняется, меняется способ доставки.
     """
     if static_ip:
-        stable_block = f"""          stable-nic:
-            match:
-              macaddress: "{lan_mac}"
-            dhcp4: false
-            addresses: [{static_ip}/24]"""
+        stable_block = f"""  stable-nic:
+    match:
+      macaddress: "{lan_mac}"
+    dhcp4: false
+    addresses: [{static_ip}/24]"""
     else:
-        stable_block = f"""          stable-nic:
-            match:
-              macaddress: "{lan_mac}"
-            dhcp4: true"""
-    return f"""      network:
-        version: 2
-        ethernets:
-          pod-nic:
-            match:
-              macaddress: "{pod_mac}"
-            dhcp4: true
-            dhcp4-overrides:
-              use-routes: true
-{stable_block}"""
+        stable_block = f"""  stable-nic:
+    match:
+      macaddress: "{lan_mac}"
+    dhcp4: true"""
+    return f"""version: 2
+ethernets:
+  pod-nic:
+    match:
+      macaddress: "{pod_mac}"
+    dhcp4: true
+    dhcp4-overrides:
+      use-routes: true
+{stable_block}
+"""
 
 
 # KubeVirt узнаёт IP мостового (не pod-) интерфейса ТОЛЬКО через qemu-guest-agent
@@ -67,11 +75,22 @@ def build_stable_netplan_yaml(pod_mac: str, lan_mac: str, static_ip: str = None)
 # мостового адреса: агент никто не переустанавливал. У обычных ВМ
 # (generate_linux_manifest) уже был цикл до 50 попыток — маркетплейс и деплой
 # из GitHub писали одну попытку без повтора. Теперь у всех одна и та же команда.
+#
+# Перебираем ВСЕ менеджеры пакетов, а не только apt/dnf/yum: без zypper
+# (openSUSE), pacman (Arch) и apk (Alpine) агент на этих системах не ставился
+# вообще, и панель никогда не узнавала адрес мостового интерфейса такой ВМ.
+# В Alpine нет systemd — там служба поднимается через OpenRC.
 GUEST_AGENT_RETRY_RUNCMD = (
-    "  - i=1; while [ $i -le 50 ]; do (apt-get update && apt-get install -y qemu-guest-agent) "
-    "&& break || (dnf install -y qemu-guest-agent) && break || (yum install -y qemu-guest-agent) "
-    "&& break || sleep 5; i=$((i+1)); done || true\n"
-    "  - systemctl enable --now qemu-guest-agent || true"
+    "  - i=1; while [ $i -le 50 ]; do "
+    "(apt-get update && apt-get install -y qemu-guest-agent) && break || "
+    "(dnf install -y qemu-guest-agent) && break || "
+    "(yum install -y qemu-guest-agent) && break || "
+    "(zypper --non-interactive install qemu-guest-agent) && break || "
+    "(pacman -Sy --noconfirm qemu-guest-agent) && break || "
+    "(apk add --no-cache qemu-guest-agent) && break || "
+    "sleep 5; i=$((i+1)); done || true\n"
+    "  - systemctl enable --now qemu-guest-agent 2>/dev/null || "
+    "(rc-update add qemu-guest-agent default && rc-service qemu-guest-agent start) 2>/dev/null || true"
 )
 
 

@@ -20,70 +20,63 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import yaml
 
-from app.services.cloudinit import build_stable_netplan_yaml, GUEST_AGENT_RETRY_RUNCMD
+from app.services.cloudinit import build_network_data, GUEST_AGENT_RETRY_RUNCMD
 from app.services import marketplace as mp
 
 POD_MAC = "02:00:00:11:22:33"
 LAN_MAC = "02:00:00:44:55:66"
 
 
-def _parse_netplan(yaml_block: str) -> dict:
-    return yaml.safe_load(yaml_block)
-
-
 def test_static_ip_pins_bridge_interface_by_mac():
-    netplan = _parse_netplan(build_stable_netplan_yaml(POD_MAC, LAN_MAC, "172.20.0.130"))
-    stable = netplan["network"]["ethernets"]["stable-nic"]
+    nd = yaml.safe_load(build_network_data(POD_MAC, LAN_MAC, "172.20.0.130"))
+    assert nd["version"] == 2
+    stable = nd["ethernets"]["stable-nic"]
     assert stable["match"]["macaddress"] == LAN_MAC
     assert stable["dhcp4"] is False
     assert stable["addresses"] == ["172.20.0.130/24"]
     # pod-интерфейс всегда DHCP — интернет/сеть кластера
-    pod = netplan["network"]["ethernets"]["pod-nic"]
+    pod = nd["ethernets"]["pod-nic"]
     assert pod["match"]["macaddress"] == POD_MAC
     assert pod["dhcp4"] is True
 
 
 def test_without_static_ip_bridge_falls_back_to_dhcp():
-    netplan = _parse_netplan(build_stable_netplan_yaml(POD_MAC, LAN_MAC, None))
-    assert netplan["network"]["ethernets"]["stable-nic"]["dhcp4"] is True
-    assert "addresses" not in netplan["network"]["ethernets"]["stable-nic"]
+    nd = yaml.safe_load(build_network_data(POD_MAC, LAN_MAC, None))
+    assert nd["ethernets"]["stable-nic"]["dhcp4"] is True
+    assert "addresses" not in nd["ethernets"]["stable-nic"]
 
 
-def test_guest_agent_install_retries_instead_of_one_shot():
-    # Регрессия: маркетплейс/деплой раньше делали ОДНУ попытку apt-get без
-    # повтора — единственная транзиентная неудача (занятый dpkg-лок сразу
-    # после загрузки и т.п.) навсегда лишала ВМ видимого мостового IP.
+def test_guest_agent_install_covers_every_package_manager():
+    # Регрессия 1: раньше была ОДНА попытка apt-get без повтора — единственная
+    # транзиентная неудача (занятый dpkg-лок сразу после загрузки) навсегда
+    # лишала ВМ видимого мостового IP, т.к. агент никто не переустанавливал.
     assert "while" in GUEST_AGENT_RETRY_RUNCMD
     assert "sleep 5" in GUEST_AGENT_RETRY_RUNCMD
-    assert "systemctl enable --now qemu-guest-agent" in GUEST_AGENT_RETRY_RUNCMD
+    # Регрессия 2: перебирались только apt/dnf/yum, поэтому на openSUSE, Arch
+    # и Alpine агент не ставился вообще и адрес мостового интерфейса не
+    # становился известен панели никогда.
+    for pm in ("apt-get", "dnf", "yum", "zypper", "pacman", "apk"):
+        assert pm in GUEST_AGENT_RETRY_RUNCMD, pm
+    # В Alpine нет systemd — нужен запасной путь через OpenRC
+    assert "rc-update add qemu-guest-agent" in GUEST_AGENT_RETRY_RUNCMD
 
 
-def test_marketplace_cloud_init_uses_static_bridge_ip_when_given():
+def test_marketplace_cloud_init_no_longer_configures_network():
+    """Сеть задаётся networkData в манифесте, а не файлом netplan в cloud-init.
+
+    netplan есть только в Ubuntu; когда каждый сборщик писал свой файл, их
+    приходилось держать синхронными вручную, и любое расхождение возвращало
+    «плавающий» адрес на мосту."""
     app = mp.get_app("nextcloud")
-    env = mp.add_public_url(mp.resolve_env(app, {}), "192.168.31.10", 28014)
-    ci = mp.build_marketplace_cloud_init(
-        app, env, "pw", pod_mac=POD_MAC, lan_mac=LAN_MAC, static_ip="172.20.0.130"
-    )
-    doc = yaml.safe_load(ci)
-    files = {f["path"]: f["content"] for f in doc["write_files"]}
-    netplan = yaml.safe_load(files["/etc/netplan/99-dhcp.yaml"])
-    stable = netplan["network"]["ethernets"]["stable-nic"]
-    assert stable["dhcp4"] is False
-    assert stable["addresses"] == ["172.20.0.130/24"]
-    # Установка guest-agent теперь с повтором, не единственной попыткой
-    assert "while" in ci and "qemu-guest-agent" in ci
-
-
-def test_marketplace_cloud_init_without_macs_keeps_old_behavior():
-    """Обратная совместимость: без MAC-адресов поведение как раньше (общий
-    dhcp4 на все "e*"), чтобы вызов без новых аргументов не ломался."""
-    app = mp.get_app("ghost")
     env = mp.add_public_url(mp.resolve_env(app, {}), "192.168.31.10", 28014)
     ci = mp.build_marketplace_cloud_init(app, env, "pw")
     doc = yaml.safe_load(ci)
     files = {f["path"]: f["content"] for f in doc["write_files"]}
-    netplan = yaml.safe_load(files["/etc/netplan/99-dhcp.yaml"])
-    assert netplan["network"]["ethernets"]["all-eth"]["dhcp4"] is True
+    assert "/etc/netplan/99-dhcp.yaml" not in files
+    assert "netplan apply" not in ci
+    # Compose и .env по-прежнему на месте
+    assert "/opt/app/docker-compose.yml" in files
+    assert "/opt/app/.env" in files
 
 
 def test_ip_rule_matching_does_not_hit_other_vms_by_substring():

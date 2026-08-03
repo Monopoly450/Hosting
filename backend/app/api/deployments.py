@@ -81,15 +81,13 @@ def _validate_repo(url: str):
 
 
 def build_deploy_cloud_init(name: str, repo_url: str, branch: str, stack: str,
-                            app_port: int, run_command: Optional[str], password: str,
-                            pod_mac: str = None, lan_mac: str = None, static_ip: str = None) -> str:
-    """Собирает полный #cloud-config: базовая настройка (пароль, сеть, guest-agent)
+                            app_port: int, run_command: Optional[str], password: str) -> str:
+    """Собирает полный #cloud-config: базовая настройка (пароль, guest-agent)
     + клонирование репозитория и запуск приложения по выбранному стеку.
 
-    pod_mac/lan_mac/static_ip — та же схема сети, что у обычных ВМ (см.
-    build_stable_netplan_yaml в app.services.cloudinit): раньше здесь был
-    свой netplan с dhcp4 на ВСЕ "e*"-интерфейсы, и мостовой интерфейс получал
-    случайный DHCP-адрес вместо статического, привязанного к ID деплоя.
+    Сеть здесь не настраивается: её задаёт networkData в самом манифесте ВМ
+    (см. build_network_data в app.services.cloudinit), одинаково для обычных
+    ВМ, маркетплейса и деплоя из GitHub.
     """
     default_user = "ubuntu"
     app_dir = "/opt/app"
@@ -137,17 +135,7 @@ def build_deploy_cloud_init(name: str, repo_url: str, branch: str, stack: str,
     clone_cmd = f"git clone --depth 1 --branch {branch} {repo_url} {app_dir} || git clone --depth 1 {repo_url} {app_dir}"
     deploy_yaml = "\n".join(f"  - {step}" for step in deploy_steps)
 
-    from app.services.cloudinit import build_stable_netplan_yaml, GUEST_AGENT_RETRY_RUNCMD
-    if pod_mac and lan_mac:
-        netplan_content = build_stable_netplan_yaml(pod_mac, lan_mac, static_ip)
-    else:
-        netplan_content = """      network:
-        version: 2
-        ethernets:
-          all-eth:
-            match:
-              name: "e*"
-            dhcp4: true"""
+    from app.services.cloudinit import GUEST_AGENT_RETRY_RUNCMD
 
     return f"""#cloud-config
 ssh_pwauth: True
@@ -161,17 +149,12 @@ users:
   - default
 packages:
 {packages_yaml}
-write_files:
-  - path: /etc/netplan/99-dhcp.yaml
-    content: |
-{netplan_content}
 runcmd:
   - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
   - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true
   - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf || true
   - echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config || true
   - systemctl restart ssh || systemctl restart sshd || true
-  - (netplan apply || systemctl restart systemd-networkd) || true
   - while ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; do sleep 2; done
   - apt-get update || true
   - systemctl enable --now docker 2>/dev/null || true
@@ -301,17 +284,13 @@ def create_deployment(req: DeploymentCreate, request: Request, current_user: Use
             {"ext_port": 28000 + vm.id, "int_port": req.app_port, "name": "APP"},
         ]
         vm.ports_config = json.dumps(ports)
-        from app.api.vms import compute_static_ip, generate_mac_address
+        from app.api.vms import compute_static_ip
+        # Статический адрес на мосту применит networkData в манифесте — его
+        # соберёт воркер по этому же static_ip (см. generate_linux_manifest).
         vm.static_ip = compute_static_ip(vm.id)
 
-        # Фаза 2: static_ip известен — собираем cloud-init с ним же, иначе
-        # мостовой интерфейс уйдёт в DHCP и адрес не будет совпадать с тем,
-        # что показывает панель (и может конфликтовать с чужой статической ВМ).
-        pod_mac = generate_mac_address(vm.name)
-        lan_mac = generate_mac_address(vm.name + "-lan")
         cloud_init = build_deploy_cloud_init(
-            req.name, req.repo_url, req.branch, req.stack, req.app_port, req.run_command, password,
-            pod_mac=pod_mac, lan_mac=lan_mac, static_ip=vm.static_ip,
+            req.name, req.repo_url, req.branch, req.stack, req.app_port, req.run_command, password
         )
         vm.custom_user_data = cloud_init
         # Пароль уже вписан в cloud_init — сохраняем его же, иначе воркер
