@@ -238,34 +238,120 @@ def _caddyfile_tar(content: str) -> io.BytesIO:
     return buf
 
 
+# Сколько раз Docker должен успеть перезапустить контейнер, прежде чем мы
+# считаем его зациклившимся, а не просто «стартует чуть дольше обычного».
+CADDY_CRASH_LOOP_THRESHOLD = 3
+
+
+def _create_caddy(cli, caddyfile: str):
+    """Создаёт и запускает Caddy с нуля — общий путь и для первого запуска,
+    и для восстановления после зацикленного рестарта (см. ensure_caddy)."""
+    from app.core.docker_client import ensure_image
+    ensure_image(cli, CADDY_IMAGE, "(первый запуск может занять минуту)")
+
+    c = cli.containers.create(
+        CADDY_IMAGE,
+        name=CADDY_CONTAINER,
+        detach=True,
+        network_mode="host",           # 80/443 хоста + доступ к IP виртуалок
+        restart_policy={"Name": "always"},
+        volumes={CADDY_VOLUME: {"bind": "/data", "mode": "rw"}},
+        command=f"caddy run --config {CADDYFILE_PATH} --adapter caddyfile",
+    )
+    c.put_archive(os.path.dirname(CADDYFILE_PATH), _caddyfile_tar(caddyfile))
+    c.start()
+    return c
+
+
+def _caddy_crash_looping(c) -> bool:
+    """Дешёвая проверка состояния уже полученного контейнера (без docker exec) —
+    годится для частого опроса вотчдогом, в отличие от полной ensure_caddy."""
+    c.reload()
+    restart_count = c.attrs.get("RestartCount", 0)
+    return c.status == "restarting" or restart_count >= CADDY_CRASH_LOOP_THRESHOLD
+
+
 def ensure_caddy(docker_client, caddyfile: str):
-    """Создаёт (если нужно) и запускает Caddy с актуальным конфигом."""
+    """Создаёт (если нужно) и запускает Caddy с актуальным конфигом.
+
+    Обнаруженный на живом сервере случай: контейнер не мог занять порт (тот
+    же :8080, что и у панели — см. build_caddyfile) и с restart_policy=always
+    Docker перезапускал его непрерывно. put_archive/start/reload из старой
+    версии этой функции контейнеру в таком состоянии не помогали — файл
+    конфига переписывался, но падающий процесс продолжал падать со старым
+    закешированным состоянием, и панель оставалась недоступна, пока кто-то не
+    удалял контейнер вручную. Теперь зацикленный рестарт распознаётся сам
+    (см. _caddy_crash_looping) и лечится единственным надёжным способом —
+    снести контейнер и создать заново, а не пытаться его оживить.
+    """
     import docker.errors
     cli = docker_client.client
     try:
         c = cli.containers.get(CADDY_CONTAINER)
     except docker.errors.NotFound:
-        from app.core.docker_client import ensure_image
-        ensure_image(cli, CADDY_IMAGE, "(первый запуск может занять минуту)")
-
-        c = cli.containers.create(
-            CADDY_IMAGE,
-            name=CADDY_CONTAINER,
-            detach=True,
-            network_mode="host",           # 80/443 хоста + доступ к IP виртуалок
-            restart_policy={"Name": "always"},
-            volumes={CADDY_VOLUME: {"bind": "/data", "mode": "rw"}},
-            command=f"caddy run --config {CADDYFILE_PATH} --adapter caddyfile",
-        )
-        c.put_archive(os.path.dirname(CADDYFILE_PATH), _caddyfile_tar(caddyfile))
-        c.start()
+        _create_caddy(cli, caddyfile)
         return {"status": "created"}
+
+    if _caddy_crash_looping(c):
+        logger.warning(
+            f"{CADDY_CONTAINER} зациклен на перезапуске (status={c.status}, "
+            f"RestartCount={c.attrs.get('RestartCount', 0)}) — пересоздаю вместо попытки оживить."
+        )
+        c.remove(force=True)
+        _create_caddy(cli, caddyfile)
+        return {"status": "recreated_after_crash_loop"}
 
     c.put_archive(os.path.dirname(CADDYFILE_PATH), _caddyfile_tar(caddyfile))
     if c.status != "running":
         c.start()
         return {"status": "started"}
     return reload_caddy(docker_client)
+
+
+def reconcile_caddy(db, k8s, docker_client) -> bool:
+    """Вотчдог для периодического опроса: чинит зацикленный Caddy сам, без
+    участия пользователя. Без настроенных доменов ничего в панели не вызывает
+    ensure_caddy() автоматически — единственным способом восстановления был
+    ручной `docker rm` на самом сервере. Возвращает True, если пересоздавали.
+
+    Дешёвая проверка _caddy_crash_looping() выполняется на каждый тик;
+    дорогая пересборка конфига (запрос к БД и K8s под build_entries) — только
+    когда контейнер реально найден зацикленным.
+    """
+    import docker.errors
+    try:
+        c = docker_client.client.containers.get(CADDY_CONTAINER)
+    except docker.errors.NotFound:
+        return False  # ещё не создавался — нечего лечить
+    except Exception as e:
+        logger.error(f"reconcile_caddy: не удалось получить контейнер {CADDY_CONTAINER}: {e}")
+        return False
+
+    if not _caddy_crash_looping(c):
+        return False
+
+    entries = build_entries(db, k8s)
+    caddyfile = build_caddyfile(entries, acme_email())
+    ensure_caddy(docker_client, caddyfile)
+    return True
+
+
+def caddy_watchdog_tick(k8s):
+    """Один тик вотчдога — вызывается периодически из воркера (см. worker.py).
+    Сама владеет своими БД- и Docker-соединениями, чтобы вызывающая сторона
+    оставалась однострочником, как и остальные демоны воркера."""
+    from app.db import SessionLocal
+    from app.core.docker_client import HostDockerClient
+
+    docker_client = HostDockerClient()
+    if not docker_client.client:
+        return  # Docker недоступен — это отдельная проблема, не наша забота здесь
+    db = SessionLocal()
+    try:
+        if reconcile_caddy(db, k8s, docker_client):
+            logger.info(f"{CADDY_CONTAINER} восстановлен после зацикленного перезапуска.")
+    finally:
+        db.close()
 
 
 def reload_caddy(docker_client):

@@ -479,6 +479,25 @@ def alerts_daemon():
         time.sleep(60)
 
 
+def caddy_watchdog_daemon():
+    """Лечит зацикленный на перезапуске Caddy сам, без ручного docker rm.
+
+    Обнаружено на живом сервере: Caddy застревал в бесконечном рестарте
+    (изначально — из-за конфликта порта с самой панелью, см. build_caddyfile),
+    и ничто в панели не вызывало ensure_caddy() повторно, пока не добавляли
+    или не проверяли домен вручную. Без доменов — а на свежей установке их
+    обычно ещё нет — восстановить панель можно было только зайдя на сервер и
+    удалив контейнер руками."""
+    logger.info("Starting Caddy watchdog daemon thread...")
+    from .services.domains import caddy_watchdog_tick
+    while True:
+        try:
+            caddy_watchdog_tick(k8s)
+        except Exception as e:
+            logger.error(f"Error in Caddy watchdog daemon loop: {e}")
+        time.sleep(60)
+
+
 def main():
     logger.info("Starting worker...")
 
@@ -501,7 +520,11 @@ def main():
     # Разбор задач, зависших в Pending
     stuck_thread = threading.Thread(target=stuck_tasks_daemon, daemon=True)
     stuck_thread.start()
-    
+
+    # Вотчдог Caddy: лечит зацикленный на перезапуске контейнер сам
+    caddy_thread = threading.Thread(target=caddy_watchdog_daemon, daemon=True)
+    caddy_thread.start()
+
     while True:
         try:
             parameters = pika.URLParameters(RABBITMQ_URL)

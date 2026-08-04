@@ -1,5 +1,6 @@
 import os
 import sys
+import types
 
 import pytest
 
@@ -8,6 +9,8 @@ os.environ.setdefault("AEGIS_SECRET_KEY", "test-secret-key")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/aegis")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import docker.errors
 
 from app.services import domains as d
 
@@ -155,3 +158,153 @@ def test_status_reports_whether_host_is_reachable(monkeypatch):
     st = d.caddy_status(NoDocker())
     assert st["host_ip"] == "192.168.31.10"
     assert st["host_ip_is_private"] is True
+
+
+# ------------------------- Вотчдог зацикленного Caddy ------------------------
+#
+# Реальный случай на живом сервере: Caddy застрял в бесконечном перезапуске
+# (изначально — из-за конфликта порта с самой панелью), и put_archive/start/
+# reload на контейнере в таком состоянии ничего не чинили — конфиг
+# переписывался, а падающий процесс продолжал падать со старым состоянием.
+# Восстановить панель можно было только зайдя на сервер и вручную снеся
+# контейнер. Ниже — что теперь делает это само.
+
+class FakeContainer:
+    def __init__(self, status="running", restart_count=0):
+        self.status = status
+        self.attrs = {"RestartCount": restart_count}
+        self.removed_force = None
+        self.started = False
+        self.put_archives = []
+        self.exec_calls = []
+
+    def reload(self):
+        pass  # в тестах attrs/status уже выставлены заранее
+
+    def remove(self, force=False):
+        self.removed_force = force
+
+    def start(self):
+        self.started = True
+
+    def put_archive(self, path, tar):
+        self.put_archives.append(path)
+
+    def exec_run(self, cmd):
+        self.exec_calls.append(cmd)
+        return types.SimpleNamespace(exit_code=0, output=b"")
+
+
+class FakeContainersCollection:
+    def __init__(self, existing=None):
+        self.existing = existing
+        self.created = []
+
+    def get(self, name):
+        if self.existing is None:
+            raise docker.errors.NotFound("no such container")
+        return self.existing
+
+    def create(self, image, **kwargs):
+        c = FakeContainer(status="created")
+        self.created.append({"image": image, "kwargs": kwargs})
+        self.existing = c
+        return c
+
+
+class FakeImages:
+    def get(self, name):
+        return object()  # образ «уже есть» — не пытаемся ничего скачивать
+
+
+class FakeDockerClient:
+    """Подменяет HostDockerClient: .client — объект с .containers/.images,
+    как у настоящего docker.DockerClient."""
+
+    def __init__(self, existing_container=None):
+        self.client = types.SimpleNamespace(
+            containers=FakeContainersCollection(existing_container),
+            images=FakeImages(),
+        )
+
+
+class FakeQuery:
+    def filter(self, *a, **k):
+        return self
+
+    def all(self):
+        return []
+
+
+class FakeDb:
+    def query(self, model):
+        return FakeQuery()
+
+
+def test_crash_looping_detects_restarting_status():
+    c = FakeContainer(status="restarting", restart_count=0)
+    assert d._caddy_crash_looping(c) is True
+
+
+def test_crash_looping_detects_high_restart_count_even_if_currently_running():
+    # Docker иногда успевает поднять контейнер между падениями — статус в
+    # момент проверки может оказаться "running", но счётчик рестартов выдаёт
+    # цикл с головой.
+    c = FakeContainer(status="running", restart_count=d.CADDY_CRASH_LOOP_THRESHOLD)
+    assert d._caddy_crash_looping(c) is True
+
+
+def test_healthy_container_is_not_reported_as_crash_looping():
+    c = FakeContainer(status="running", restart_count=0)
+    assert d._caddy_crash_looping(c) is False
+
+
+def test_ensure_caddy_creates_when_missing():
+    fake = FakeDockerClient(existing_container=None)
+    result = d.ensure_caddy(fake, "# empty")
+    assert result["status"] == "created"
+    assert len(fake.client.containers.created) == 1
+
+
+def test_ensure_caddy_recreates_crash_looping_container_instead_of_reviving_it():
+    stuck = FakeContainer(status="restarting", restart_count=7)
+    fake = FakeDockerClient(existing_container=stuck)
+    result = d.ensure_caddy(fake, "# new config")
+    assert result["status"] == "recreated_after_crash_loop"
+    assert stuck.removed_force is True
+    # put_archive/start на самом зацикленном контейнере не вызывались —
+    # его снесли, а не пытались починить на месте.
+    assert stuck.put_archives == []
+    assert len(fake.client.containers.created) == 1
+
+
+def test_ensure_caddy_just_reloads_a_healthy_container():
+    healthy = FakeContainer(status="running", restart_count=0)
+    fake = FakeDockerClient(existing_container=healthy)
+    result = d.ensure_caddy(fake, "# new config")
+    assert result["status"] == "reloaded"
+    assert healthy.removed_force is None
+    assert any("caddy reload" in c for c in healthy.exec_calls)
+
+
+def test_reconcile_caddy_does_nothing_when_container_was_never_created():
+    fake = FakeDockerClient(existing_container=None)
+    assert d.reconcile_caddy(FakeDb(), object(), fake) is False
+    assert fake.client.containers.created == []
+
+
+def test_reconcile_caddy_leaves_a_healthy_container_alone():
+    healthy = FakeContainer(status="running", restart_count=0)
+    fake = FakeDockerClient(existing_container=healthy)
+    assert d.reconcile_caddy(FakeDb(), object(), fake) is False
+    assert healthy.removed_force is None
+
+
+def test_reconcile_caddy_heals_a_crash_loop_without_any_domain_configured():
+    """Ключевой сценарий из инцидента: доменов нет вообще, поэтому ничто в
+    панели не вызвало бы ensure_caddy() само — только периодический вотчдог."""
+    stuck = FakeContainer(status="restarting", restart_count=10)
+    fake = FakeDockerClient(existing_container=stuck)
+    assert d.reconcile_caddy(FakeDb(), object(), fake) is True
+    assert stuck.removed_force is True
+    assert len(fake.client.containers.created) == 1
