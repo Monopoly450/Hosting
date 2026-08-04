@@ -234,7 +234,7 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     # Автологин в консоли — через drop-in для systemd-юнита getty. В системах
     # без systemd (Alpine с OpenRC) этот файл никто не прочитает, а команды
     # systemctl только зашумят лог ошибками, поэтому там их просто нет.
-    from app.services.cloudinit import GUEST_AGENT_RETRY_RUNCMD
+    from app.services.cloudinit import GUEST_AGENT_RETRY_RUNCMD, WAIT_NETWORK_RUNCMD
     from app.services.os_profiles import has_systemd
     if has_systemd(req.os_type):
         autologin_yaml = f"""
@@ -381,7 +381,7 @@ runcmd:
   - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
 {ssh_enable_commands}
 {restart_ssh_cmd}{autologin_runcmd}
-  - while ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; do sleep 2; done
+{WAIT_NETWORK_RUNCMD}
 {GUEST_AGENT_RETRY_RUNCMD}{runcmd_yaml}
 """,
                                 # Сеть отдаём отдельным документом network-config, а не файлом

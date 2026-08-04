@@ -135,7 +135,7 @@ def build_deploy_cloud_init(name: str, repo_url: str, branch: str, stack: str,
     clone_cmd = f"git clone --depth 1 --branch {branch} {repo_url} {app_dir} || git clone --depth 1 {repo_url} {app_dir}"
     deploy_yaml = "\n".join(f"  - {step}" for step in deploy_steps)
 
-    from app.services.cloudinit import GUEST_AGENT_RETRY_RUNCMD
+    from app.services.cloudinit import GUEST_AGENT_RETRY_RUNCMD, WAIT_NETWORK_RUNCMD
 
     return f"""#cloud-config
 ssh_pwauth: True
@@ -155,7 +155,7 @@ runcmd:
   - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf || true
   - echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config || true
   - systemctl restart ssh || systemctl restart sshd || true
-  - while ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; do sleep 2; done
+{WAIT_NETWORK_RUNCMD}
   - apt-get update || true
   - systemctl enable --now docker 2>/dev/null || true
   - usermod -aG docker {default_user} 2>/dev/null || true

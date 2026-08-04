@@ -203,3 +203,62 @@ def test_network_drives_use_the_right_nfs_package():
     doc = yaml.safe_load(ci["userData"])
     assert "nfs-utils" in doc["packages"]
     assert "nfs-common" not in doc["packages"]
+
+
+# --------------------- ожидание сети не должно висеть -----------------------
+
+def test_network_wait_is_bounded_in_every_cloud_init_builder():
+    """Реальная причина «шаблоны работают только на Ubuntu».
+
+    Ожидание сети стояло как `while ! ping ...; do sleep 2; done` без верхней
+    границы, а команды шаблона идут ПОСЛЕ него. Там, где исходящий ICMP закрыт
+    (обычное дело в университетских и корпоративных сетях при рабочем HTTP),
+    runcmd зависал навсегда.
+
+    Ubuntu это маскировала: пакеты ставит модуль packages — он отрабатывает до
+    runcmd, а политика пакетов Debian/Ubuntu стартует демон прямо при
+    установке, поэтому сайт поднимался сам. В RHEL, SUSE, Arch и Alpine службы
+    после установки не стартуют — их включает `systemctl enable --now` из
+    runcmd, до которого исполнение не доходило. И на любой системе не
+    доустанавливался qemu-guest-agent, из-за чего панель не узнавала адрес ВМ
+    на мосту, а проброс портов вёл в никуда.
+    """
+    from app.services.cloudinit import WAIT_NETWORK_RUNCMD
+    from app.services import marketplace as mp
+
+    # У самой константы есть предел числа итераций
+    assert "-le" in WAIT_NETWORK_RUNCMD, "у цикла ожидания сети нет верхней границы"
+    assert "i=$((i+1))" in WAIT_NETWORK_RUNCMD, "счётчик итераций не увеличивается"
+
+    def _has_unbounded_wait(text):
+        return "while ! ping" in text
+
+    # Сгенерированный cloud-init обычной ВМ и маркетплейса
+    from app.api.vms import generate_linux_manifest
+
+    manifest = generate_linux_manifest(FakeReq("rocky", "lamp"), "pw")
+    assert not _has_unbounded_wait(_cloudinit_of(manifest)["userData"])
+
+    app = mp.get_app("nextcloud")
+    env = mp.add_public_url(mp.resolve_env(app, {}), "10.0.0.5", 28042)
+    assert not _has_unbounded_wait(mp.build_marketplace_cloud_init(app, env, "pw"))
+
+    # deployments.py импортом тянет app.db (нужен драйвер БД), поэтому его
+    # проверяем по исходнику — здесь важно лишь отсутствие безграничного цикла.
+    deployments_src = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "app", "api", "deployments.py",
+    )
+    with open(deployments_src, encoding="utf-8") as f:
+        assert not _has_unbounded_wait(f.read())
+
+
+def test_template_commands_run_after_the_bounded_wait_not_behind_a_hang():
+    """Команды шаблона обязаны стоять после ожидания сети (им нужен интернет),
+    но само ожидание теперь гарантированно завершается."""
+    from app.api.vms import generate_linux_manifest
+
+    userdata = _cloudinit_of(generate_linux_manifest(FakeReq("rocky", "lamp"), "pw"))["userData"]
+    wait_at = userdata.index("while [ $i -le 60 ]")
+    svc_at = userdata.index("systemctl enable --now httpd")
+    assert wait_at < svc_at

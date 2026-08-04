@@ -338,7 +338,7 @@ def build_marketplace_cloud_init(app: dict, env: dict, password: str, default_us
     compose_block = _indent(app["compose"], 6)
     env_block = _indent(env_content, 6) if env_content else "      # (без переменных)"
 
-    from app.services.cloudinit import GUEST_AGENT_RETRY_RUNCMD
+    from app.services.cloudinit import GUEST_AGENT_RETRY_RUNCMD, WAIT_NETWORK_RUNCMD
 
     return f"""#cloud-config
 ssh_pwauth: True
@@ -364,7 +364,7 @@ runcmd:
   - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
   - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true
   - systemctl restart ssh || systemctl restart sshd || true
-  - while ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; do sleep 2; done
+{WAIT_NETWORK_RUNCMD}
   - apt-get update || true
   - systemctl enable --now docker 2>/dev/null || true
   - usermod -aG docker {default_user} 2>/dev/null || true
