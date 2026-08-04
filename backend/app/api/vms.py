@@ -234,7 +234,8 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     # Автологин в консоли — через drop-in для systemd-юнита getty. В системах
     # без systemd (Alpine с OpenRC) этот файл никто не прочитает, а команды
     # systemctl только зашумят лог ошибками, поэтому там их просто нет.
-    from app.services.cloudinit import GUEST_AGENT_RETRY_RUNCMD, WAIT_NETWORK_RUNCMD
+    from app.services.cloudinit import WAIT_NETWORK_RUNCMD, guest_agent_runcmd
+    from app.services import os_profiles
     from app.services.os_profiles import has_systemd
     if has_systemd(req.os_type):
         autologin_yaml = f"""
@@ -247,11 +248,20 @@ write_files:
         autologin_runcmd = """
   - systemctl daemon-reload || true
   - systemctl restart getty@tty1.service || true"""
-        restart_ssh_cmd = "  - systemctl restart ssh || systemctl restart sshd || true"
     else:
         autologin_yaml = ""
         autologin_runcmd = ""
-        restart_ssh_cmd = "  - rc-service sshd restart || true"
+    # Имя юнита SSH и менеджер пакетов зависят от семейства — берём правильные
+    # сразу, а не «пробуем дебиановский, потом остальные»: иначе каждый лог
+    # cloud-init на RHEL начинался с «Unit ssh.service not found» и
+    # «apt-get: command not found», хотя всё в итоге отрабатывало.
+    restart_ssh_cmd = "  - " + os_profiles.restart_ssh_cmd(req.os_type)
+    GUEST_AGENT_RETRY_RUNCMD = guest_agent_runcmd(req.os_type)
+
+    # firewalld в RHEL и openSUSE включён по умолчанию и не пропускает :80 —
+    # см. подробное пояснение в os_profiles.disable_guest_firewall_cmd
+    _fw = os_profiles.disable_guest_firewall_cmd(req.os_type)
+    firewall_runcmd = f"\n  - {_fw}" if _fw else ""
 
     # --- Полностью стабильный IP (не меняется при перезагрузке) ---
     # К pod-интерфейсу (masquerade, интернет) добавляем второй bridge-интерфейс
@@ -380,7 +390,7 @@ runcmd:
   - echo "{default_user}:{password}" | chpasswd
   - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
 {ssh_enable_commands}
-{restart_ssh_cmd}{autologin_runcmd}
+{restart_ssh_cmd}{autologin_runcmd}{firewall_runcmd}
 {WAIT_NETWORK_RUNCMD}
 {GUEST_AGENT_RETRY_RUNCMD}{runcmd_yaml}
 """,

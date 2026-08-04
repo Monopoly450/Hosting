@@ -80,18 +80,29 @@ ethernets:
 # (openSUSE), pacman (Arch) и apk (Alpine) агент на этих системах не ставился
 # вообще, и панель никогда не узнавала адрес мостового интерфейса такой ВМ.
 # В Alpine нет systemd — там служба поднимается через OpenRC.
-GUEST_AGENT_RETRY_RUNCMD = (
-    "  - i=1; while [ $i -le 50 ]; do "
-    "(apt-get update && apt-get install -y qemu-guest-agent) && break || "
-    "(dnf install -y qemu-guest-agent) && break || "
-    "(yum install -y qemu-guest-agent) && break || "
-    "(zypper --non-interactive install qemu-guest-agent) && break || "
-    "(pacman -Sy --noconfirm qemu-guest-agent) && break || "
-    "(apk add --no-cache qemu-guest-agent) && break || "
-    "sleep 5; i=$((i+1)); done || true\n"
-    "  - systemctl enable --now qemu-guest-agent 2>/dev/null || "
-    "(rc-update add qemu-guest-agent default && rc-service qemu-guest-agent start) 2>/dev/null || true"
-)
+def guest_agent_runcmd(os_type: str = "ubuntu") -> str:
+    """Установка qemu-guest-agent с повтором, начиная с «родного» для системы
+    менеджера пакетов.
+
+    Порядок попыток зависит от ОС не ради красоты: с жёстко зашитым apt-get
+    первым каждый лог cloud-init на не-Debian системе начинался со строки
+    «apt-get: command not found». Работало за счёт запасных вариантов, но при
+    разборе проблем это сбивает с толку в первую очередь.
+    """
+    from app.services.os_profiles import install_package_cmd_chain
+
+    chain = install_package_cmd_chain(os_type, "qemu-guest-agent")
+    return (
+        f"  - i=1; while [ $i -le 50 ]; do {chain} || "
+        "sleep 5; i=$((i+1)); done || true\n"
+        "  - systemctl enable --now qemu-guest-agent 2>/dev/null || "
+        "(rc-update add qemu-guest-agent default && rc-service qemu-guest-agent start) 2>/dev/null || true"
+    )
+
+
+# Обратная совместимость для маркетплейса и деплоя из GitHub: они всегда
+# создают Ubuntu-машины, поэтому им достаточно варианта по умолчанию.
+GUEST_AGENT_RETRY_RUNCMD = guest_agent_runcmd("ubuntu")
 
 
 # Ожидание сети перед шагами, которым нужен интернет. Ограничено по времени —

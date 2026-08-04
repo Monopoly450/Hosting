@@ -262,3 +262,68 @@ def test_template_commands_run_after_the_bounded_wait_not_behind_a_hang():
     wait_at = userdata.index("while [ $i -le 60 ]")
     svc_at = userdata.index("systemctl enable --now httpd")
     assert wait_at < svc_at
+
+
+# ------------------ брандмауэр гостя и «родные» имена команд -----------------
+
+def test_guest_firewall_is_disabled_only_where_it_ships_enabled():
+    """firewalld установлен и активен в RHEL-семействе и openSUSE, и порт 80 в
+    разрешённых по умолчанию НЕ значится — только SSH и пара служебных. В
+    Debian и Ubuntu брандмауэра по умолчанию нет вовсе.
+
+    Это и оставалось причиной «на Ubuntu сайт открывается, на остальных нет»
+    уже после того, как сам шаблон начал отрабатывать: веб-сервер запущен и
+    слушает :80, проброс портов с хоста настроен, а firewalld внутри гостя
+    молча отбрасывает входящие пакеты. Доступом к ВМ управляет панель на
+    уровне хоста, поэтому второй брандмауэр внутри гостя только делает её
+    настройки портов неправдой."""
+    from app.services.os_profiles import disable_guest_firewall_cmd
+
+    for os_type in ("centos", "rocky", "almalinux", "fedora", "bitrix", "opensuse"):
+        assert "firewalld" in disable_guest_firewall_cmd(os_type), os_type
+    for os_type in ("ubuntu", "debian", "arch", "alpine"):
+        assert disable_guest_firewall_cmd(os_type) == "", os_type
+
+
+def test_ssh_unit_name_matches_the_family():
+    """В Debian/Ubuntu юнит называется ssh, в остальных — sshd. Раньше
+    команда всегда пробовала ssh первым, и лог cloud-init на RHEL открывался
+    ошибкой «Unit ssh.service not found»."""
+    from app.services.os_profiles import restart_ssh_cmd
+
+    assert "restart ssh " in restart_ssh_cmd("ubuntu") + " "
+    assert "restart sshd" in restart_ssh_cmd("rocky")
+    assert "restart sshd" in restart_ssh_cmd("opensuse")
+    # В Alpine нет systemd — там OpenRC
+    assert restart_ssh_cmd("alpine").startswith("rc-service")
+
+
+def test_native_package_manager_comes_first():
+    """Иначе каждый лог не-Debian системы начинается с «apt-get: command not
+    found» — работает за счёт запасных вариантов, но сбивает с толку при
+    разборе проблем."""
+    from app.services.os_profiles import install_package_cmd_chain
+
+    assert install_package_cmd_chain("rocky", "qemu-guest-agent").startswith("(dnf install -y")
+    assert install_package_cmd_chain("ubuntu", "qemu-guest-agent").startswith("(apt-get update")
+    assert install_package_cmd_chain("alpine", "qemu-guest-agent").startswith("(apk add")
+    # запасные варианты всё равно присутствуют — на случай неверно определённой ОС
+    assert "apt-get" in install_package_cmd_chain("rocky", "qemu-guest-agent")
+
+
+def test_rhel_manifest_disables_firewalld_before_waiting_for_network():
+    """Отключение брандмауэра не должно зависеть от наличия интернета —
+    иначе при закрытом ICMP оно ждало бы две минуты впустую."""
+    from app.api.vms import generate_linux_manifest
+
+    userdata = _cloudinit_of(generate_linux_manifest(FakeReq("rocky", "lamp"), "pw"))["userData"]
+    fw_at = userdata.index("disable --now firewalld")
+    wait_at = userdata.index("while [ $i -le 60 ]")
+    assert fw_at < wait_at
+
+
+def test_ubuntu_manifest_has_no_firewalld_line():
+    from app.api.vms import generate_linux_manifest
+
+    userdata = _cloudinit_of(generate_linux_manifest(FakeReq("ubuntu", "lamp"), "pw"))["userData"]
+    assert "firewalld" not in userdata

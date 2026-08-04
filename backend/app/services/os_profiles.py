@@ -48,6 +48,84 @@ def enable_service_cmd(os_type: str, service: str) -> str:
     return f"rc-update add {service} default && rc-service {service} start"
 
 
+# Имя юнита SSH-сервера. В Debian и Ubuntu он называется ssh, во всех
+# остальных семействах — sshd. Раньше команда была «systemctl restart ssh ||
+# systemctl restart sshd», то есть на RHEL первая попытка всегда падала с
+# «Unit ssh.service not found» в логе cloud-init: работало за счёт запасного
+# варианта, но каждый лог начинался с пугающей ошибки.
+SSH_SERVICE = {
+    "debian": "ssh",
+    "rhel": "sshd",
+    "suse": "sshd",
+    "arch": "sshd",
+    "alpine": "sshd",
+}
+
+
+def restart_ssh_cmd(os_type: str) -> str:
+    """Перезапуск SSH-сервера правильным для системы способом."""
+    service = SSH_SERVICE.get(family_of(os_type), "ssh")
+    if has_systemd(os_type):
+        return f"systemctl restart {service} || true"
+    return f"rc-service {service} restart || true"
+
+
+# Менеджер пакетов семейства — команда установки одного пакета.
+# Порядок важен: сначала пробуем «родной» для системы, иначе лог заполняется
+# ошибками вида «apt-get: command not found» на каждой не-Debian системе.
+PKG_INSTALL = {
+    "debian": "apt-get update && apt-get install -y",
+    "rhel": "dnf install -y",
+    "suse": "zypper --non-interactive install",
+    "arch": "pacman -Sy --noconfirm",
+    "alpine": "apk add --no-cache",
+}
+
+# Все менеджеры — как запасные варианты, если «родной» почему-то недоступен
+# (например, os_type определён неверно или образ подменён своим).
+_ALL_PKG_INSTALL = [
+    "apt-get update && apt-get install -y",
+    "dnf install -y",
+    "yum install -y",
+    "zypper --non-interactive install",
+    "pacman -Sy --noconfirm",
+    "apk add --no-cache",
+]
+
+
+def install_package_cmd_chain(os_type: str, package: str) -> str:
+    """Цепочка попыток установки пакета: сначала родной менеджер, затем прочие."""
+    native = PKG_INSTALL.get(family_of(os_type))
+    ordered = ([native] if native else []) + [c for c in _ALL_PKG_INSTALL if c != native]
+    return " || ".join(f"({cmd} {package}) && break" for cmd in ordered)
+
+
+# Семейства, где брандмауэр гостя включён по умолчанию и блокирует HTTP.
+#
+# firewalld установлен и активен в RHEL-семействе (CentOS/Rocky/Alma/Fedora) и
+# в openSUSE; в разрешённых по умолчанию службах — SSH и пара служебных, а
+# порт 80 НЕ открыт. В Debian и Ubuntu брандмауэра по умолчанию нет вообще.
+# Именно это и оставалось причиной «на Ubuntu сайт открывается, на остальных
+# нет» уже после того, как сам шаблон начал отрабатывать: веб-сервер запущен и
+# слушает :80, проброс портов с хоста настроен, а firewalld внутри гостя молча
+# отбрасывает входящие пакеты.
+#
+# Отключаем его, а не открываем отдельные порты: доступом к ВМ управляет
+# панель на уровне хоста (reconcile_vm_firewall_rules — DNAT плюс FORWARD с
+# белым списком), и второй, невидимый для панели брандмауэр внутри гостя
+# делает её настройки портов неправдой. Ubuntu-машины и так работают без него,
+# так что это ещё и выравнивает поведение всех систем.
+FIREWALL_FAMILIES = ("rhel", "suse")
+
+
+def disable_guest_firewall_cmd(os_type: str) -> str:
+    """Команда отключения брандмауэра гостя, либо пустая строка, если он там
+    и так не используется."""
+    if family_of(os_type) not in FIREWALL_FAMILIES:
+        return ""
+    return "systemctl disable --now firewalld 2>/dev/null || true"
+
+
 # Шаблоны окружения по семействам.
 #   packages — что ставить
 #   commands — что выполнить после установки ({svc} подставляется через
