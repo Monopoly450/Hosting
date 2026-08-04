@@ -145,6 +145,86 @@ def disable_guest_firewall_cmd(os_type: str) -> str:
     return "systemctl disable --now firewalld 2>/dev/null || true"
 
 
+# Корень сайта по умолчанию у каждого веб-сервера свой. Пути различаются не
+# только между семействами, но и между Apache и nginx внутри одного: в
+# RHEL-семействе Apache отдаёт /var/www/html, а nginx — /usr/share/nginx/html.
+# Из-за этого страница, положенная «куда обычно», у половины систем просто не
+# отдавалась, и пользователь видел заглушку дистрибутива.
+APACHE_ROOT = {"debian": "/var/www/html", "rhel": "/var/www/html", "suse": "/srv/www/htdocs"}
+NGINX_ROOT = {"debian": "/var/www/html", "rhel": "/usr/share/nginx/html", "suse": "/srv/www/htdocs"}
+
+
+def _index_php_cmd(root: str, stack: str) -> str:
+    """Кладёт минимальную страницу в корень сайта.
+
+    Без неё Apache и nginx отдают собственную страницу-заглушку дистрибутива
+    («Test Page for the HTTP Server on Fedora» и подобные) — она появляется
+    ровно тогда, когда в корне нет ни одного индексного файла. Со стороны это
+    неотличимо от «шаблон не сработал», хотя стек уже поднят. Заодно страница
+    сразу показывает, что PHP действительно исполняется, а не отдаётся текстом.
+    """
+    page = (
+        "<?php echo \"<h1>" + stack + " работает</h1>\";"
+        " echo \"<p>PHP \" . phpversion() . \"</p>\";"
+        " echo \"<p>Замените этот файл своим сайтом: " + root + "/index.php</p>\"; ?>"
+    )
+    return f"mkdir -p {root} && printf '%s' '{page}' > {root}/index.php"
+
+
+# Конфигурация nginx для передачи .php в php-fpm.
+#
+# Сам по себе nginx PHP не исполняет — ему нужен явный location с fastcgi_pass,
+# которого шаблон LEMP не создавал вообще: ставились nginx и php-fpm, но между
+# собой они связаны не были. Путь к сокету php-fpm отличается и между
+# дистрибутивами, и между версиями PHP, поэтому определяем его на месте, а не
+# зашиваем: ls по обоим известным расположениям и первый найденный.
+#
+# Кавычки одинарные — важно: $document_root и $fastcgi_script_name должен
+# подставить nginx, а не shell при записи файла.
+_NGINX_PHP_LOCATION = (
+    "PHPSOCK=$(ls /run/php-fpm/www.sock /run/php/php*-fpm.sock /var/run/php-fpm/www.sock "
+    "2>/dev/null | head -n1); "
+    "[ -n \"$PHPSOCK\" ] && printf '%s\\n' "
+    "'index index.php index.html;' "
+    "'location ~ \\.php$ {' "
+    "'    include fastcgi_params;' "
+    "\"    fastcgi_pass unix:$PHPSOCK;\" "
+    "'    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;' "
+    "'}' "
+)
+
+
+def _nginx_php_conf_cmd(family: str) -> str:
+    """Команда, создающая конфиг nginx для PHP в нужном для семейства месте.
+
+    В RHEL-семействе nginx.conf уже содержит `include /etc/nginx/default.d/*.conf`
+    внутри блока server — это штатная точка расширения, и добавлять туда
+    location можно, не трогая основной конфиг. В Debian такого include нет,
+    поэтому дописываем в конфиг сайта по умолчанию через отдельный server-блок
+    в conf.d, предварительно убрав дефолтный сайт, иначе они столкнутся на 80.
+    """
+    if family == "rhel":
+        return _NGINX_PHP_LOCATION + "> /etc/nginx/default.d/aegis-php.conf"
+    if family == "suse":
+        return _NGINX_PHP_LOCATION + "> /etc/nginx/vhosts.d/aegis-php.conf"
+    # debian: свой server-блок вместо дефолтного сайта
+    return (
+        "rm -f /etc/nginx/sites-enabled/default; "
+        "PHPSOCK=$(ls /run/php/php*-fpm.sock /run/php-fpm/www.sock 2>/dev/null | head -n1); "
+        "[ -n \"$PHPSOCK\" ] && printf '%s\\n' "
+        "'server {' "
+        "'    listen 80 default_server;' "
+        "'    root /var/www/html;' "
+        "'    index index.php index.html;' "
+        "'    location ~ \\.php$ {' "
+        "'        include snippets/fastcgi-php.conf;' "
+        "\"        fastcgi_pass unix:$PHPSOCK;\" "
+        "'    }' "
+        "'}' "
+        "> /etc/nginx/conf.d/aegis-php.conf"
+    )
+
+
 # Шаблоны окружения по семействам.
 #   packages — что ставить
 #   commands — что выполнить после установки ({svc} подставляется через
@@ -154,40 +234,73 @@ def disable_guest_firewall_cmd(os_type: str) -> str:
 TEMPLATES = {
     "lamp": {
         "label": "LAMP (Apache + PHP + MariaDB)",
+        # Индексную страницу кладём после запуска Apache — см. services_first
+        "services_first": True,
         "debian": {
             "packages": ["apache2", "mariadb-server", "php", "libapache2-mod-php", "php-mysql"],
             "services": ["apache2", "mariadb"],
-            "commands": [],
+            "commands": [
+                _index_php_cmd(APACHE_ROOT["debian"], "LAMP"),
+                "systemctl reload apache2 || true",
+            ],
         },
         "rhel": {
             # httpd, а не apache2; php-mysqlnd, а не php-mysql; модуль php для
             # Apache в RHEL ставится вместе с php и отдельного пакета не требует.
             "packages": ["httpd", "mariadb-server", "php", "php-mysqlnd"],
             "services": ["httpd", "mariadb"],
-            "commands": [],
+            "commands": [
+                _index_php_cmd(APACHE_ROOT["rhel"], "LAMP"),
+                # SELinux: новому файлу нужен контекст httpd_sys_content_t,
+                # иначе Apache ответит 403 (см. шаблон wordpress)
+                "restorecon -R " + APACHE_ROOT["rhel"] + "/ 2>/dev/null || true",
+                "setsebool -P httpd_can_network_connect_db on 2>/dev/null || true",
+                "systemctl reload httpd || true",
+            ],
         },
         "suse": {
             "packages": ["apache2", "mariadb", "php8", "apache2-mod_php8"],
             "services": ["apache2", "mariadb"],
-            "commands": [],
+            "commands": [
+                _index_php_cmd(APACHE_ROOT["suse"], "LAMP"),
+                "systemctl reload apache2 || true",
+            ],
         },
     },
     "lemp": {
         "label": "LEMP (Nginx + PHP-FPM + MariaDB)",
+        # php-fpm должен уже работать, когда мы ищем его сокет для конфига nginx
+        "services_first": True,
         "debian": {
             "packages": ["nginx", "mariadb-server", "php-fpm", "php-mysql"],
             "services": ["nginx", "mariadb"],
-            "commands": ["systemctl enable --now php*-fpm || systemctl enable --now php-fpm || true"],
+            "commands": [
+                "systemctl enable --now php*-fpm || systemctl enable --now php-fpm || true",
+                _nginx_php_conf_cmd("debian"),
+                _index_php_cmd(NGINX_ROOT["debian"], "LEMP"),
+                "nginx -t && systemctl reload nginx || true",
+            ],
         },
         "rhel": {
             "packages": ["nginx", "mariadb-server", "php-fpm", "php-mysqlnd"],
             "services": ["nginx", "mariadb", "php-fpm"],
-            "commands": [],
+            "commands": [
+                _nginx_php_conf_cmd("rhel"),
+                _index_php_cmd(NGINX_ROOT["rhel"], "LEMP"),
+                "restorecon -R " + NGINX_ROOT["rhel"] + "/ 2>/dev/null || true",
+                "setsebool -P httpd_can_network_connect_db on 2>/dev/null || true",
+                "nginx -t && systemctl reload nginx || true",
+            ],
         },
         "suse": {
             "packages": ["nginx", "mariadb", "php8-fpm", "php8-mysql"],
             "services": ["nginx", "mariadb", "php-fpm"],
-            "commands": [],
+            "commands": [
+                "mkdir -p /etc/nginx/vhosts.d",
+                _nginx_php_conf_cmd("suse"),
+                _index_php_cmd(NGINX_ROOT["suse"], "LEMP"),
+                "nginx -t && systemctl reload nginx || true",
+            ],
         },
     },
     "docker": {

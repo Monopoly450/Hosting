@@ -408,3 +408,58 @@ def test_postgresql_still_initialises_before_starting():
     initdb_at = next(i for i, c in enumerate(commands) if "initdb" in c)
     start_at = next(i for i, c in enumerate(commands) if "enable --now postgresql" in c)
     assert initdb_at < start_at
+
+
+# --------------- веб-шаблоны должны отдавать страницу, а не заглушку ---------
+
+def test_web_templates_write_an_index_page():
+    """Реальный случай: LEMP на Fedora показывал «Test Page for the HTTP Server
+    on Fedora». Стек при этом был поднят — заглушка дистрибутива появляется
+    ровно тогда, когда в корне сайта нет ни одного индексного файла. Со стороны
+    неотличимо от «шаблон не сработал»."""
+    for template in ("lamp", "lemp"):
+        for os_type in ("ubuntu", "fedora"):
+            _, commands = build_template_steps(template, os_type)
+            assert any("index.php" in c for c in commands), (template, os_type)
+
+
+def test_lemp_wires_nginx_to_php_fpm():
+    """nginx сам PHP не исполняет — нужен location с fastcgi_pass, которого
+    шаблон LEMP не создавал вообще: ставились nginx и php-fpm, но между собой
+    связаны не были."""
+    for os_type in ("ubuntu", "fedora", "opensuse"):
+        _, commands = build_template_steps("lemp", os_type)
+        assert any("fastcgi_pass" in c for c in commands), os_type
+
+
+def test_php_socket_is_detected_at_runtime_not_hardcoded():
+    """Путь к сокету php-fpm отличается и между дистрибутивами, и между
+    версиями PHP (php8.1-fpm.sock, php8.3-fpm.sock…), поэтому он должен
+    определяться на месте."""
+    _, commands = build_template_steps("lemp", "ubuntu")
+    conf = next(c for c in commands if "fastcgi_pass" in c)
+    assert "PHPSOCK=$(ls" in conf
+    # А переменные nginx, наоборот, обязаны дойти до конфига неразвёрнутыми
+    assert "$document_root" in conf or "fastcgi-php.conf" in conf
+
+
+def test_web_root_differs_between_apache_and_nginx_on_rhel():
+    """В RHEL-семействе Apache отдаёт /var/www/html, а nginx —
+    /usr/share/nginx/html. Страница, положенная не туда, просто не отдаётся."""
+    from app.services.os_profiles import APACHE_ROOT, NGINX_ROOT
+
+    assert APACHE_ROOT["rhel"] == "/var/www/html"
+    assert NGINX_ROOT["rhel"] == "/usr/share/nginx/html"
+
+    _, lamp = build_template_steps("lamp", "fedora")
+    _, lemp = build_template_steps("lemp", "fedora")
+    assert any("/var/www/html/index.php" in c for c in lamp)
+    assert any("/usr/share/nginx/html/index.php" in c for c in lemp)
+
+
+def test_nginx_config_is_validated_before_reload():
+    """Битый конфиг не должен ронять уже работающий nginx — сначала nginx -t."""
+    for os_type in ("ubuntu", "fedora"):
+        _, commands = build_template_steps("lemp", os_type)
+        reload_cmd = next(c for c in commands if "reload nginx" in c)
+        assert reload_cmd.startswith("nginx -t &&"), os_type
