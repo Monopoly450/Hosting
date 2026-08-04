@@ -642,10 +642,24 @@ ExecStart=/usr/local/bin/aegis-network-setup.sh
 WantedBy=multi-user.target
 EOF
 
+# Requires только на docker: без него docker compose действительно не выполнить.
+# k3s и мост — Wants: панель обязана подниматься, даже если кластер сломан, —
+# именно через неё смотрят логи и разбираются, почему он сломан. С Requires=
+# любой сбой k3s тихо оставлял сервер вообще без веб-интерфейса.
+#
+# ExecStop намеренно нет. Раньше здесь был `docker compose down`: systemd
+# выполнял его при каждом выключении, УДАЛЯЯ контейнеры. У всех сервисов в
+# docker-compose.yml стоит restart: unless-stopped — Docker сам поднимает при
+# старте демона те контейнеры, что работали на момент остановки, но удалённые
+# восстанавливать нечему. То есть ExecStop своими руками убирал независимый
+# путь восстановления, и запуск после перезагрузки держался ровно на одном
+# этом юните: не сработал он — панели нет. Без ExecStop путей два.
+# Остановить панель вручную: docker compose down в каталоге проекта.
 cat <<EOF > /etc/systemd/system/aegis-hosting.service
 [Unit]
 Description=Aegis Cloud Engine hosting control panel
-Requires=docker.service k3s.service aegis-network.service
+Requires=docker.service
+Wants=k3s.service aegis-network.service
 After=docker.service k3s.service aegis-network.service
 
 [Service]
@@ -653,7 +667,6 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=${PROJECT_DIR}
 ExecStart=/usr/bin/docker compose up -d
-ExecStop=/usr/bin/docker compose down
 ExecReload=/usr/bin/docker compose restart
 
 [Install]
