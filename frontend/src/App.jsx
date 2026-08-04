@@ -193,20 +193,36 @@ const App = () => {
       .catch(() => {});
   }, []);
 
-  // Шаблоны, применимые к выбранной ОС. Пока каталог не загружен — показываем
-  // все, чтобы поле не выглядело пустым; бэкенд всё равно отклонит несовместимую
-  // пару, так что это безопасно.
+  // Полный список шаблонов — запасной вариант на случай, когда каталог с
+  // бэкенда недоступен. Раньше при недоступном каталоге фильтр возвращал
+  // ПУСТОЙ список, и в поле оставался единственный пункт «Без шаблона»:
+  // выбрать шаблон становилось физически невозможно, причём молча. Пустой
+  // список в интерфейсе всегда хуже неотфильтрованного — несовместимую пару
+  // бэкенд отклонит сам, с внятным сообщением.
+  const ALL_TEMPLATES = [
+    { value: 'lamp', label: 'LAMP (Apache + PHP + MariaDB)' },
+    { value: 'lemp', label: 'LEMP (Nginx + PHP-FPM + MariaDB)' },
+    { value: 'docker', label: 'Docker (Engine + Compose)' },
+    { value: 'portainer', label: 'Portainer (Docker + веб-UI :9000)' },
+    { value: 'nodejs', label: 'Node.js 20 LTS (+ pm2)' },
+    { value: 'python', label: 'Python 3 (pip + venv + gunicorn)' },
+    { value: 'postgresql', label: 'PostgreSQL сервер' },
+    { value: 'redis', label: 'Redis сервер' },
+    { value: 'wordpress', label: 'WordPress (Apache + MariaDB + PHP)' },
+  ];
+
+  // Шаблоны, применимые к выбранной ОС.
   const availableTemplates = React.useMemo(() => {
-    if (!osCatalog) return null;
+    if (!osCatalog) return ALL_TEMPLATES;          // каталог не загрузился
     const allowed = osCatalog.supported?.[osType];
-    if (!allowed) return [];   // ISO-система: cloud-init нет, шаблонов тоже
+    if (!allowed) return ALL_TEMPLATES;            // ОС нет в каталоге — не прячем всё
     return osCatalog.templates.filter(t => allowed.includes(t.value));
   }, [osCatalog, osType]);
 
   // Смена ОС может сделать выбранный шаблон недоступным — сбрасываем его,
   // иначе в поле осталась бы подпись шаблона, который к этой ОС не применится.
   useEffect(() => {
-    if (!availableTemplates || !cloudInitTemplate) return;
+    if (!cloudInitTemplate) return;
     if (!availableTemplates.some(t => t.value === cloudInitTemplate)) {
       setCloudInitTemplate('');
     }
@@ -1170,10 +1186,10 @@ const App = () => {
                                   placeholder="Без шаблона (Чистая ОС)"
                                   options={[
                                     { value: '', label: 'Без шаблона (Чистая ОС)' },
-                                    ...(availableTemplates || []),
+                                    ...availableTemplates,
                                   ]}
                                 />
-                                {availableTemplates && (
+                                {osCatalog && (
                                   <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
                                     Показаны шаблоны, которые собираются на этой ОС: имена пакетов и служб у семейств Linux различаются.
                                   </span>
