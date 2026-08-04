@@ -1108,15 +1108,15 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
                            f"а «{req.os_type}» ставится с установочного ISO."
                 )
             if not template_supported(tmpl, req.os_type):
-                from app.services.os_profiles import SELF_CONTAINED_OS
+                from app.services.os_profiles import OS_WITH_OWN_WEB_STACK, WEB_STACK_TEMPLATES
                 label = (TEMPLATES.get(tmpl) or {}).get("label", tmpl)
-                if req.os_type in SELF_CONTAINED_OS:
+                if req.os_type in OS_WITH_OWN_WEB_STACK and tmpl in WEB_STACK_TEMPLATES:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"«{req.os_type}» уже разворачивает собственное окружение "
-                               f"(веб-сервер, база данных, PHP), поэтому шаблон «{label}» "
-                               f"к нему не добавляется: два стека займут один и тот же порт 80. "
-                               f"Создайте ВМ без шаблона."
+                        detail=f"«{req.os_type}» уже поднимает собственный веб-сервер на порту 80, "
+                               f"поэтому шаблон «{label}» к нему не добавляется — два стека "
+                               f"займут один порт. Шаблоны без веб-сервера (Docker, Redis, "
+                               f"PostgreSQL, Node.js, Python) выбрать можно."
                     )
                 raise HTTPException(
                     status_code=400,

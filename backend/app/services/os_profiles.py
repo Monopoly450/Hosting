@@ -29,16 +29,24 @@ OS_FAMILY = {
 # Alpine использует OpenRC (rc-update / rc-service).
 NO_SYSTEMD_FAMILIES = ("alpine",)
 
-# ОС, которые сами являются готовым окружением и не принимают шаблоны.
+# ОС, которые уже разворачивают собственный веб-стек.
 #
 # bitrix — это не «CentOS, на котором можно что-то развернуть», а установка
 # bitrix-env.sh (см. generate_linux_manifest): она разворачивает собственный
-# полный стек — nginx как фронтенд, за ним Apache, MySQL и PHP. Шаблон LAMP
-# ставил поверх ЕЩЁ ОДИН Apache и MariaDB, и оба стека начинали делить порт
-# 80. Выигрывал nginx от Bitrix и отдавал «403 Forbidden», потому что сайт в
-# нём ещё не настроен — на живом сервере это выглядело как «шаблон сломал ВМ»,
-# хотя сломала их именно комбинация.
-SELF_CONTAINED_OS = ("bitrix",)
+# полный стек — nginx как фронтенд, за ним Apache, MySQL и PHP.
+OS_WITH_OWN_WEB_STACK = ("bitrix",)
+
+# Шаблоны, которые сами поднимают веб-сервер на порту 80.
+#
+# Только они и конфликтуют с ОС из списка выше: шаблон LAMP ставил поверх
+# Bitrix ЕЩЁ ОДИН Apache, оба стека начинали делить порт 80, выигрывал nginx
+# от Bitrix и отдавал «403 Forbidden» — сайт в нём ещё не настроен.
+#
+# Остальные шаблоны блокировать не за что: Docker сам порты не занимает,
+# Portainer слушает 9000, Redis 6379, PostgreSQL 5432 (у Bitrix MySQL на
+# 3306), Node.js и Python — просто наборы пакетов. Всё это рядом с Bitrix
+# работает, поэтому запрещаем ровно конфликтующее, а не шаблоны целиком.
+WEB_STACK_TEMPLATES = ("lamp", "lemp", "wordpress")
 
 
 def family_of(os_type: str) -> str:
@@ -393,9 +401,9 @@ def template_supported(template: str, os_type: str) -> bool:
     """Поддерживается ли шаблон окружения для этой ОС."""
     if not template:
         return True
-    # ОС с собственным готовым стеком не принимают шаблоны вообще —
-    # два веб-стека на одной машине дерутся за порт 80 (см. SELF_CONTAINED_OS)
-    if os_type in SELF_CONTAINED_OS:
+    # У ОС со своим веб-стеком запрещены только шаблоны, которые тоже поднимают
+    # веб-сервер: два таких стека подерутся за порт 80 (см. WEB_STACK_TEMPLATES)
+    if os_type in OS_WITH_OWN_WEB_STACK and template in WEB_STACK_TEMPLATES:
         return False
     spec = TEMPLATES.get(template)
     if not spec:

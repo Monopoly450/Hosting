@@ -1189,14 +1189,11 @@ const App = () => {
                                     ...availableTemplates,
                                   ]}
                                 />
-                                {osCatalog && availableTemplates.length === 0 && (
+                                {osCatalog && (
                                   <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
-                                    Эта ОС сама разворачивает готовое окружение (веб-сервер, база данных, PHP), поэтому шаблоны к ней не добавляются — иначе два стека займут один порт 80.
-                                  </span>
-                                )}
-                                {osCatalog && availableTemplates.length > 0 && (
-                                  <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
-                                    Показаны шаблоны, которые собираются на этой ОС: имена пакетов и служб у семейств Linux различаются.
+                                    {osType === 'bitrix'
+                                      ? 'Bitrix поднимает собственный веб-сервер на порту 80, поэтому LAMP, LEMP и WordPress к нему не добавляются. Остальные шаблоны работают рядом с ним.'
+                                      : 'Показаны шаблоны, которые собираются на этой ОС: имена пакетов и служб у семейств Linux различаются.'}
                                   </span>
                                 )}
                               </div>
