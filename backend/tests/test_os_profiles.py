@@ -154,9 +154,30 @@ def test_unsupported_template_yields_no_packages():
     assert packages == [] and commands == []
 
 
-def test_every_os_supports_at_least_one_template():
+def test_every_general_purpose_os_supports_at_least_one_template():
+    from app.services.os_profiles import SELF_CONTAINED_OS
+
     for os_type in _all_linux_os_types():
+        if os_type in SELF_CONTAINED_OS:
+            continue
         assert supported_templates_for(os_type), os_type
+
+
+def test_bitrix_takes_no_templates_because_it_is_already_a_stack():
+    """Реальный случай: Bitrix + LAMP отдавал «403 Forbidden от nginx/1.21.5».
+
+    bitrix-env.sh разворачивает собственный полный стек — nginx впереди,
+    за ним Apache, MySQL и PHP. Шаблон LAMP ставил поверх ещё один Apache,
+    оба стека делили порт 80, выигрывал nginx от Bitrix и отдавал 403,
+    потому что сайт в нём ещё не настроен."""
+    from app.services.os_profiles import SELF_CONTAINED_OS
+
+    assert "bitrix" in SELF_CONTAINED_OS
+    assert supported_templates_for("bitrix") == []
+    for template in ("lamp", "lemp", "wordpress", "docker", "redis"):
+        assert template_supported(template, "bitrix") is False, template
+    # ВМ без шаблона на Bitrix по-прежнему создаётся — это штатный сценарий
+    assert template_supported("", "bitrix") is True
 
 
 # --------------------------- сеть в манифесте ---------------------------

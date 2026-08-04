@@ -29,6 +29,17 @@ OS_FAMILY = {
 # Alpine использует OpenRC (rc-update / rc-service).
 NO_SYSTEMD_FAMILIES = ("alpine",)
 
+# ОС, которые сами являются готовым окружением и не принимают шаблоны.
+#
+# bitrix — это не «CentOS, на котором можно что-то развернуть», а установка
+# bitrix-env.sh (см. generate_linux_manifest): она разворачивает собственный
+# полный стек — nginx как фронтенд, за ним Apache, MySQL и PHP. Шаблон LAMP
+# ставил поверх ЕЩЁ ОДИН Apache и MariaDB, и оба стека начинали делить порт
+# 80. Выигрывал nginx от Bitrix и отдавал «403 Forbidden», потому что сайт в
+# нём ещё не настроен — на живом сервере это выглядело как «шаблон сломал ВМ»,
+# хотя сломала их именно комбинация.
+SELF_CONTAINED_OS = ("bitrix",)
+
 
 def family_of(os_type: str) -> str:
     """Семейство ОС. Неизвестные типы считаем debian-подобными: это поведение
@@ -382,6 +393,10 @@ def template_supported(template: str, os_type: str) -> bool:
     """Поддерживается ли шаблон окружения для этой ОС."""
     if not template:
         return True
+    # ОС с собственным готовым стеком не принимают шаблоны вообще —
+    # два веб-стека на одной машине дерутся за порт 80 (см. SELF_CONTAINED_OS)
+    if os_type in SELF_CONTAINED_OS:
+        return False
     spec = TEMPLATES.get(template)
     if not spec:
         return False
