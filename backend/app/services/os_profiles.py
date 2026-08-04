@@ -369,6 +369,9 @@ TEMPLATES = {
     },
     "wordpress": {
         "label": "WordPress (Apache + MariaDB + PHP)",
+        # Файлы раскладываются в docroot и веб-сервер перезапускается — значит
+        # он должен быть уже поднят, поэтому службы включаем до команд.
+        "services_first": True,
         "debian": {
             "packages": ["apache2", "mariadb-server", "php", "php-mysql", "php-gd", "php-xml",
                          "php-mbstring", "php-curl", "wget", "tar"],
@@ -381,6 +384,7 @@ TEMPLATES = {
             ],
         },
         "rhel": {
+            # php-curl отдельным пакетом в RHEL нет — расширение входит в php-common
             "packages": ["httpd", "mariadb-server", "php", "php-mysqlnd", "php-gd", "php-xml",
                          "php-mbstring", "wget", "tar"],
             "services": ["httpd", "mariadb"],
@@ -390,6 +394,15 @@ TEMPLATES = {
                 # В RHEL веб-сервер работает от пользователя apache, а не www-data;
                 # mod_rewrite включён в конфигурации по умолчанию, a2enmod там нет.
                 "chown -R apache:apache /var/www/html/",
+                # SELinux в облачных образах RHEL-семейства работает в режиме
+                # enforcing. Файлы, распакованные из tar, получают контекст
+                # НЕ httpd_sys_content_t, и Apache отдаёт на них ровно «403
+                # Forbidden» — при полностью рабочих правах и запущенной службе.
+                # restorecon возвращает файлам ожидаемый контекст.
+                "restorecon -R /var/www/html/ 2>/dev/null || true",
+                # PHP подключается к MariaDB; без этого булева SELinux рвёт
+                # соединение веб-сервера с базой.
+                "setsebool -P httpd_can_network_connect_db on 2>/dev/null || true",
                 "systemctl restart httpd || true",
             ],
         },
@@ -438,10 +451,18 @@ def build_template_steps(template: str, os_type: str):
     spec = TEMPLATES[template][family]
     packages = list(spec["packages"])
     commands = list(spec["commands"])
-    # Службы включаем после команд: в RHEL, например, postgresql сначала нужно
-    # проинициализировать (initdb), и только потом его можно запускать.
-    commands += [enable_service_cmd(os_type, svc) for svc in spec["services"]]
-    return packages, commands
+    services = [enable_service_cmd(os_type, svc) for svc in spec["services"]]
+
+    # Порядок «службы или команды первыми» у шаблонов разный, и обе стороны
+    # обязательны. postgresql в RHEL нужно сначала проинициализировать (initdb)
+    # — до этого служба не стартует вообще, поэтому по умолчанию команды идут
+    # первыми. А wordpress наоборот: он раскладывает файлы в docroot и делает
+    # restart веб-сервера, то есть требует уже поднятой службы (иначе restart
+    # шёл раньше самого enable — работало случайно, потому что restart умеет
+    # запустить остановленную службу).
+    if TEMPLATES[template].get("services_first"):
+        return packages, services + commands
+    return packages, commands + services
 
 
 # Имя пакета NFS-клиента: нужен, когда к ВМ подключают сетевые диски.

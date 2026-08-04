@@ -358,3 +358,53 @@ def test_ubuntu_manifest_has_no_firewalld_line():
 
     userdata = _cloudinit_of(generate_linux_manifest(FakeReq("ubuntu", "lamp"), "pw"))["userData"]
     assert "firewalld" not in userdata
+
+
+# ------------------------- SELinux и порядок шагов ---------------------------
+
+def test_wordpress_on_rhel_restores_selinux_context_after_extracting():
+    """Вторая настоящая причина «403 Forbidden» на RHEL-семействе.
+
+    В облачных образах RHEL SELinux работает в режиме enforcing. Файлы,
+    распакованные из tar в /var/www/html, получают контекст, отличный от
+    httpd_sys_content_t, и Apache отдаёт 403 — при корректных правах доступа
+    и запущенной службе, то есть без единого намёка на причину в обычных
+    логах."""
+    _, commands = build_template_steps("wordpress", "rocky")
+
+    tar_at = next(i for i, c in enumerate(commands) if c.startswith("tar -xzf"))
+    restorecon_at = next(i for i, c in enumerate(commands) if "restorecon" in c)
+    # Контекст восстанавливаем ПОСЛЕ распаковки — до неё это бессмысленно
+    assert tar_at < restorecon_at
+    # И до перезапуска веб-сервера
+    restart_at = next(i for i, c in enumerate(commands) if "restart httpd" in c)
+    assert restorecon_at < restart_at
+
+
+def test_selinux_commands_are_absent_where_selinux_is_not_used():
+    """В Debian и Ubuntu SELinux не используется — лишние команды там только
+    засоряли бы лог ошибками."""
+    _, commands = build_template_steps("wordpress", "ubuntu")
+    assert not any("restorecon" in c for c in commands)
+    assert not any("setsebool" in c for c in commands)
+
+
+def test_wordpress_starts_services_before_touching_the_docroot():
+    """Шаблон раскладывает файлы и перезапускает веб-сервер — значит служба
+    должна быть уже поднята. Раньше `systemctl restart` шёл РАНЬШЕ, чем
+    `systemctl enable --now`, и срабатывало лишь потому, что restart умеет
+    запустить остановленную службу."""
+    for os_type in ("ubuntu", "rocky"):
+        _, commands = build_template_steps("wordpress", os_type)
+        enable_at = next(i for i, c in enumerate(commands) if "enable --now" in c)
+        wget_at = next(i for i, c in enumerate(commands) if c.startswith("wget"))
+        assert enable_at < wget_at, os_type
+
+
+def test_postgresql_still_initialises_before_starting():
+    """Обратная сторона того же порядка: postgresql в RHEL, наоборот, требует
+    initdb ДО запуска — без него служба не стартует вообще."""
+    _, commands = build_template_steps("postgresql", "rocky")
+    initdb_at = next(i for i, c in enumerate(commands) if "initdb" in c)
+    start_at = next(i for i, c in enumerate(commands) if "enable --now postgresql" in c)
+    assert initdb_at < start_at
