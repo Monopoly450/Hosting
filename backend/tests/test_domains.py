@@ -45,6 +45,18 @@ def test_caddyfile_includes_acme_email_when_set():
     assert "email me@example.com" in cfg
 
 
+def test_empty_caddyfile_stub_does_not_collide_with_the_panels_own_port():
+    """Реальный баг: заглушка «нет доменов» слушала :8080 — тот же порт,
+    на котором сама панель отдаёт себя (frontend/nginx.conf). Caddy работает
+    в network_mode host, поэтому кто из двух стартовал раньше, тот и занимал
+    порт: второй не мог забиндиться и падал. На живом сервере это выглядело
+    так — вместо панели браузер показывал заглушку Caddy."""
+    cfg = d.build_caddyfile([])
+    assert ":8080 {" not in cfg
+    assert ":8443 {" not in cfg
+    assert "домены не настроены" in cfg
+
+
 def test_caddyfile_without_email_has_no_global_block():
     cfg = d.build_caddyfile([{"domain": "a.example.com", "upstream": "1.2.3.4:80"}])
     assert "email" not in cfg
