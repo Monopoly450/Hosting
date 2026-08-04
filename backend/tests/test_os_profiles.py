@@ -432,15 +432,48 @@ def test_lemp_wires_nginx_to_php_fpm():
         assert any("fastcgi_pass" in c for c in commands), os_type
 
 
-def test_php_socket_is_detected_at_runtime_not_hardcoded():
+def test_php_socket_path_is_pinned_not_guessed_at_runtime():
     """Путь к сокету php-fpm отличается и между дистрибутивами, и между
-    версиями PHP (php8.1-fpm.sock, php8.3-fpm.sock…), поэтому он должен
-    определяться на месте."""
-    _, commands = build_template_steps("lemp", "ubuntu")
-    conf = next(c for c in commands if "fastcgi_pass" in c)
-    assert "PHPSOCK=$(ls" in conf
-    # А переменные nginx, наоборот, обязаны дойти до конфига неразвёрнутыми
-    assert "$document_root" in conf or "fastcgi-php.conf" in conf
+    версиями PHP (php8.1-fpm.sock, php8.3-fpm.sock…), а на openSUSE пул www
+    по умолчанию вообще слушает TCP, а не unix-сокет — искать *.sock рантаймом
+    там нечего. Поэтому мы сами прибиваем сокет к фиксированному пути и его же
+    прописываем в nginx, вместо угадывания того, что получилось у пакетного
+    менеджера."""
+    from app.services.os_profiles import AEGIS_PHP_FPM_SOCK
+
+    for os_type in ("ubuntu", "fedora", "opensuse"):
+        _, commands = build_template_steps("lemp", os_type)
+        pin_cmd = next(c for c in commands if "sed -i" in c and "listen" in c)
+        conf_cmd = next(c for c in commands if "fastcgi_pass" in c)
+        assert AEGIS_PHP_FPM_SOCK in pin_cmd, os_type
+        assert f"fastcgi_pass unix:{AEGIS_PHP_FPM_SOCK}" in conf_cmd, os_type
+        # А переменные nginx, наоборот, обязаны дойти до конфига неразвёрнутыми
+        assert "$document_root" in conf_cmd, os_type
+
+
+def test_opensuse_php_packages_are_not_in_the_atomic_packages_list():
+    """php8/php8-fpm нет в стандартном OSS-репозитории Leap 15.6 — если их
+    оставить в декларативном "packages", cloud-init поставит все пакеты одной
+    транзакцией zypper, и одно нерезолвящееся имя провалит всю транзакцию,
+    утащив за собой даже nginx/apache2/mariadb, которые в стандартном
+    репозитории есть. Поэтому php-пакеты suse обязаны ставиться отдельной
+    командой после подключения репозитория, а не сидеть в packages."""
+    for template in ("lamp", "lemp"):
+        packages, commands = build_template_steps(template, "opensuse")
+        assert not any("php" in p for p in packages), (template, packages)
+        assert any("php8" in c and "install" in c for c in commands), template
+
+
+def test_opensuse_registers_the_php_repo_before_installing_php():
+    """devel:languages:php должен быть подключён раньше, чем zypper install
+    php8* — иначе ставить будет неоткуда."""
+    for template in ("lamp", "lemp"):
+        _, commands = build_template_steps(template, "opensuse")
+        repo_idx = next(i for i, c in enumerate(commands) if "zypper" in c and " ar " in c)
+        install_idx = next(
+            i for i, c in enumerate(commands) if "zypper" in c and "install php8" in c
+        )
+        assert repo_idx < install_idx, template
 
 
 def test_web_root_differs_between_apache_and_nginx_on_rhel():
@@ -459,7 +492,19 @@ def test_web_root_differs_between_apache_and_nginx_on_rhel():
 
 def test_nginx_config_is_validated_before_reload():
     """Битый конфиг не должен ронять уже работающий nginx — сначала nginx -t."""
-    for os_type in ("ubuntu", "fedora"):
+    for os_type in ("ubuntu", "fedora", "opensuse"):
         _, commands = build_template_steps("lemp", os_type)
         reload_cmd = next(c for c in commands if "reload nginx" in c)
         assert reload_cmd.startswith("nginx -t &&"), os_type
+
+
+def test_php_fpm_unit_name_is_not_left_to_shell_globbing():
+    """`systemctl enable --now php*-fpm` не делает то, что кажется: bash
+    пытается развернуть маску по файлам текущего каталога, а не по юнитам
+    systemd, и в Debian/Ubuntu юнит версионирован (php8.3-fpm.service) и
+    меняется от релиза к релизу. Маска должна уходить в
+    `systemctl list-unit-files`, который матчит её сам."""
+    _, commands = build_template_steps("lemp", "ubuntu")
+    enable_cmd = next(c for c in commands if "enable --now" in c and "php" in c)
+    assert "list-unit-files" in enable_cmd
+    assert "'php*-fpm.service'" in enable_cmd

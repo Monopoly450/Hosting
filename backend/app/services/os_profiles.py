@@ -171,27 +171,63 @@ def _index_php_cmd(root: str, stack: str) -> str:
     return f"mkdir -p {root} && printf '%s' '{page}' > {root}/index.php"
 
 
-# Конфигурация nginx для передачи .php в php-fpm.
+# Сокет php-fpm под нашим собственным, фиксированным именем — вместо того,
+# чтобы угадывать, куда упаковщик дистрибутива положил его по умолчанию (это
+# отличается и между дистрибутивами, и между версиями PHP: /run/php/phpX.Y-fpm.sock,
+# /run/php-fpm/www.sock и т.д.). Хуже того — на openSUSE пул www по умолчанию
+# вообще слушает не unix-сокет, а TCP 127.0.0.1:9000, и поиск *.sock не нашёл
+# бы там вообще ничего.
 #
-# Сам по себе nginx PHP не исполняет — ему нужен явный location с fastcgi_pass,
-# которого шаблон LEMP не создавал вообще: ставились nginx и php-fpm, но между
-# собой они связаны не были. Путь к сокету php-fpm отличается и между
-# дистрибутивами, и между версиями PHP, поэтому определяем его на месте, а не
-# зашиваем: ls по обоим известным расположениям и первый найденный.
-#
-# Кавычки одинарные — важно: $document_root и $fastcgi_script_name должен
-# подставить nginx, а не shell при записи файла.
-_NGINX_PHP_LOCATION = (
-    "PHPSOCK=$(ls /run/php-fpm/www.sock /run/php/php*-fpm.sock /var/run/php-fpm/www.sock "
-    "2>/dev/null | head -n1); "
-    "[ -n \"$PHPSOCK\" ] && printf '%s\\n' "
-    "'index index.php index.html;' "
-    "'location ~ \\.php$ {' "
-    "'    include fastcgi_params;' "
-    "\"    fastcgi_pass unix:$PHPSOCK;\" "
-    "'    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;' "
-    "'}' "
-)
+# Вместо угадывания сами переписываем listen-директиву пула на этот путь
+# (см. _pin_php_fpm_socket_cmd) и здесь же на него ссылаемся — эта часть
+# больше ничего не ищет и не может «не найти» сокет.
+AEGIS_PHP_FPM_SOCK = "/run/aegis-php-fpm.sock"
+
+# Файл пула php-fpm по умолчанию (www.conf) под каждое семейство — только для
+# того, чтобы переписать в нём listen. Различаются оба уровня пути: и каталог
+# конфигурации (/etc/php vs /etc/php-fpm.d vs /etc/php8/fpm), и то, что там
+# может быть НЕСКОЛЬКО версий PHP разом (Debian) — отсюда маска, а не имя файла.
+PHP_FPM_POOL_CONF_GLOB = {
+    "debian": "/etc/php/*/fpm/pool.d/www.conf",
+    "rhel": "/etc/php-fpm.d/www.conf",
+    "suse": "/etc/php8/fpm/pool.d/www.conf",
+}
+
+
+def _pin_php_fpm_socket_cmd(family: str) -> str:
+    """Переписывает listen-директиву пула php-fpm на AEGIS_PHP_FPM_SOCK."""
+    conf_glob = PHP_FPM_POOL_CONF_GLOB.get(family)
+    if not conf_glob:
+        return ""
+    return (
+        f"for f in {conf_glob}; do [ -f \"$f\" ] && "
+        f"sed -i 's#^listen = .*#listen = {AEGIS_PHP_FPM_SOCK}#' \"$f\"; done"
+    )
+
+
+def _php_fpm_systemctl_cmd(family: str, action: str) -> str:
+    """`systemctl <action>` над настоящим именем юнита php-fpm.
+
+    В Debian/Ubuntu юнит версионирован (php8.3-fpm.service) и меняется от
+    релиза к релизу — простой `systemctl <action> php-fpm` там не сработает.
+    `systemctl list-unit-files PATTERN` матчит по glob-маске сам, штатно —
+    в отличие от передачи маски аргументом в systemctl напрямую, которую
+    сначала попытался бы развернуть сам bash по файлам текущего каталога."""
+    if family == "debian":
+        return (
+            f"systemctl {action} "
+            "$(systemctl list-unit-files 'php*-fpm.service' --no-legend | awk '{print $1}' | head -n1) "
+            f"2>/dev/null || systemctl {action} php-fpm 2>/dev/null || true"
+        )
+    return f"systemctl {action} php-fpm 2>/dev/null || true"
+
+
+def _enable_php_fpm_cmd(family: str) -> str:
+    return _php_fpm_systemctl_cmd(family, "enable --now")
+
+
+def _restart_php_fpm_cmd(family: str) -> str:
+    return _php_fpm_systemctl_cmd(family, "restart")
 
 
 def _nginx_php_conf_cmd(family: str) -> str:
@@ -199,30 +235,57 @@ def _nginx_php_conf_cmd(family: str) -> str:
 
     В RHEL-семействе nginx.conf уже содержит `include /etc/nginx/default.d/*.conf`
     внутри блока server — это штатная точка расширения, и добавлять туда
-    location можно, не трогая основной конфиг. В Debian такого include нет,
-    поэтому дописываем в конфиг сайта по умолчанию через отдельный server-блок
-    в conf.d, предварительно убрав дефолтный сайт, иначе они столкнутся на 80.
+    location можно, не трогая основной конфиг. В openSUSE аналогичный
+    include есть для vhosts.d. В Debian такого include нет, поэтому дописываем
+    в конфиг сайта по умолчанию через отдельный server-блок в conf.d,
+    предварительно убрав дефолтный сайт, иначе они столкнутся на 80.
     """
+    location = (
+        "printf '%s\\n' "
+        "'index index.php index.html;' "
+        "'location ~ \\.php$ {' "
+        "'    include fastcgi_params;' "
+        f"'    fastcgi_pass unix:{AEGIS_PHP_FPM_SOCK};' "
+        "'    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;' "
+        "'}' "
+    )
     if family == "rhel":
-        return _NGINX_PHP_LOCATION + "> /etc/nginx/default.d/aegis-php.conf"
+        return location + "> /etc/nginx/default.d/aegis-php.conf"
     if family == "suse":
-        return _NGINX_PHP_LOCATION + "> /etc/nginx/vhosts.d/aegis-php.conf"
+        return location + "> /etc/nginx/vhosts.d/aegis-php.conf"
     # debian: свой server-блок вместо дефолтного сайта
     return (
         "rm -f /etc/nginx/sites-enabled/default; "
-        "PHPSOCK=$(ls /run/php/php*-fpm.sock /run/php-fpm/www.sock 2>/dev/null | head -n1); "
-        "[ -n \"$PHPSOCK\" ] && printf '%s\\n' "
+        "printf '%s\\n' "
         "'server {' "
         "'    listen 80 default_server;' "
         "'    root /var/www/html;' "
         "'    index index.php index.html;' "
         "'    location ~ \\.php$ {' "
-        "'        include snippets/fastcgi-php.conf;' "
-        "\"        fastcgi_pass unix:$PHPSOCK;\" "
+        f"'        fastcgi_pass unix:{AEGIS_PHP_FPM_SOCK};' "
+        "'        include fastcgi_params;' "
+        "'        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;' "
         "'    }' "
         "'}' "
         "> /etc/nginx/conf.d/aegis-php.conf"
     )
+
+
+# openSUSE Leap 15.6's standard OSS repo does not include PHP 8 at all — it
+# lives in the devel:languages:php project repo and has to be added
+# explicitly. cloud-init's `packages:` module installs everything in ONE
+# zypper transaction; one unresolvable package name fails the whole
+# transaction, so nginx/mariadb — which ARE in the standard repo — never got
+# installed either. The VM booted, networking worked (see build_network_data),
+# and nothing answered on port 80 at all: indistinguishable from "didn't
+# start". PHP packages for suse are therefore installed via runcmd, after this
+# repo is registered, instead of sitting in the declarative `packages:` list.
+SUSE_PHP_REPO_CMD = (
+    "(zypper --non-interactive ar --no-refresh "
+    "https://download.opensuse.org/repositories/devel:languages:php/openSUSE_Leap_15.6/ "
+    "aegis-php || true) && "
+    "zypper --non-interactive --gpg-auto-import-keys refresh aegis-php 2>/dev/null || true"
+)
 
 
 # Шаблоны окружения по семействам.
@@ -259,9 +322,17 @@ TEMPLATES = {
             ],
         },
         "suse": {
-            "packages": ["apache2", "mariadb", "php8", "apache2-mod_php8"],
+            # php8/apache2-mod_php8 НЕТ в стандартном OSS-репозитории Leap
+            # 15.6 — этих пакетов не будет здесь, они ставятся ниже, после
+            # подключения репозитория. Иначе одна нерезолвящаяся зависимость
+            # рвёт всю транзакцию zypper целиком, и apache2 с mariadb (они-то
+            # как раз в стандартном репозитории) тоже не устанавливаются —
+            # ВМ поднимается пустой, будто шаблон вообще не запускался.
+            "packages": ["apache2", "mariadb"],
             "services": ["apache2", "mariadb"],
             "commands": [
+                SUSE_PHP_REPO_CMD,
+                "zypper --non-interactive install php8 apache2-mod_php8 || true",
                 _index_php_cmd(APACHE_ROOT["suse"], "LAMP"),
                 "systemctl reload apache2 || true",
             ],
@@ -269,13 +340,16 @@ TEMPLATES = {
     },
     "lemp": {
         "label": "LEMP (Nginx + PHP-FPM + MariaDB)",
-        # php-fpm должен уже работать, когда мы ищем его сокет для конфига nginx
+        # php-fpm должен уже работать, когда мы переписываем его сокет и пишем
+        # конфиг nginx на него
         "services_first": True,
         "debian": {
             "packages": ["nginx", "mariadb-server", "php-fpm", "php-mysql"],
             "services": ["nginx", "mariadb"],
             "commands": [
-                "systemctl enable --now php*-fpm || systemctl enable --now php-fpm || true",
+                _enable_php_fpm_cmd("debian"),
+                _pin_php_fpm_socket_cmd("debian"),
+                _restart_php_fpm_cmd("debian"),
                 _nginx_php_conf_cmd("debian"),
                 _index_php_cmd(NGINX_ROOT["debian"], "LEMP"),
                 "nginx -t && systemctl reload nginx || true",
@@ -285,6 +359,8 @@ TEMPLATES = {
             "packages": ["nginx", "mariadb-server", "php-fpm", "php-mysqlnd"],
             "services": ["nginx", "mariadb", "php-fpm"],
             "commands": [
+                _pin_php_fpm_socket_cmd("rhel"),
+                _restart_php_fpm_cmd("rhel"),
                 _nginx_php_conf_cmd("rhel"),
                 _index_php_cmd(NGINX_ROOT["rhel"], "LEMP"),
                 "restorecon -R " + NGINX_ROOT["rhel"] + "/ 2>/dev/null || true",
@@ -293,10 +369,20 @@ TEMPLATES = {
             ],
         },
         "suse": {
-            "packages": ["nginx", "mariadb", "php8-fpm", "php8-mysql"],
-            "services": ["nginx", "mariadb", "php-fpm"],
+            # php8-fpm/php8-mysql — та же история, что и в LAMP: их нет в
+            # стандартном репозитории Leap 15.6, ставим отдельно после
+            # подключения репозитория (см. SUSE_PHP_REPO_CMD). php-fpm поэтому
+            # убран и из декларативного "services" — юнит не существует до
+            # явной установки ниже.
+            "packages": ["nginx", "mariadb"],
+            "services": ["nginx", "mariadb"],
             "commands": [
                 "mkdir -p /etc/nginx/vhosts.d",
+                SUSE_PHP_REPO_CMD,
+                "zypper --non-interactive install php8-fpm php8-mysql || true",
+                _enable_php_fpm_cmd("suse"),
+                _pin_php_fpm_socket_cmd("suse"),
+                _restart_php_fpm_cmd("suse"),
                 _nginx_php_conf_cmd("suse"),
                 _index_php_cmd(NGINX_ROOT["suse"], "LEMP"),
                 "nginx -t && systemctl reload nginx || true",
