@@ -35,11 +35,14 @@ class FakeK8s:
         return f"{name}-cloudinit"
 
 
-def manifest_with(userdata: str) -> dict:
+def manifest_with(userdata: str, networkdata: str = None) -> dict:
+    cloud_init = {"userData": userdata}
+    if networkdata is not None:
+        cloud_init["networkData"] = networkdata
     return {
         "spec": {"template": {"spec": {"volumes": [
             {"name": "disk", "dataVolume": {"name": "vm1-disk"}},
-            {"name": "cloudinit", "cloudInitNoCloud": {"userData": userdata}},
+            {"name": "cloudinit", "cloudInitNoCloud": cloud_init},
         ]}}}
     }
 
@@ -130,6 +133,72 @@ def test_secret_key_is_the_one_kubevirt_reads():
 
     block = src[src.find("def create_cloudinit_secret"):]
     assert 'string_data={"userdata"' in block[:900]
+
+
+def test_network_data_survives_externalization():
+    """Реальный баг: замена всего cloudInitNoCloud на {"secretRef": ...}
+    стирала networkData, лежавший в том же объекте — ВМ теряла сеть у
+    ЛЮБОГО шаблона тяжелее ~1900 байт (WordPress, LAMP с SSH-ключом, весь
+    маркетплейс — там всегда docker-compose+.env). На Ubuntu пропажу
+    маскировал собственный DHCP-фолбэк cloud-init; на остальных системах
+    сеть не поднималась вообще — выглядело как «шаблоны работают только на
+    Ubuntu», хотя дело было не в шаблоне и не в ОС, а в размере userData."""
+    k8s = FakeK8s()
+    network_config = "version: 2\nethernets:\n  stable-nic:\n    dhcp4: false\n    addresses: [172.20.0.55/24]\n"
+    big = "#cloud-config\n" + "y" * 4000
+    m = manifest_with(big, networkdata=network_config)
+
+    assert externalize_cloudinit(k8s, m, "vm1") is True
+
+    ci = cloud_init_of(m)
+    assert "userData" not in ci
+    assert ci["secretRef"] == {"name": "vm1-cloudinit"}
+    assert ci["networkData"] == network_config, "networkData потерялся при выносе userData в Secret"
+
+
+def test_metadata_also_survives_externalization():
+    k8s = FakeK8s()
+    m = manifest_with("#cloud-config\n" + "y" * 4000)
+    cloud_init_of(m)["metaData"] = "instance-id: vm1\nlocal-hostname: vm1\n"
+    externalize_cloudinit(k8s, m, "vm1")
+    assert cloud_init_of(m)["metaData"] == "instance-id: vm1\nlocal-hostname: vm1\n"
+
+
+def test_real_manifest_pipeline_keeps_network_after_externalization():
+    """Сквозная проверка на настоящем generate_linux_manifest, а не на
+    вручную собранном фикстурном манифесте — именно этот путь проходит
+    воркер перед созданием ВМ (см. worker.py)."""
+    from app.api.vms import generate_linux_manifest
+
+    class Req:
+        name = "wp-test"
+        os_type = "rocky"
+        cpu_cores = 2
+        memory_gb = 2
+        disk_gb = 20
+        custom_image = None
+        packages = None
+        network_drives = None
+        cloud_init_template = "wordpress"
+        custom_user_data = None
+        iso_url = None
+        ssh_key = None
+        static_ip = "172.20.0.55"
+        cluster_network = None
+
+    manifest = generate_linux_manifest(Req(), "pw123")
+    k8s = FakeK8s()
+    moved = externalize_cloudinit(k8s, manifest, "wp-test")
+
+    ci = [v for v in manifest["spec"]["template"]["spec"]["volumes"]
+          if "cloudInitNoCloud" in v][0]["cloudInitNoCloud"]
+
+    if moved:
+        assert "networkData" in ci, "networkData потерялся при выносе userData в Secret"
+        assert "172.20.0.55/24" in ci["networkData"]
+    else:
+        # userData уместился inline — тогда и networkData обязан остаться на месте
+        assert "172.20.0.55/24" in ci["networkData"]
 
 
 def test_manifest_without_cloudinit_is_untouched():

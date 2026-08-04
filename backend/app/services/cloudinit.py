@@ -119,12 +119,22 @@ def externalize_cloudinit(k8s, manifest: dict, vm_name: str, namespace: str = "d
         if not needs_secret(userdata):
             continue
         secret_name = k8s.create_cloudinit_secret(vm_name, userdata, namespace)
-        # Заменяем inline-данные ссылкой на Secret.
+        # Заменяем inline userData ссылкой на Secret, но НЕ весь cloudInitNoCloud:
+        # networkData лежит в том же объекте (см. build_network_data), и старый
+        # код затирал его вместе с userData — `volume["cloudInitNoCloud"] = {...}`
+        # выбрасывал все прочие ключи. Сеть терялась молча у любого шаблона
+        # тяжелее ~1900 байт (WordPress, LAMP с SSH-ключом, весь маркетплейс —
+        # там всегда docker-compose+.env), а Ubuntu просто маскировала пропажу
+        # собственным DHCP-фолбэком в cloud-init, которого нет у других систем:
+        # отсюда и «работает только на Ubuntu» независимо от выбранного шаблона.
+        #
         # Поле называется именно secretRef: userDataSecretRef в схеме KubeVirt
         # нет, неизвестное поле молча отбрасывается, и валидатор ругается
         # «must have at least one userdatasource set».
         # networkDataSecretRef — это уже про network-data, не про userdata.
-        volume["cloudInitNoCloud"] = {"secretRef": {"name": secret_name}}
+        cloud_init.pop("userData", None)
+        cloud_init.pop("userDataBase64", None)
+        cloud_init["secretRef"] = {"name": secret_name}
         moved = True
         logger.info(
             f"cloud-init для ВМ {vm_name} ({len(userdata.encode())} байт) вынесен "
