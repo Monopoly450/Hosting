@@ -308,3 +308,42 @@ def test_reconcile_caddy_heals_a_crash_loop_without_any_domain_configured():
     assert d.reconcile_caddy(FakeDb(), object(), fake) is True
     assert stuck.removed_force is True
     assert len(fake.client.containers.created) == 1
+
+
+def test_plainly_exited_caddy_is_detected_as_stopped():
+    """restart_policy=always не поднимает контейнер, остановленный явно, —
+    он так и висит в exited. Пользователь на живом сервере видел ровно это:
+    «а нормально, что caddy всегда выключен?». Не нормально."""
+    c = FakeContainer(status="exited", restart_count=0)
+    assert d._caddy_state(c) == "stopped"
+
+
+def test_healthy_caddy_has_no_state_problem():
+    assert d._caddy_state(FakeContainer(status="running", restart_count=0)) is None
+
+
+def test_crash_loop_is_distinguished_from_a_plain_stop():
+    """Лечится это по-разному: зацикленный сносим, остановленный запускаем."""
+    assert d._caddy_state(FakeContainer(status="restarting", restart_count=0)) == "crash-loop"
+    assert d._caddy_state(FakeContainer(status="exited", restart_count=99)) == "crash-loop"
+
+
+def test_watchdog_starts_a_stopped_caddy_instead_of_recreating_it():
+    stopped = FakeContainer(status="exited", restart_count=0)
+    fake = FakeDockerClient(existing_container=stopped)
+    assert d.reconcile_caddy(FakeDb(), object(), fake) is True
+    assert stopped.started is True
+    # Пересоздавать незачем — конфиг в контейнере уже есть.
+    assert stopped.removed_force is None
+    assert fake.client.containers.created == []
+
+
+def test_watchdog_recreates_a_stopped_caddy_that_refuses_to_start():
+    class Unstartable(FakeContainer):
+        def start(self):
+            raise RuntimeError("port already in use")
+
+    stuck = Unstartable(status="exited", restart_count=0)
+    fake = FakeDockerClient(existing_container=stuck)
+    assert d.reconcile_caddy(FakeDb(), object(), fake) is True
+    assert len(fake.client.containers.created) == 1

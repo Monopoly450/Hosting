@@ -724,6 +724,81 @@ def clear_iptables_rules_for_port(ext_port: int):
                 del_cmd = line.replace("-A ", "-D ")
                 subprocess.run(nsenter_prefix + [f"iptables -t nat {del_cmd}"], capture_output=True, timeout=5)
 
+def resolve_vm_ports(vm_ip: str, vm_id: Optional[int] = None,
+                     ports_config: str = None, os_type: str = "linux") -> list:
+    """Итоговый список пробрасываемых портов ВМ.
+
+    Вынесено отдельно, чтобы проверка «правила на месте?» смотрела ровно тот
+    же список портов, который применяет reconcile_vm_firewall_rules, — иначе
+    вотчдог считал бы правила отсутствующими и переустанавливал их без конца.
+    """
+    ports = []
+    if ports_config:
+        try:
+            ports = json.loads(ports_config)
+        except Exception as e:
+            logger.error(f"Error parsing ports_config: {e}")
+
+    if ports:
+        return ports
+
+    # Порты не настроены — считаем дефолтные от ID ВМ (он стабилен), а если
+    # ID неизвестен — от последнего октета адреса.
+    if vm_id:
+        base = vm_id
+    else:
+        try:
+            base = int(vm_ip.split('.')[-1])
+        except Exception:
+            return []
+
+    if os_type == "windows":
+        return [
+            {"ext_port": 33000 + base, "int_port": 3389, "name": "RDP"},
+            {"ext_port": 22000 + base, "int_port": 22, "name": "SSH"},
+            {"ext_port": 28000 + base, "int_port": 80, "name": "HTTP"},
+        ]
+    return [
+        {"ext_port": 22000 + base, "int_port": 22, "name": "SSH"},
+        {"ext_port": 28000 + base, "int_port": 80, "name": "HTTP"},
+        {"ext_port": 44300 + base, "int_port": 443, "name": "HTTPS"},
+    ]
+
+
+def read_prerouting_rules() -> Optional[str]:
+    """Снимок цепочки PREROUTING таблицы nat.
+
+    None означает «прочитать не удалось» — это НЕ то же самое, что «правил
+    нет»: по None вотчдог ничего не переустанавливает, иначе при недоступном
+    iptables он бы дёргал файрвол каждые 15 секунд впустую.
+    """
+    import subprocess
+    nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
+    try:
+        res = subprocess.run(nsenter_prefix + ["iptables -t nat -S PREROUTING"],
+                             capture_output=True, text=True, timeout=5)
+    except Exception as e:
+        logger.debug(f"read_prerouting_rules: {e}")
+        return None
+    return res.stdout if res.returncode == 0 else None
+
+
+def dnat_rules_present(prerouting: str, vm_ip: str, ports: list) -> bool:
+    """Есть ли в снимке DNAT-правила на этот адрес для всех портов ВМ."""
+    if not ports:
+        return True
+    for p in ports:
+        try:
+            target = f"--to-destination {vm_ip}:{int(p['int_port'])}"
+            dport = f"--dport {int(p['ext_port'])} "
+        except Exception:
+            continue
+        found = any(target in line and dport in f"{line} " for line in prerouting.splitlines())
+        if not found:
+            return False
+    return True
+
+
 def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_config: str = None, firewall_rules: str = None, os_type: str = "linux", old_ip: Optional[str] = None):
     """Настраивает проброс портов и правила доступа для ВМ с помощью iptables на хосте.
 
@@ -785,43 +860,7 @@ def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_c
         if old_ip and old_ip != vm_ip:
             clear_iptables_rules_for_ip(old_ip)
 
-        # Парсим список портов
-        ports = []
-        if ports_config:
-            try:
-                ports = json.loads(ports_config)
-            except Exception as e:
-                logger.error(f"Error parsing ports_config: {e}")
-                
-        # Если порты не настроены, используем дефолтные
-        if not ports:
-            if vm_id:
-                if os_type == "windows":
-                    ports = [
-                        {"ext_port": 33000 + vm_id, "int_port": 3389, "name": "RDP"},
-                        {"ext_port": 22000 + vm_id, "int_port": 22, "name": "SSH"},
-                        {"ext_port": 28000 + vm_id, "int_port": 80, "name": "HTTP"}
-                    ]
-                else:
-                    ports = [
-                        {"ext_port": 22000 + vm_id, "int_port": 22, "name": "SSH"},
-                        {"ext_port": 28000 + vm_id, "int_port": 80, "name": "HTTP"},
-                        {"ext_port": 44300 + vm_id, "int_port": 443, "name": "HTTPS"}
-                    ]
-            else:
-                last_octet = int(vm_ip.split('.')[-1])
-                if os_type == "windows":
-                    ports = [
-                        {"ext_port": 33000 + last_octet, "int_port": 3389, "name": "RDP"},
-                        {"ext_port": 22000 + last_octet, "int_port": 22, "name": "SSH"},
-                        {"ext_port": 28000 + last_octet, "int_port": 80, "name": "HTTP"}
-                    ]
-                else:
-                    ports = [
-                        {"ext_port": 22000 + last_octet, "int_port": 22, "name": "SSH"},
-                        {"ext_port": 28000 + last_octet, "int_port": 80, "name": "HTTP"},
-                        {"ext_port": 44300 + last_octet, "int_port": 443, "name": "HTTPS"}
-                    ]
+        ports = resolve_vm_ports(vm_ip, vm_id, ports_config, os_type)
 
         # Очищаем старые правила DNAT для каждого из портов, чтобы они не указывали на прошлые IP-адреса
         for p in ports:
@@ -1183,14 +1222,25 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         except Exception:
             pass
 
-        # 2. Проверяем остаток ресурсов хоста с учетом резервирования другими ВМ
+        # 2. Проверяем остаток ресурсов хоста с учетом резервирования другими ВМ.
+        #
+        # Блокировку берём ДО подсчёта: иначе десять параллельных запросов
+        # прочитают одно и то же состояние и пройдут проверку все сразу, а
+        # зависнут потом — уже на планировании (см. app.core.capacity).
+        from app.core.capacity import lock_host_capacity, available_disk_gb
+        lock_host_capacity(db)
+
         db_vms = db.query(VMTask).all()
         reserved_cpu = sum(vm.cpu_cores for vm in db_vms)
         reserved_stopped_ram = sum(vm.memory_gb for vm in db_vms if vm.status != "Running")
+        reserved_disk = sum(vm.disk_gb or 0 for vm in db_vms)
 
         available_cpu = max(0, host_cpu - reserved_cpu)
         available_ram = max(0.0, round(host_ram_gb - current_ram_usage_gb - reserved_stopped_ram, 2))
-        available_disk = max(0.0, host_disk_free_gb)
+        # Диски тонкие: сразу после создания ВМ свободное место почти не
+        # уменьшается, поэтому одного shutil.disk_usage мало — надо вычесть
+        # уже обещанное другим ВМ.
+        available_disk = available_disk_gb(host_disk_gb, host_disk_free_gb, reserved_disk)
 
         if req.cpu_cores > available_cpu:
             db.close()
@@ -1200,7 +1250,7 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
             raise HTTPException(status_code=400, detail=f"Недостаточно свободной оперативной памяти на хосте. Запрошено: {req.memory_gb} ГБ, доступно для выделения: {available_ram} ГБ (всего на хосте: {host_ram_gb} ГБ).")
         if req.disk_gb > available_disk:
             db.close()
-            raise HTTPException(status_code=400, detail=f"Недостаточно свободного дискового пространства на хосте. Запрошено: {req.disk_gb} ГБ, доступно для выделения: {available_disk} ГБ (всего на хосте: {host_disk_gb} ГБ).")
+            raise HTTPException(status_code=400, detail=f"Недостаточно свободного дискового пространства на хосте. Запрошено: {req.disk_gb} ГБ, доступно для выделения: {available_disk} ГБ (всего на хосте: {host_disk_gb} ГБ, уже зарезервировано другими ВМ: {reserved_disk} ГБ).")
 
         # Проверяем лимиты квот для обычных пользователей (студентов)
         # Квота проверяется под блокировкой строки пользователя и в той же
@@ -1376,13 +1426,31 @@ def clone_vm(name: str, req: VMCloneRequest, current_user: User = Depends(get_cu
 
 
 @router.delete("/{name}")
-def delete_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
+def delete_vm(name: str, force: bool = False, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
+    """Удаляет ВМ. force=true — принудительно, для «залипших» машин.
+
+    Обычное удаление падает с 500, если Kubernetes не может убрать объект
+    (ВМ висит в Terminating, застряла в планировании, создана частично). При
+    этом запись в БД остаётся, и панель продолжает показывать машину, которую
+    невозможно удалить. force снимает finalizer'ы, добивает под и в любом
+    случае убирает запись из БД — чтобы из панели она ушла гарантированно.
+    """
     check_vm_ownership(name, current_user)
     from app.db import SessionLocal
     from app.models.models import VMTask
     try:
-        res = client.delete_vm(name)
-        
+        if force:
+            try:
+                res = client.force_delete_vm(name)
+            except Exception as e:
+                # Смысл force в том, чтобы машина ушла из панели при любом
+                # раскладе. Если недоступен сам Kubernetes — всё равно идём
+                # дальше и чистим запись, иначе удалить её будет уже нечем.
+                logger.error(f"force_delete_vm {name} не удалось, чищу только БД: {e}")
+                res = {"status": "force-deleted", "name": name, "errors": [str(e)]}
+        else:
+            res = client.delete_vm(name)
+
         db = SessionLocal()
         try:
             db_vm = db.query(VMTask).filter(VMTask.name == name).first()

@@ -1,6 +1,7 @@
 """API алертов: каналы уведомлений и правила оповещения."""
 import json
 import logging
+import re
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, status
@@ -51,6 +52,14 @@ def _channel_summary(ctype: str, cfg: dict) -> str:
     return ctype
 
 
+# Токен бота Telegram: <id бота>:<секрет>. Проверяем форму, потому что канал
+# с опечаткой в токене создаётся молча и «работает» ровно до первого реального
+# алерта — который потом просто не приходит, без единого следа в интерфейсе.
+TELEGRAM_TOKEN_RE = re.compile(r"^\d{5,}:[A-Za-z0-9_-]{20,}$")
+# chat_id — число (у групп отрицательное) либо @имя канала.
+TELEGRAM_CHAT_RE = re.compile(r"^(-?\d+|@[A-Za-z][A-Za-z0-9_]{4,})$")
+
+
 def _validate_channel_config(ctype: str, cfg: dict):
     if ctype == "webhook":
         from app.core.ssrf import validate_public_url
@@ -59,8 +68,20 @@ def _validate_channel_config(ctype: str, cfg: dict):
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"webhook: {e}")
     elif ctype == "telegram":
-        if not cfg.get("bot_token") or not cfg.get("chat_id"):
+        token = str(cfg.get("bot_token") or "").strip()
+        chat = str(cfg.get("chat_id") or "").strip()
+        if not token or not chat:
             raise HTTPException(status_code=400, detail="telegram: нужны bot_token и chat_id")
+        if not TELEGRAM_TOKEN_RE.match(token):
+            raise HTTPException(
+                status_code=400,
+                detail="telegram: bot_token имеет вид 123456789:AA... — "
+                       "проверьте, что скопирован весь токен от @BotFather")
+        if not TELEGRAM_CHAT_RE.match(chat):
+            raise HTTPException(
+                status_code=400,
+                detail="telegram: chat_id — это число (у групп со знаком минус) "
+                       "или @имя_канала")
 
 
 def _channel_to_info(ch: NotificationChannel) -> ChannelInfo:
@@ -97,6 +118,8 @@ def list_channels(current_user: User = Depends(get_current_user)):
 def create_channel(req: ChannelCreate, current_user: User = Depends(get_current_user)):
     if req.type not in VALID_CHANNEL_TYPES:
         raise HTTPException(status_code=400, detail="type должен быть webhook или telegram")
+    if not (req.name or "").strip():
+        raise HTTPException(status_code=400, detail="Название канала не может быть пустым")
     _validate_channel_config(req.type, req.config)
     db = SessionLocal()
     try:
@@ -169,6 +192,25 @@ def test_channel(channel_id: int, current_user: User = Depends(get_current_user)
 
 
 # ------------------------------- Правила ------------------------------------
+
+def _validate_rule_name(name: str):
+    if not (name or "").strip():
+        raise HTTPException(status_code=400, detail="Название правила не может быть пустым")
+
+
+def _validate_threshold(metric: str, threshold: float):
+    """Все числовые метрики — проценты, поэтому порог вне 0–100 бессмыслен.
+
+    Правило с порогом «> 150%» не сработает никогда, а «> -5%» — сработает
+    сразу и навсегда. И то и другое создавалось молча, а замечалось уже по
+    отсутствию (или потоку) уведомлений.
+    """
+    if metric in NUMERIC_METRICS and not (0 <= threshold <= 100):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Порог для «{metric}» задаётся в процентах и должен быть "
+                   f"от 0 до 100 (указано: {threshold})")
+
 
 class RuleCreate(BaseModel):
     name: str
@@ -246,11 +288,13 @@ def create_rule(req: RuleCreate, current_user: User = Depends(get_current_user))
         raise HTTPException(status_code=400, detail="target_type должен быть vm или host")
     if req.metric not in METRIC_CATALOG[req.target_type]:
         raise HTTPException(status_code=400, detail=f"Метрика {req.metric} недоступна для {req.target_type}")
+    _validate_rule_name(req.name)
     if req.metric in NUMERIC_METRICS:
         if req.threshold is None:
             raise HTTPException(status_code=400, detail="Для этой метрики нужен threshold")
         if req.comparator not in (">", "<"):
             raise HTTPException(status_code=400, detail="comparator должен быть > или <")
+        _validate_threshold(req.metric, req.threshold)
 
     db = SessionLocal()
     try:
@@ -294,12 +338,16 @@ def update_rule(rule_id: int, req: RuleUpdate, current_user: User = Depends(get_
     try:
         rule = _owned_rule(db, rule_id, current_user)
         if req.name is not None:
+            _validate_rule_name(req.name)
             rule.name = req.name
         if req.comparator is not None:
             if req.comparator not in (">", "<"):
                 raise HTTPException(status_code=400, detail="comparator должен быть > или <")
             rule.comparator = req.comparator
         if req.threshold is not None:
+            # Правку порога проверяем так же, как и создание, — иначе
+            # бессмысленное значение просто заезжало бы через редактирование.
+            _validate_threshold(rule.metric, req.threshold)
             rule.threshold = req.threshold
         if req.channel_id is not None:
             _owned_channel(db, req.channel_id, current_user)

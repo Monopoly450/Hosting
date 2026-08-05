@@ -100,10 +100,13 @@ const SshTerminal = ({ name, isInline = false }) => {
       setErrorMsg('Не удалось подключиться к вебсокету терминала.');
     };
 
-    // Ввод пользователя -> WebSocket
+    // Ввод пользователя -> WebSocket.
+    // Отправляем БИНАРНЫМ кадром, а управляющие сообщения (resize) —
+    // текстовым. Так сервер отличает одно от другого по типу кадра и ему не
+    // нужно гадать, не является ли введённая строка нашим JSON-ом.
     const onDataDisposable = term.onData((data) => {
       if (socket.readyState === WebSocket.OPEN) {
-        socket.send(data);
+        socket.send(new TextEncoder().encode(data));
       }
     });
 

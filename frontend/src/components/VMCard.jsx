@@ -72,7 +72,24 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
       const response = await fetch(`/api/vms/${vm.name}`, { method: 'DELETE' });
       if (!response.ok) {
         const err = await response.json();
-        throw new Error(err.detail || `Ошибка удаления`);
+        const detail = err.detail || 'Ошибка удаления';
+        // Машина может «залипнуть»: висеть в Terminating, застрять в
+        // планировании, быть созданной частично. Обычное удаление в этом
+        // случае не проходит никогда, и убрать её из панели нечем —
+        // поэтому предлагаем принудительное удаление ровно здесь, а не
+        // держим отдельную опасную кнопку на виду.
+        if (!window.confirm(
+          `Не удалось удалить ${vm.name}:\n${detail}\n\n` +
+          `Удалить принудительно? Kubernetes перестанет ждать корректного ` +
+          `завершения, и запись будет убрана из панели в любом случае.`
+        )) {
+          throw new Error(detail);
+        }
+        const forced = await fetch(`/api/vms/${vm.name}?force=true`, { method: 'DELETE' });
+        if (!forced.ok) {
+          const ferr = await forced.json();
+          throw new Error(ferr.detail || 'Принудительное удаление не удалось');
+        }
       }
       if (onActionSuccess) onActionSuccess();
     } catch (err) {

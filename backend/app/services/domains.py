@@ -14,6 +14,7 @@ import os
 import re
 import socket
 import tarfile
+from typing import Optional
 
 logger = logging.getLogger("app.services.domains")
 
@@ -271,6 +272,29 @@ def _caddy_crash_looping(c) -> bool:
     return c.status == "restarting" or restart_count >= CADDY_CRASH_LOOP_THRESHOLD
 
 
+# Состояния, из которых контейнер сам уже не выйдет: restart_policy=always
+# не действует на контейнер, остановленный явно (docker stop) — он так и
+# останется exited, сколько ни жди.
+CADDY_STOPPED_STATES = ("exited", "created", "dead", "paused")
+
+
+def _caddy_state(c) -> Optional[str]:
+    """Что не так с контейнером: "crash-loop", "stopped" или None (всё в порядке).
+
+    Различать важно, потому что лечится это по-разному: зацикленный надо
+    сносить и создавать заново, а просто остановленный — всего лишь
+    запустить. Раньше вотчдог знал только про зацикленный, и Caddy,
+    оказавшийся в exited (например, после docker stop или перезапуска демона
+    Docker), не поднимался уже никогда: доменов нет — значит, ensure_caddy
+    никто не вызовет, а вотчдог такое состояние не считал проблемой.
+    """
+    if _caddy_crash_looping(c):
+        return "crash-loop"
+    if c.status in CADDY_STOPPED_STATES:
+        return "stopped"
+    return None
+
+
 def ensure_caddy(docker_client, caddyfile: str):
     """Создаёт (если нужно) и запускает Caddy с актуальным конфигом.
 
@@ -327,8 +351,34 @@ def reconcile_caddy(db, k8s, docker_client) -> bool:
         logger.error(f"reconcile_caddy: не удалось получить контейнер {CADDY_CONTAINER}: {e}")
         return False
 
-    if not _caddy_crash_looping(c):
+    state = _caddy_state(c)
+    if state is None:
         return False
+
+    if state == "stopped":
+        # Останавливать Caddy незачем ни одному сценарию панели, поэтому
+        # exited — это всегда сбой. Пробуем просто запустить: конфиг в
+        # контейнере уже лежит, пересобирать его (запрос в БД и K8s) ради
+        # этого не нужно.
+        try:
+            c.start()
+            logger.warning(f"{CADDY_CONTAINER} был остановлен ({c.status}) — запущен вотчдогом.")
+            return True
+        except Exception as e:
+            # Не запускается — значит, дело не в том, что его просто
+            # остановили (так бывает при занятом порте). Лечим тем же
+            # надёжным способом, что и зацикленный: сносим и создаём заново.
+            # Через ensure_caddy идти нельзя — она попыталась бы стартовать
+            # ровно этот же контейнер и упала бы снова.
+            logger.error(f"Не удалось запустить {CADDY_CONTAINER}, пересоздаю: {e}")
+            try:
+                c.remove(force=True)
+            except Exception as rm_err:
+                logger.error(f"Не удалось удалить {CADDY_CONTAINER}: {rm_err}")
+                return False
+            entries = build_entries(db, k8s)
+            _create_caddy(docker_client.client, build_caddyfile(entries, acme_email()))
+            return True
 
     entries = build_entries(db, k8s)
     caddyfile = build_caddyfile(entries, acme_email())

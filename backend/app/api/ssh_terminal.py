@@ -9,6 +9,28 @@ from app.api.vms import resolve_vm_ip
 router = APIRouter()
 logger = logging.getLogger("app.ssh_terminal")
 
+def parse_control_message(text_data: str):
+    """Разбирает текстовый кадр как управляющее сообщение.
+
+    Возвращает dict, если это наш управляющий JSON, иначе None — тогда кадр
+    считается обычным вводом пользователя.
+
+    Важно: здесь только РАЗБОР, без выполнения. Раньше разбор и применение
+    ресайза стояли в одном try/except Exception: pass, и любая ошибка
+    применения приводила к тому, что управляющее сообщение уходило в shell
+    как набранный текст.
+    """
+    if not text_data.startswith("{"):
+        return None
+    try:
+        msg = json.loads(text_data)
+    except Exception:
+        return None
+    if isinstance(msg, dict) and msg.get("type") in ("resize",):
+        return msg
+    return None
+
+
 async def ws_to_ssh_loop(websocket: WebSocket, chan: paramiko.Channel):
     """Направляет ввод из вебсокета в интерактивный shell-канал SSH"""
     try:
@@ -16,19 +38,27 @@ async def ws_to_ssh_loop(websocket: WebSocket, chan: paramiko.Channel):
             data = await websocket.receive()
             if data.get("type") == "websocket.disconnect":
                 break
-                
+
             if "text" in data:
                 text_data = data["text"]
-                # Проверяем, не является ли это командой ресайза окна терминала
-                try:
-                    msg = json.loads(text_data)
-                    if isinstance(msg, dict) and msg.get("type") == "resize":
-                         cols = msg.get("cols", 80)
-                         rows = msg.get("rows", 24)
-                         chan.resize_pty(cols=cols, rows=rows)
-                         continue
-                except Exception:
-                    pass
+                msg = parse_control_message(text_data)
+                if msg is not None:
+                    # Управляющее сообщение НИКОГДА не должно попасть в shell,
+                    # даже если применить его не удалось: пользователь увидел
+                    # бы в терминале напечатанный {"type":"resize",...}.
+                    try:
+                        # У paramiko параметры называются width/height, а не
+                        # cols/rows — с cols/rows это TypeError на каждом
+                        # ресайзе. И это блокирующий сетевой вызов, поэтому
+                        # он идёт в отдельный поток, как и chan.send ниже.
+                        await asyncio.to_thread(
+                            chan.resize_pty,
+                            width=int(msg.get("cols", 80)),
+                            height=int(msg.get("rows", 24)),
+                        )
+                    except Exception as e:
+                        logger.debug(f"resize_pty failed: {e}")
+                    continue
                 # Обычный текст (ввод пользователя)
                 await asyncio.to_thread(chan.send, text_data.encode('utf-8'))
             elif "bytes" in data:

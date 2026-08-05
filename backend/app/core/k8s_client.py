@@ -209,6 +209,80 @@ class K8sClient:
             logger.error(f"Ошибка удаления VM {name}: {e}")
             raise e
 
+    def _strip_finalizers(self, *, group: str, version: str, plural: str,
+                          name: str, namespace: str):
+        """Снимает finalizer'ы с объекта, чтобы он смог удалиться.
+
+        Пока список metadata.finalizers не пуст, Kubernetes держит объект в
+        Terminating сколько угодно долго — обычный delete, в том числе с
+        --grace-period=0, тут не помогает вообще. Именно так ВМ и залипают в
+        панели: контроллер, который должен был снять finalizer, уже не
+        отвечает, и снять его больше некому.
+        """
+        try:
+            self.custom_api.patch_namespaced_custom_object(
+                group=group, version=version, namespace=namespace,
+                plural=plural, name=name,
+                body={"metadata": {"finalizers": []}},
+            )
+            logger.info(f"Сняты finalizer'ы с {plural}/{name}")
+        except ApiException as e:
+            if e.status != 404:
+                logger.warning(f"Не удалось снять finalizer'ы с {plural}/{name}: {e}")
+
+    def force_delete_vm(self, name: str, namespace="default"):
+        """Удаляет ВМ, не останавливаясь на ошибках и снимая finalizer'ы.
+
+        В отличие от delete_vm, применяется к машинам, которые уже находятся в
+        нештатном состоянии: висят в Terminating, застряли в планировании,
+        частично созданы. Поэтому здесь ни один сбой не прерывает удаление —
+        цель ровно одна: убрать всё, что получится, и не оставить объект,
+        который панель показывает, а удалить не может.
+        """
+        errors = []
+
+        # Сначала обычное удаление — оно снимает штатные объекты и диски.
+        try:
+            self.delete_vm(name, namespace)
+        except Exception as e:
+            errors.append(f"delete_vm: {e}")
+
+        # Затем добиваем то, что осталось висеть на finalizer'ах.
+        self._strip_finalizers(group="kubevirt.io", version="v1",
+                               plural="virtualmachines", name=name, namespace=namespace)
+        self._strip_finalizers(group="kubevirt.io", version="v1",
+                               plural="virtualmachineinstances", name=name, namespace=namespace)
+
+        for plural, group, version in (
+            ("virtualmachineinstances", "kubevirt.io", "v1"),
+            ("virtualmachines", "kubevirt.io", "v1"),
+        ):
+            try:
+                self.custom_api.delete_namespaced_custom_object(
+                    group=group, version=version, namespace=namespace,
+                    plural=plural, name=name, grace_period_seconds=0,
+                )
+            except ApiException as e:
+                if e.status != 404:
+                    errors.append(f"{plural}: {e.reason}")
+
+        # Под виртуалки KubeVirt тоже может застрять — он держит диск занятым.
+        try:
+            pods = self.core_api.list_namespaced_pod(
+                namespace, label_selector=f"vm.kubevirt.io/name={name}")
+            for pod in pods.items:
+                try:
+                    self.core_api.delete_namespaced_pod(
+                        pod.metadata.name, namespace, grace_period_seconds=0)
+                    logger.info(f"Принудительно удалён под {pod.metadata.name}")
+                except ApiException as e:
+                    if e.status != 404:
+                        errors.append(f"pod {pod.metadata.name}: {e.reason}")
+        except ApiException as e:
+            errors.append(f"list pods: {e.reason}")
+
+        return {"status": "force-deleted", "name": name, "errors": errors}
+
     # --- УПРАВЛЕНИЕ ПИТАНИЕМ (SUBRESOURCES) ---
 
     def _call_vms_subresource(self, action: str, name: str, namespace="default"):

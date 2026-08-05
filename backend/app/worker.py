@@ -395,8 +395,22 @@ def apply_firewall_reconcile_daemon():
     last_ip = {}  # vm_name -> последний применённый IP
     while True:
         try:
-            from .api.vms import reconcile_vm_firewall_rules
+            from .api.vms import (reconcile_vm_firewall_rules, resolve_vm_ports,
+                                  read_prerouting_rules, dnat_rules_present)
             from .core.netutils import pick_external_ip
+
+            # Снимок правил на весь проход: одна проверка на цикл вместо
+            # одной на каждую ВМ.
+            #
+            # Доверять только кэшу last_ip нельзя. Правила живут в сетевом
+            # пространстве ХОСТА, а кэш — в памяти этого процесса, и они
+            # расходятся в обе стороны. Главный случай с живого сервера:
+            # Docker переписывает iptables при старте контейнеров, наши
+            # DNAT/FORWARD при этом теряются, а IP виртуалки не меняется —
+            # значит, по старому условию prev_ip != ip правила не
+            # переустанавливались уже никогда, и проброс портов оставался
+            # сломанным до перезапуска воркера или смены IP.
+            prerouting = read_prerouting_rules()
             vms_data = []
             db = SessionLocal()
             try:
@@ -423,12 +437,23 @@ def apply_firewall_reconcile_daemon():
                     if not ip:
                         continue
                     live_names.add(vm["name"])
-                    # Переустанавливаем правила только при изменении IP — без лишней «дёрготни»
                     prev_ip = last_ip.get(vm["name"])
+
+                    # Переустанавливаем либо при смене IP, либо когда правил
+                    # фактически нет в iptables — без лишней «дёрготни», но и
+                    # без слепой веры в кэш.
+                    reason = None
                     if prev_ip != ip:
+                        reason = f"сменился IP (было {prev_ip})" if prev_ip else "первое применение"
+                    elif prerouting is not None:
+                        ports = resolve_vm_ports(ip, vm["id"], vm["ports_config"], vm["os_type"])
+                        if not dnat_rules_present(prerouting, ip, ports):
+                            reason = "правила пропали из iptables"
+
+                    if reason:
                         reconcile_vm_firewall_rules(ip, vm["id"], vm["ports_config"], vm["firewall_rules"], vm["os_type"], old_ip=prev_ip)
                         last_ip[vm["name"]] = ip
-                        logger.info(f"Firewall re-applied for {vm['name']} -> {ip}" + (f" (was {prev_ip})" if prev_ip else ""))
+                        logger.info(f"Firewall re-applied for {vm['name']} -> {ip}: {reason}")
                 except Exception as ve:
                     logger.error(f"Firewall reconcile for VM {vm['name']}: {ve}")
             # Забываем IP выключенных/удалённых ВМ, чтобы при новом старте правила переустановились
