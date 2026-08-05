@@ -411,9 +411,18 @@ TEMPLATES = {
             ],
         },
         "suse": {
-            "packages": ["docker", "docker-compose"],
+            # docker-compose есть в Leap не в каждом релизе, поэтому в
+            # атомарном "packages" ему не место: cloud-init ставит весь
+            # список одной транзакцией zypper, и одно неразрешимое имя
+            # провалило бы её целиком — вместе с самим docker. Ровно так уже
+            # ломался LAMP на openSUSE из-за php8. Compose ставим отдельно и
+            # необязательно: без него Docker всё равно работает.
+            "packages": ["docker"],
             "services": ["docker"],
-            "commands": [],
+            "commands": [
+                "zypper --non-interactive install docker-compose "
+                "|| zypper --non-interactive install docker-compose-switch || true",
+            ],
         },
         "arch": {
             "packages": ["docker", "docker-compose"],

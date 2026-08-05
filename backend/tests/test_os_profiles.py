@@ -548,3 +548,39 @@ def test_redis_on_alpine_uses_openrc():
     _, commands = build_template_steps("redis", "alpine")
     assert any("rc-update" in c for c in commands)
     assert not any("systemctl" in c for c in commands)
+
+
+def test_optional_packages_never_share_a_transaction_with_required_ones_on_suse():
+    """cloud-init ставит весь список packages ОДНОЙ транзакцией zypper: одно
+    неразрешимое имя проваливает её целиком, вместе с обязательными пакетами.
+    Так уже ломался LAMP на openSUSE (php8 нет в стандартном репозитории Leap),
+    и ВМ поднималась вообще без веб-сервера.
+
+    Поэтому всё, чего может не оказаться в конкретном релизе Leap, ставится
+    отдельной необязательной командой, а не декларативно."""
+    docker_pkgs, docker_cmds = build_template_steps("docker", "opensuse")
+    assert "docker" in docker_pkgs, "сам docker обязателен и остаётся в packages"
+    assert "docker-compose" not in docker_pkgs, (
+        "docker-compose есть не в каждом релизе Leap — в атомарном списке он "
+        "утащил бы за собой docker"
+    )
+    compose = next(c for c in docker_cmds if "docker-compose" in c)
+    assert compose.rstrip().endswith("|| true"), "установка compose должна быть необязательной"
+
+
+def test_docker_itself_still_starts_on_suse():
+    _, commands = build_template_steps("docker", "opensuse")
+    assert any("enable --now docker" in c for c in commands)
+
+
+def test_portainer_inherits_the_suse_docker_fix():
+    _, commands = build_template_steps("portainer", "opensuse")
+    assert any("docker-compose" in c and c.rstrip().endswith("|| true") for c in commands)
+    assert any("portainer/portainer-ce" in c for c in commands)
+
+
+def test_no_suse_template_keeps_php_in_the_atomic_package_list():
+    """Общая формулировка того же правила для php — оно и было первым случаем."""
+    for template in ("lamp", "lemp"):
+        packages, _ = build_template_steps(template, "opensuse")
+        assert not any("php" in p for p in packages), (template, packages)
