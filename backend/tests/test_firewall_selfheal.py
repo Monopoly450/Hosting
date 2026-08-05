@@ -70,3 +70,39 @@ def test_explicit_ports_config_wins_over_defaults():
 def test_windows_gets_rdp():
     ports = resolve_vm_ports("172.20.0.14", vm_id=7, ports_config=None, os_type="windows")
     assert 3389 in [p["int_port"] for p in ports]
+
+
+# --------- какой порт внутри гостя проверять на «сайт отвечает» -------------
+
+def test_internal_port_comes_from_the_forwarding_not_from_a_hardcoded_80():
+    """Приложения маркетплейса слушают свой порт: Nextcloud — 8081. Проверка
+    жёстко зашитого 80 всегда давала «не отвечает», и ссылка на сайт
+    пропадала из панели именно тогда, когда была нужнее всего."""
+    from app.api.vms import internal_port_for
+
+    marketplace = [
+        {"ext_port": 22044, "int_port": 22, "name": "SSH"},
+        {"ext_port": 28044, "int_port": 8081, "name": "APP"},
+    ]
+    assert internal_port_for(marketplace, 28044, 80) == 8081
+
+
+def test_ordinary_vm_still_maps_to_80_and_443():
+    from app.api.vms import internal_port_for
+
+    plain = [
+        {"ext_port": 22007, "int_port": 22},
+        {"ext_port": 28007, "int_port": 80},
+        {"ext_port": 44307, "int_port": 443},
+    ]
+    assert internal_port_for(plain, 28007, 80) == 80
+    assert internal_port_for(plain, 44307, 443) == 443
+
+
+def test_missing_or_empty_config_falls_back_to_the_default():
+    from app.api.vms import internal_port_for
+
+    assert internal_port_for([], 28007, 80) == 80
+    assert internal_port_for(None, 28007, 80) == 80
+    # Проброса именно этого порта нет — берём значение по умолчанию
+    assert internal_port_for([{"ext_port": 22007, "int_port": 22}], 44307, 443) == 443
