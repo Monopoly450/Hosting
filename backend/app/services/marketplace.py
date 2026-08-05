@@ -338,7 +338,8 @@ def build_marketplace_cloud_init(app: dict, env: dict, password: str, default_us
     compose_block = _indent(app["compose"], 6)
     env_block = _indent(env_content, 6) if env_content else "      # (без переменных)"
 
-    from app.services.cloudinit import GUEST_AGENT_RETRY_RUNCMD, WAIT_NETWORK_RUNCMD
+    from app.services.cloudinit import (GUEST_AGENT_RETRY_RUNCMD, WAIT_NETWORK_RUNCMD,
+                                        COMPOSE_UP_RUNCMD)
 
     return f"""#cloud-config
 ssh_pwauth: True
@@ -368,6 +369,6 @@ runcmd:
   - apt-get update || true
   - systemctl enable --now docker 2>/dev/null || true
   - usermod -aG docker {default_user} 2>/dev/null || true
-  - cd /opt/app && (docker compose up -d || docker-compose up -d) || true
+{COMPOSE_UP_RUNCMD}
 {GUEST_AGENT_RETRY_RUNCMD}
 """

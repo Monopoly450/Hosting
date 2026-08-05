@@ -186,3 +186,39 @@ def test_every_marketplace_app_produces_valid_cloud_init():
         files = {w["path"]: w.get("content", "") for w in (doc.get("write_files") or [])}
         assert "/opt/app/docker-compose.yml" in files, slug
         yaml.safe_load(files["/opt/app/docker-compose.yml"])
+
+
+def test_marketplace_compose_up_retries_instead_of_giving_up_once():
+    """Образы приложений весят под гигабайт. Одна неудачная попытка —
+    недоступное зеркало, не поднявшийся демон docker — оставляла приложение
+    ненастроенным навсегда: ошибку гасил `|| true`, а повторять было некому.
+    Снаружи это «ВМ запущена, а сайт не открывается»."""
+    from app.services.marketplace import (get_app, resolve_env,
+                                          build_marketplace_cloud_init)
+
+    doc = yaml.safe_load(build_marketplace_cloud_init(
+        get_app("nextcloud"), resolve_env(get_app("nextcloud"), {}), "pw"))
+    compose_cmd = next(c for c in doc["runcmd"] if "compose up -d" in c)
+    assert "while" in compose_cmd, "запуск compose должен повторяться"
+    assert "break" in compose_cmd, "успешная попытка должна прекращать цикл"
+
+
+def test_marketplace_waits_for_the_docker_daemon_before_using_it():
+    """`systemctl enable --now docker` возвращает управление раньше, чем
+    dockerd начинает принимать команды."""
+    from app.services.marketplace import (get_app, resolve_env,
+                                          build_marketplace_cloud_init)
+
+    doc = yaml.safe_load(build_marketplace_cloud_init(
+        get_app("nextcloud"), resolve_env(get_app("nextcloud"), {}), "pw"))
+    wait_at = next(i for i, c in enumerate(doc["runcmd"]) if "docker info" in c)
+    up_at = next(i for i, c in enumerate(doc["runcmd"]) if "compose up -d" in c)
+    assert wait_at < up_at
+
+
+def test_compose_retry_is_bounded():
+    """Неограниченный цикл подвесил бы cloud-init навсегда — этим мы уже
+    обжигались на ожидании сети."""
+    from app.services.cloudinit import COMPOSE_UP_RUNCMD
+
+    assert "-le 10" in COMPOSE_UP_RUNCMD and "-le 30" in COMPOSE_UP_RUNCMD

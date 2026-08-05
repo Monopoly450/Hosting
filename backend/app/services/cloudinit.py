@@ -132,6 +132,24 @@ WAIT_NETWORK_RUNCMD = (
 )
 
 
+# Запуск docker compose с повторами. Одной попытки мало: образы приложений
+# маркетплейса весят под гигабайт (Nextcloud тянет ещё и PostgreSQL), и любой
+# срыв скачивания — недоступное на минуту зеркало, не до конца поднявшийся
+# демон docker — оставлял приложение ненастроенным НАВСЕГДА: ошибка гасилась
+# через `|| true`, а повторить попытку было некому. Снаружи это выглядит как
+# «ВМ запущена, а сайт не открывается» — без единого следа в панели.
+#
+# Ждём и готовности самого демона: systemctl enable --now docker возвращает
+# управление раньше, чем dockerd начинает принимать команды.
+COMPOSE_UP_RUNCMD = (
+    "  - i=1; while [ $i -le 30 ] && ! docker info >/dev/null 2>&1; "
+    "do sleep 2; i=$((i+1)); done || true\n"
+    "  - i=1; while [ $i -le 10 ]; do cd /opt/app && "
+    "(docker compose up -d || docker-compose up -d) && break || sleep 15; "
+    "i=$((i+1)); done || true"
+)
+
+
 def yaml_runcmd_lines(commands, indent: str = "  ") -> str:
     """Рендерит команды как элементы YAML-списка runcmd, экранируя каждую.
 
