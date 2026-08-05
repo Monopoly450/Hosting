@@ -51,6 +51,21 @@ services:
     security_opt:
       - apparmor:unconfined
     pid: host
+    # Доступ к устройствам для операций с LVM-пулом (изменение размера).
+    # Одного nsenter в пространство монтирования хоста мало: cgroup устройств
+    # действует на процесс, а не на пространство имён, поэтому открыть
+    # /dev/mapper/control контейнеру всё равно запрещалось — pvresize падал с
+    # «Operation not permitted», а размер /dev/loop0 читался нулевым, что LVM
+    # сообщал как «device is too small (pv_min_size)».
+    #
+    # Правила точечные, а не privileged: 10:236 — узел device-mapper,
+    # 7 — loop-устройства, 253/254 — блочные устройства device-mapper
+    # (номер выделяется динамически, на практике один из этих двух).
+    device_cgroup_rules:
+      - "c 10:236 rwm"
+      - "b 7:* rwm"
+      - "b 253:* rwm"
+      - "b 254:* rwm"
     restart: unless-stopped
     depends_on:
       db:
