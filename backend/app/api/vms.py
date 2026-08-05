@@ -1088,6 +1088,16 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client), curre
                 if vm_data.get("status") == "Running" and vm_data.get("ips"):
                     ip = vm_data["ips"][0]
                     reconcile_vm_firewall_rules(ip, db_vm.id, db_vm.ports_config, db_vm.firewall_rules, db_vm.os_type)
+
+                    # Есть ли внутри гостя что-нибудь на 80 и 443. Панель
+                    # показывает ссылку только на то, что действительно
+                    # откроется: проброс на 443 создаётся всегда, а TLS не
+                    # настраивает ни один шаблон окружения — ссылка на https
+                    # вела в никуда на каждой ВМ (см. port_is_open).
+                    from app.core.netutils import port_is_open, pick_external_ip
+                    probe_ip = pick_external_ip(vm_data["ips"]) or ip
+                    vm_data["http_available"] = port_is_open(probe_ip, 80)
+                    vm_data["https_available"] = port_is_open(probe_ip, 443)
         finally:
             db.close()
             

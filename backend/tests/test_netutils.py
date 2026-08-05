@@ -75,3 +75,53 @@ def test_safe_name():
     assert not is_safe_name("a; rm -rf /")
     assert not is_safe_name("Name_With_Underscore")
     assert not is_safe_name("")
+
+
+# --------------------------- Пробник порта ----------------------------------
+# Панель предлагает ссылку только на то, что реально откроется: проброс на 443
+# создаётся для каждой ВМ, а TLS не настраивает ни один шаблон окружения —
+# ссылка на https вела в никуда на каждой машине.
+
+def test_port_is_open_sees_a_real_listener():
+    import socket
+    from app.core.netutils import port_is_open
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    try:
+        assert port_is_open("127.0.0.1", srv.getsockname()[1]) is True
+    finally:
+        srv.close()
+
+
+def test_port_is_open_is_false_when_nothing_listens():
+    import socket
+    from app.core.netutils import port_is_open
+
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    assert port_is_open("127.0.0.1", port) is False
+
+
+def test_port_is_open_rejects_non_ip_without_touching_the_network():
+    """Имя хоста сюда попасть не должно: резолв делает пробник медленным и
+    непредсказуемым, а зовут его из выдачи сведений о ВМ."""
+    from app.core.netutils import port_is_open
+
+    assert port_is_open("example.com", 443) is False
+    assert port_is_open("not-an-ip", 443) is False
+    assert port_is_open("", 443) is False
+    assert port_is_open(None, 443) is False
+
+
+def test_port_is_open_respects_its_timeout():
+    """Недостижимый адрес не должен подвешивать страницу ВМ."""
+    import time
+    from app.core.netutils import port_is_open
+
+    started = time.time()
+    assert port_is_open("10.255.255.1", 443, timeout=0.2) is False
+    assert time.time() - started < 2.0

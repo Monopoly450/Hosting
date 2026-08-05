@@ -710,22 +710,38 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               </div>
             )}
 
-            {/* Default HTTP/HTTPS Web Server Links (not for Proxmox) */}
-            {vm.http_port && vm.os_type !== 'proxmox' && (
+            {/* Default HTTP/HTTPS Web Server Links (not for Proxmox).
+                Ссылку показываем только на тот порт, где внутри гостя
+                действительно кто-то слушает (http_available/https_available
+                с бэкенда). Проброс на 443 создаётся всегда, но TLS не
+                настраивает ни один шаблон окружения — раньше рядом с рабочей
+                HTTP-ссылкой всегда висела HTTPS-ссылка, не открывавшаяся
+                никогда, и это выглядело как «доступа нет». */}
+            {vm.http_port && vm.os_type !== 'proxmox' && (vm.http_available || vm.https_available) && (
               <div style={{ marginTop: '8px' }}>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Доступ к веб-серверу (HTTP/HTTPS):</div>
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                  <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={`http://${window.location.hostname}:${vm.http_port}`} />
-                  <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`http://${window.location.hostname}:${vm.http_port}`, 'extHttp')}>
-                    {copiedField === 'extHttp' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
-                  </button>
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={`https://${window.location.hostname}:${vm.https_port}`} />
-                  <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`https://${window.location.hostname}:${vm.https_port}`, 'extHttps')}>
-                    {copiedField === 'extHttps' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
-                  </button>
-                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Доступ к веб-серверу:</div>
+                {vm.http_available && (
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                    <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={`http://${window.location.hostname}:${vm.http_port}`} />
+                    <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`http://${window.location.hostname}:${vm.http_port}`, 'extHttp')}>
+                      {copiedField === 'extHttp' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                )}
+                {vm.https_available && (
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={`https://${window.location.hostname}:${vm.https_port}`} />
+                    <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`https://${window.location.hostname}:${vm.https_port}`, 'extHttps')}>
+                      {copiedField === 'extHttps' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                )}
+                {vm.http_available && !vm.https_available && (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                    HTTPS не настроен внутри ВМ. Чтобы сайт открывался по https с настоящим
+                    сертификатом, привяжите домен в разделе «Домены» — сертификат выпустится сам.
+                  </div>
+                )}
               </div>
             )}
           </div>
