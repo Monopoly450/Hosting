@@ -60,9 +60,16 @@ def deploy(req: MarketplaceDeploy, request: Request, current_user: User = Depend
         # проскочить лимит вдвоём.
         from app.core.quotas import enforce_quota
         from app.core.ratelimit import check_rate_limit
+        from app.core.capacity import lock_host_capacity, ensure_host_capacity
         check_rate_limit(current_user, "marketplace_deploy")
         enforce_quota(db, current_user, add_vms=1, add_vcpus=req.cpu_cores,
                       add_ram_gb=req.memory_gb, add_storage_gb=req.disk_gb)
+        # Квота ограничивает пользователя, а это — про то, что железа столько
+        # есть. Без этой проверки маркетплейс создавал ВМ поверх уже
+        # исчерпанного хоста, и они намертво вставали в планировании.
+        lock_host_capacity(db)
+        ensure_host_capacity(db, cpu_cores=req.cpu_cores,
+                             memory_gb=req.memory_gb, disk_gb=req.disk_gb)
 
         try:
             env = resolve_env(app, req.env)

@@ -798,8 +798,14 @@ def resize_lvm_storage(req: StorageResizeRequest, current_user: User = Depends(g
         )
         
         if not find_loop.stdout.strip():
-            raise Exception("Устройство loop device для файла-образа не найдено в ОС.")
-            
+            # Не внутренняя ошибка, а состояние хоста: служба aegis-lvm не
+            # подняла loop-устройство. 500 здесь маскируется кодом обращения,
+            # и пользователь не видит, что именно чинить.
+            raise HTTPException(
+                status_code=409,
+                detail=f"Loop-устройство для {image_path} не подключено. "
+                       f"Проверьте службу: systemctl status aegis-lvm")
+
         loop_dev = find_loop.stdout.split(":")[0].strip()
 
         if req.size_gb < current_gb:
@@ -812,8 +818,16 @@ def resize_lvm_storage(req: StorageResizeRequest, current_user: User = Depends(g
                 text=True
             )
             if pv_resize.returncode != 0:
-                error_msg = pv_resize.stderr or pv_resize.stdout
-                raise Exception(f"LVM отказался сжимать диск (возможно, занятые блоки выходят за указанный размер): {error_msg.strip()}")
+                # Отказ LVM — ожидаемый исход (занятые экстенты за новой
+                # границей, метаданные в конце устройства), а не сбой панели.
+                # Отдаём 400 с ПОДЛИННЫМ текстом от LVM: как 500 он попадал
+                # под маскировку и превращался в «Внутренняя ошибка сервера,
+                # код обращения ...», по которому чинить нечего.
+                error_msg = (pv_resize.stderr or pv_resize.stdout or "").strip()
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"LVM отказался уменьшать пул до {req.size_gb} ГБ. "
+                           f"Ответ LVM: {error_msg or 'без пояснений'}")
                 
             # Сообщаем ядру об изменении размера loop-устройства
             subprocess.run(["losetup", "-c", loop_dev], check=True)
@@ -839,14 +853,20 @@ def resize_lvm_storage(req: StorageResizeRequest, current_user: User = Depends(g
             "current_size_gb": req.size_gb
         }
             
+    except HTTPException:
+        # Осмысленные отказы (LVM не может сжать, loop не подключён) уже
+        # оформлены как 4xx с настоящей причиной — общий обработчик ниже
+        # превратил бы их обратно в 500, а 500 маскируется кодом обращения,
+        # и пользователь снова остался бы без объяснения.
+        raise
     except subprocess.CalledProcessError as sub_err:
         err_msg = sub_err.stderr or str(sub_err)
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"Системная ошибка выполнения команды: {err_msg}"
         )
     except Exception as err:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"Не удалось изменить размер блочного пула: {err}"
         )

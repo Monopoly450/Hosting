@@ -270,9 +270,15 @@ def create_deployment(req: DeploymentCreate, request: Request, current_user: Use
         # проскочить лимит вдвоём.
         from app.core.quotas import enforce_quota
         from app.core.ratelimit import check_rate_limit
+        from app.core.capacity import lock_host_capacity, ensure_host_capacity
         check_rate_limit(current_user, "create_deployment")
         enforce_quota(db, current_user, add_vms=1, add_vcpus=req.cpu_cores,
                       add_ram_gb=req.memory_gb, add_storage_gb=req.disk_gb)
+        # См. пояснение в marketplace.py: квота — про пользователя, а это про
+        # то, что ресурсы хоста действительно есть.
+        lock_host_capacity(db)
+        ensure_host_capacity(db, cpu_cores=req.cpu_cores,
+                             memory_gb=req.memory_gb, disk_gb=req.disk_gb)
 
         password = generate_random_password()
 
