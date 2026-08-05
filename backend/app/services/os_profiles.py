@@ -546,14 +546,33 @@ TEMPLATES = {
             "commands": [],
         },
         "rhel": {
+            # Fedora 41+ заменила Redis на Valkey (Redis сменил лицензию на
+            # SSPL, несовместимую с политикой Fedora). `dnf install redis`
+            # по-прежнему работает и ставит valkey-compat — команды
+            # redis-cli/redis-server на месте, — но ЮНИТ называется
+            # valkey.service. Поэтому имя службы не угадываем, а пробуем оба:
+            # на AlmaLinux/Rocky/CentOS это по-прежнему redis.
             "packages": ["redis"],
-            "services": ["redis"],
-            "commands": [],
+            "services": [],
+            "commands": [
+                "systemctl enable --now redis 2>/dev/null "
+                "|| systemctl enable --now valkey 2>/dev/null || true",
+            ],
         },
         "suse": {
+            # В openSUSE redis собран на ШАБЛОННЫХ юнитах (redis@<экземпляр>),
+            # и без конфига не стартует вообще: сначала нужно сделать
+            # default.conf из поставляемого примера. Простой
+            # `systemctl enable --now redis` там не делает ничего.
             "packages": ["redis"],
-            "services": ["redis"],
-            "commands": [],
+            "services": [],
+            "commands": [
+                "[ -f /etc/redis/default.conf ] || cp /etc/redis/default.conf.example "
+                "/etc/redis/default.conf 2>/dev/null || true",
+                "chown redis:redis /etc/redis/default.conf 2>/dev/null || true",
+                "systemctl enable --now redis@default 2>/dev/null "
+                "|| systemctl enable --now redis 2>/dev/null || true",
+            ],
         },
         "arch": {
             "packages": ["redis"],

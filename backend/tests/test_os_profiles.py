@@ -508,3 +508,43 @@ def test_php_fpm_unit_name_is_not_left_to_shell_globbing():
     enable_cmd = next(c for c in commands if "enable --now" in c and "php" in c)
     assert "list-unit-files" in enable_cmd
     assert "'php*-fpm.service'" in enable_cmd
+
+
+def test_redis_on_fedora_also_tries_the_valkey_unit():
+    """Fedora 41+ заменила Redis на Valkey (Redis сменил лицензию на SSPL).
+    `dnf install redis` ставит valkey-compat: redis-cli/redis-server на
+    месте, но ЮНИТ называется valkey.service — прежний
+    `systemctl enable --now redis` там не запускал ничего."""
+    _, commands = build_template_steps("redis", "fedora")
+    start = " ".join(commands)
+    assert "redis" in start and "valkey" in start
+    # На AlmaLinux/Rocky юнит по-прежнему redis — он должен идти первым
+    assert start.index("--now redis") < start.index("--now valkey")
+
+
+def test_redis_on_opensuse_creates_a_config_and_uses_the_templated_unit():
+    """В openSUSE redis собран на шаблонных юнитах (redis@<экземпляр>) и без
+    конфига не стартует вовсе."""
+    _, commands = build_template_steps("redis", "opensuse")
+    blob = " ".join(commands)
+    assert "default.conf.example" in blob, "конфиг из примера не создаётся"
+    assert "redis@default" in blob, "шаблонный юнит не используется"
+
+
+def test_redis_config_is_not_overwritten_if_it_already_exists():
+    """Иначе перезапуск шаблона затирал бы правки пользователя."""
+    _, commands = build_template_steps("redis", "opensuse")
+    copy_cmd = next(c for c in commands if "default.conf.example" in c)
+    assert copy_cmd.startswith("[ -f ")
+
+
+def test_redis_still_uses_the_plain_unit_where_that_is_correct():
+    for os_type, expected in (("ubuntu", "redis-server"), ("arch", "redis")):
+        _, commands = build_template_steps("redis", os_type)
+        assert any(f"--now {expected}" in c for c in commands), os_type
+
+
+def test_redis_on_alpine_uses_openrc():
+    _, commands = build_template_steps("redis", "alpine")
+    assert any("rc-update" in c for c in commands)
+    assert not any("systemctl" in c for c in commands)
