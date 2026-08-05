@@ -198,19 +198,29 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
                 else:
                     packages_yaml = f"\npackages:\n  - {nfs_pkg}"
 
-    # Специфично для Bitrix
-    runcmd_yaml = ""
+    # Команды шаблонов и Bitrix уходят в YAML через yaml_runcmd_lines, а не
+    # подстановкой как есть: команда с двоеточием и пробелом внутри (а такие
+    # есть) разбирается YAML-ом как словарь, и cloud-init перестаёт выполнять
+    # runcmd вообще — см. пояснение в yaml_runcmd_lines.
+    from app.services.cloudinit import yaml_runcmd_lines
+
+    runcmd_extra = []
     if req.os_type == "bitrix":
         if "wget" not in packages_yaml:
             if packages_yaml:
                 packages_yaml += "\n  - wget"
             else:
                 packages_yaml = "\npackages:\n  - wget"
-        runcmd_yaml = "\n  - wget http://repos.1c-bitrix.ru/yum/bitrix-env.sh\n  - chmod +x bitrix-env.sh\n  - ./bitrix-env.sh -s -p -H " + req.name + "\n"
+        runcmd_extra += [
+            "wget http://repos.1c-bitrix.ru/yum/bitrix-env.sh",
+            "chmod +x bitrix-env.sh",
+            f"./bitrix-env.sh -s -p -H {req.name}",
+        ]
 
     # Дополнительные команды шаблона
-    if template_commands:
-        runcmd_yaml += "\n" + "\n".join([f"  - {cmd}" for cmd in template_commands])
+    runcmd_extra += list(template_commands or [])
+
+    runcmd_yaml = "\n" + yaml_runcmd_lines(runcmd_extra) if runcmd_extra else ""
 
     ssh_pwauth_val = "True"
     users_yaml = "users:\n  - default"

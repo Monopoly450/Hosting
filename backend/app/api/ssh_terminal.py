@@ -39,8 +39,15 @@ async def ws_to_ssh_loop(websocket: WebSocket, chan: paramiko.Channel):
             if data.get("type") == "websocket.disconnect":
                 break
 
-            if "text" in data:
-                text_data = data["text"]
+            # Проверяем на None, а не на наличие ключа: некоторые ASGI-серверы
+            # кладут в сообщение ОБА ключа, оставляя незадействованный пустым.
+            # С проверкой `"text" in data` бинарный кадр тогда уходил бы в
+            # текстовую ветку с text_data=None — то есть весь ввод из
+            # терминала пропадал бы.
+            text_data = data.get("text")
+            binary_data = data.get("bytes")
+
+            if text_data is not None:
                 msg = parse_control_message(text_data)
                 if msg is not None:
                     # Управляющее сообщение НИКОГДА не должно попасть в shell,
@@ -61,8 +68,8 @@ async def ws_to_ssh_loop(websocket: WebSocket, chan: paramiko.Channel):
                     continue
                 # Обычный текст (ввод пользователя)
                 await asyncio.to_thread(chan.send, text_data.encode('utf-8'))
-            elif "bytes" in data:
-                await asyncio.to_thread(chan.send, data["bytes"])
+            elif binary_data is not None:
+                await asyncio.to_thread(chan.send, binary_data)
     except Exception as e:
         logger.debug(f"SSH WS input loop error: {e}")
     finally:

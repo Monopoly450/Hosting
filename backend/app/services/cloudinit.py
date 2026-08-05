@@ -14,6 +14,7 @@ Nextcloud) вообще не создавались. Деплой из репо�
 Небольшой userData оставляем inline: так меньше сущностей в кластере и не
 ломается поведение обычных ВМ.
 """
+import json
 import logging
 
 logger = logging.getLogger("app.services.cloudinit")
@@ -129,6 +130,29 @@ WAIT_NETWORK_RUNCMD = (
     "  - i=1; while [ $i -le 60 ] && ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; "
     "do sleep 2; i=$((i+1)); done || true"
 )
+
+
+def yaml_runcmd_lines(commands, indent: str = "  ") -> str:
+    """Рендерит команды как элементы YAML-списка runcmd, экранируя каждую.
+
+    Подставлять команду в YAML как есть нельзя. Реальный случай: команда
+    записи индексной страницы содержала «своим сайтом: /var/www/html», и
+    YAML разобрал двоеточие с пробелом как разделитель ключа и значения —
+    элемент runcmd стал СЛОВАРЁМ вместо строки. Документ при этом остаётся
+    формально валидным, ошибки разбора нет, а cloud-init на таком элементе
+    спотыкается, и весь runcmd дальше не выполняется. Симптом: шаблоны не
+    работают вообще ни на одной системе, хотя в логе ничего внятного нет.
+
+    json.dumps даёт валидный YAML-скаляр в двойных кавычках (YAML —
+    надмножество JSON), с корректным экранированием кавычек, обратных слешей
+    и управляющих символов. ensure_ascii=False оставляет кириллицу читаемой.
+    """
+    out = []
+    for cmd in commands:
+        if not cmd:
+            continue
+        out.append(f"{indent}- {json.dumps(cmd, ensure_ascii=False)}")
+    return "\n".join(out)
 
 
 def _userdata_volumes(manifest: dict):

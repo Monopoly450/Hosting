@@ -89,3 +89,29 @@ def test_non_control_text_is_not_swallowed(payload):
     """Всё, что не является нашим управляющим сообщением, обязано дойти до
     shell — иначе панель молча съедала бы часть ввода."""
     assert parse_control_message(payload) is None
+
+
+def test_binary_frame_wins_when_the_server_sends_both_keys():
+    """Некоторые ASGI-серверы кладут в сообщение оба ключа, оставляя
+    незадействованный пустым. Раньше проверка была `"text" in data`, и такой
+    бинарный кадр уходил в текстовую ветку с text_data=None — весь ввод из
+    терминала пропадал бы. Особенно важно теперь, когда фронтенд шлёт ввод
+    именно бинарными кадрами."""
+    chan = FakeChan()
+    _run([{"type": "websocket.receive", "text": None, "bytes": b"ls\n"}], chan)
+    assert chan.sent == [b"ls\n"]
+
+
+def test_text_frame_wins_when_the_server_sends_both_keys():
+    chan = FakeChan()
+    _run([{"type": "websocket.receive", "text": "ls\n", "bytes": None}], chan)
+    assert chan.sent == [b"ls\n"]
+
+
+def test_resize_over_a_both_keys_message_still_does_not_reach_the_shell():
+    chan = FakeChan()
+    _run([{"type": "websocket.receive",
+           "text": json.dumps({"type": "resize", "cols": 100, "rows": 40}),
+           "bytes": None}], chan)
+    assert chan.sent == []
+    assert chan.resized == (100, 40)

@@ -132,10 +132,20 @@ def build_deploy_cloud_init(name: str, repo_url: str, branch: str, stack: str,
         deploy_steps = [f"cd {app_dir} && ({rc or 'echo no run command'}) || true"]
 
     packages_yaml = "\n".join(f"  - {p}" for p in pkgs)
-    clone_cmd = f"git clone --depth 1 --branch {branch} {repo_url} {app_dir} || git clone --depth 1 {repo_url} {app_dir}"
-    deploy_yaml = "\n".join(f"  - {step}" for step in deploy_steps)
+    from app.services.cloudinit import (GUEST_AGENT_RETRY_RUNCMD, WAIT_NETWORK_RUNCMD,
+                                        yaml_runcmd_lines)
 
-    from app.services.cloudinit import GUEST_AGENT_RETRY_RUNCMD, WAIT_NETWORK_RUNCMD
+    # URL репозитория и имя ветки тоже приходят от пользователя.
+    clone_yaml = yaml_runcmd_lines([
+        f"git clone --depth 1 --branch {branch} {repo_url} {app_dir} "
+        f"|| git clone --depth 1 {repo_url} {app_dir}"
+    ])
+
+    # Шаги деплоя экранируем: сюда попадает run_command, который задаёт сам
+    # пользователь. Двоеточие с пробелом в нём (вполне обычное дело —
+    # `echo 'старт: ok' && npm start`) превращало элемент runcmd в словарь,
+    # и деплой молча не выполнялся целиком. См. yaml_runcmd_lines.
+    deploy_yaml = yaml_runcmd_lines(deploy_steps)
 
     return f"""#cloud-config
 ssh_pwauth: True
@@ -159,7 +169,7 @@ runcmd:
   - apt-get update || true
   - systemctl enable --now docker 2>/dev/null || true
   - usermod -aG docker {default_user} 2>/dev/null || true
-  - {clone_cmd}
+{clone_yaml}
 {deploy_yaml}
 {GUEST_AGENT_RETRY_RUNCMD}
 """
