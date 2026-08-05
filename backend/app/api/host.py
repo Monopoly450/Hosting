@@ -18,6 +18,26 @@ _lvm_cache = {
     "last_updated": 0.0
 }
 
+
+def host_run(cmd: list, check: bool = False, timeout: float = 60.0):
+    """Выполняет команду в пространстве монтирования ХОСТА.
+
+    Обязательно для всего, что трогает устройства: /dev контейнера — это не
+    /dev хоста, там нет ни device-mapper, ни loop-устройств. Изменение размера
+    пула запускало pvresize и losetup прямо в контейнере и падало на
+
+        /dev/mapper/control: open failed: Operation not permitted
+        Cannot use /dev/loop0 (lost): device not found
+
+    Чтение размеров пула (vgs) через nsenter уже шло — сюда его просто не
+    довели. Отдельные привилегии не нужны: у контейнера есть pid: host и
+    SYS_ADMIN, тем же приёмом работают правила iptables (см. app/api/vms.py).
+    """
+    return subprocess.run(
+        ["nsenter", "--mount=/proc/1/ns/mnt"] + cmd,
+        capture_output=True, text=True, check=check, timeout=timeout,
+    )
+
 def get_k8s_client():
     return K8sClient()
 
@@ -790,13 +810,8 @@ def resize_lvm_storage(req: StorageResizeRequest, current_user: User = Depends(g
     # 3. Выполняем изменение размера
     try:
         # Находим петлевое устройство (loopback device)
-        find_loop = subprocess.run(
-            ["losetup", "-j", image_path], 
-            capture_output=True, 
-            text=True, 
-            check=True
-        )
-        
+        find_loop = host_run(["losetup", "-j", image_path], check=True)
+
         if not find_loop.stdout.strip():
             # Не внутренняя ошибка, а состояние хоста: служба aegis-lvm не
             # подняла loop-устройство. 500 здесь маскируется кодом обращения,
@@ -812,11 +827,8 @@ def resize_lvm_storage(req: StorageResizeRequest, current_user: User = Depends(g
             # СЖАТИЕ ХРАНИЛИЩА (Shrink)
             # Сначала уменьшаем размер физического тома LVM.
             # Если на диске есть распределенные тома ВМ, выходящие за новые рамки, LVM вернет ошибку и прервет операцию.
-            pv_resize = subprocess.run(
-                ["pvresize", "--yes", "--setphysicalvolumesize", f"{req.size_gb}G", loop_dev],
-                capture_output=True,
-                text=True
-            )
+            pv_resize = host_run(
+                ["pvresize", "--yes", "--setphysicalvolumesize", f"{req.size_gb}G", loop_dev])
             if pv_resize.returncode != 0:
                 # Отказ LVM — ожидаемый исход (занятые экстенты за новой
                 # границей, метаданные в конце устройства), а не сбой панели.
@@ -830,21 +842,21 @@ def resize_lvm_storage(req: StorageResizeRequest, current_user: User = Depends(g
                            f"Ответ LVM: {error_msg or 'без пояснений'}")
                 
             # Сообщаем ядру об изменении размера loop-устройства
-            subprocess.run(["losetup", "-c", loop_dev], check=True)
-            
+            host_run(["losetup", "-c", loop_dev], check=True)
+
             # Урезаем сам файл-образ на хосте до нового размера
-            subprocess.run(["truncate", "-s", f"{req.size_gb}G", image_path], check=True)
-            
+            host_run(["truncate", "-s", f"{req.size_gb}G", image_path], check=True)
+
             action_name = "уменьшено"
         else:
             # РАСШИРЕНИЕ ХРАНИЛИЩА (Expand)
             # Сначала расширяем файл-образ
-            subprocess.run(["truncate", "-s", f"{req.size_gb}G", image_path], check=True)
+            host_run(["truncate", "-s", f"{req.size_gb}G", image_path], check=True)
             # Сообщаем ядру об изменении размера loop-устройства
-            subprocess.run(["losetup", "-c", loop_dev], check=True)
+            host_run(["losetup", "-c", loop_dev], check=True)
             # Расширяем физический том LVM
-            subprocess.run(["pvresize", loop_dev], check=True)
-            
+            host_run(["pvresize", loop_dev], check=True)
+
             action_name = "расширено"
             
         return {
