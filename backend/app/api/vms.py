@@ -1763,6 +1763,24 @@ def get_vm_metrics_history(name: str, range_hours: int = Query(1, ge=1, le=24), 
 def create_backup(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Создать резервную копию VM"""
     check_vm_ownership(name, current_user)
+
+    # Бэкап — это полный клон PVC диска (см. create_vm_backup), а не разница,
+    # поэтому его размер известен заранее: он равен диску исходной ВМ. Это
+    # PVC на том же STORAGE_CLASS, что и всё остальное, и раньше место под
+    # него не проверялось вообще — бэкап запускался, даже если хранилищу уже
+    # нечего было ему предложить.
+    from app.db import SessionLocal
+    from app.models.models import VMTask
+    from app.core.capacity import lock_host_capacity, ensure_storage_capacity
+    db = SessionLocal()
+    try:
+        vm = db.query(VMTask).filter(VMTask.name == name).first()
+        if vm and vm.disk_gb:
+            lock_host_capacity(db)
+            ensure_storage_capacity(db, extra_gb=vm.disk_gb)
+    finally:
+        db.close()
+
     try:
         return client.create_vm_backup(name)
     except Exception as e:

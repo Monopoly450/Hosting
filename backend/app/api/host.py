@@ -8,6 +8,7 @@ from kubernetes.client.rest import ApiException
 from app.db import SessionLocal
 from app.models.models import VMTask, User
 from app.core.auth import get_current_user
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -382,60 +383,45 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
         now = time.time()
         if now - _lvm_cache["last_updated"] >= 15.0:
             lvm_info = {"active": False, "total_gb": 0.0, "free_gb": 0.0, "used_gb": 0.0, "reserved_gb": 0.0}
-            
-            # LVM пул используется ТОЛЬКО для сетевых дисков (UserVolume).
-            # Считаем суммарный объём сетевых дисков из БД.
-            total_lvm_reserved = 0.0
-            try:
-                from app.models.models import UserVolume as UVol
-                db_lvm = SessionLocal()
-                try:
-                    user_vols = db_lvm.query(UVol).all()
-                    for uv in user_vols:
-                        total_lvm_reserved += uv.size_gb
-                finally:
-                    db_lvm.close()
-            except Exception:
-                pass
 
-            try:
-                # Сначала пробуем выполнить vgs на хосте через nsenter, так как там есть доступ к /dev
-                res = subprocess.run(
-                    ["nsenter", "--mount=/proc/1/ns/mnt", "vgs", "--units", "g", "--nosuffix", "--noheadings", "-o", "vg_size,vg_free", "vg-aegis"],
-                    capture_output=True,
-                    text=True,
-                    timeout=2.0
-                )
-                if res.returncode != 0:
-                    # Если nsenter не сработал или выдал ошибку, пробуем локальную утилиту контейнера
-                    res = subprocess.run(
-                        ["vgs", "--units", "g", "--nosuffix", "--noheadings", "-o", "vg_size,vg_free", "vg-aegis"],
-                        capture_output=True,
-                        text=True,
-                        timeout=2.0
-                    )
-                
-                if res.returncode == 0:
-                    parts = res.stdout.strip().split()
-                    if len(parts) >= 2:
-                        vg_size = float(parts[0].replace(",", "."))
-                        vg_free = float(parts[1].replace(",", "."))
-                        physical_used = vg_size - vg_free
-                        # Используем максимум из физически занятого и логически зарезервированного
-                        # (сетевыми дисками), так как thin provisioning скрывает реальное использование
-                        effective_used = max(physical_used, total_lvm_reserved)
-                        effective_used = min(effective_used, vg_size)  # не больше общего размера
-                        effective_free = max(0.0, vg_size - effective_used)
-                        lvm_info = {
-                            "active": True,
-                            "total_gb": round(vg_size, 1),
-                            "free_gb": round(effective_free, 1),
-                            "used_gb": round(effective_used, 1),
-                            "reserved_gb": round(total_lvm_reserved, 1)
-                        }
-            except Exception as lvm_err:
-                import logging
-                logging.getLogger("app.host").error(f"Failed to query LVM vg-aegis info: {lvm_err}")
+            from app.core import capacity as _cap
+
+            # STORAGE_CLASS — одна настройка на весь сервер, и её же читают
+            # диск ВМ, бэкап, сетевой диск и приватная база данных (все они
+            # используют её при создании PVC). Если она указывает не на LVM,
+            # ни один из этих PVC на vg-aegis не попадает — и «зарезервировано»
+            # для этой карточки честно равно нулю, что бы ни лежало в БД.
+            total_lvm_reserved = 0.0
+            if _cap.is_lvm_storage_class(settings.STORAGE_CLASS):
+                try:
+                    db_lvm = SessionLocal()
+                    try:
+                        total_lvm_reserved = _cap.known_storage_reservations_gb(db_lvm, k8s=client)
+                    finally:
+                        db_lvm.close()
+                except Exception as res_err:
+                    import logging
+                    logging.getLogger("app.host").error(f"Не удалось посчитать резерв LVM: {res_err}")
+
+            # Чтение vgs вынесено в app.core.capacity — тот же nsenter-приём,
+            # что и здесь раньше, но теперь в одном месте: этим же кодом
+            # пользуется и проверка вместимости при создании дисков.
+            pool = _cap.read_lvm_pool_gb()
+            if pool["active"]:
+                vg_size, vg_free = pool["total_gb"], pool["free_gb"]
+                physical_used = vg_size - vg_free
+                # Используем максимум из физически занятого и логически зарезервированного,
+                # так как thin provisioning скрывает реальное использование
+                effective_used = max(physical_used, total_lvm_reserved)
+                effective_used = min(effective_used, vg_size)  # не больше общего размера
+                effective_free = max(0.0, vg_size - effective_used)
+                lvm_info = {
+                    "active": True,
+                    "total_gb": round(vg_size, 1),
+                    "free_gb": round(effective_free, 1),
+                    "used_gb": round(effective_used, 1),
+                    "reserved_gb": round(total_lvm_reserved, 1)
+                }
 
             # Резервный вариант 1: если vgs не сработал, но есть файл-образ LVM на хосте
             if not lvm_info["active"] and os.path.exists("/var/lib/aegis/lvm-storage.img"):

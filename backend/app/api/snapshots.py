@@ -59,6 +59,22 @@ def create_snapshot(vm_name: str, req: SnapshotCreateRequest, client: K8sClient 
     # Имя снапшота в Kubernetes
     full_snapshot_name = f"snap-{vm_name}-{req.name}"
 
+    # Снимок — это VirtualMachineSnapshot, дифференциальный объект: в отличие
+    # от бэкапа (полного клона PVC) у него нет известного заранее размера —
+    # он растёт по мере изменений на диске ПОСЛЕ создания снимка. Поэтому
+    # здесь не проверяется конкретное число ГБ (проверять было бы нечего),
+    # а только то, что хранилище не забито под ноль совсем: делать снимок
+    # некуда расти на уже исчерпанном пуле — риск, что он тут же откажет
+    # или испортит данные вместо того чтобы честно не создаться.
+    from app.db import SessionLocal
+    from app.core.capacity import lock_host_capacity, ensure_any_storage_headroom
+    db = SessionLocal()
+    try:
+        lock_host_capacity(db)
+        ensure_any_storage_headroom(db)
+    finally:
+        db.close()
+
     try:
         client.create_vm_snapshot(vm_name, full_snapshot_name)
         return SnapshotResponse(

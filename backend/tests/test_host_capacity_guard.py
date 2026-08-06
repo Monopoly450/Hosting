@@ -13,13 +13,27 @@ class FakeVM:
 
 
 class FakeQuery:
-    def __init__(self, vms): self._vms = vms
-    def all(self): return self._vms
+    def __init__(self, rows): self._rows = rows
+    def all(self): return self._rows
+    def count(self): return len(self._rows)
 
 
 class FakeDb:
-    def __init__(self, vms): self._vms = vms
-    def query(self, model): return FakeQuery(self._vms)
+    """Отдаёт разные строки по разным моделям — как настоящая сессия
+    SQLAlchemy, а не одну и ту же выдумку на все запросы. Нужно, поскольку
+    ensure_storage_capacity опрашивает VMTask, UserVolume и UserDatabase
+    раздельно (диски ВМ, сетевые диски и базы данных конкурируют за одно и
+    то же место на активном бэкенде хранения)."""
+    def __init__(self, vms=(), volumes=(), databases=()):
+        self._vms, self._volumes, self._databases = list(vms), list(volumes), list(databases)
+
+    def query(self, model):
+        name = getattr(model, "__name__", "")
+        if name == "UserVolume":
+            return FakeQuery(self._volumes)
+        if name == "UserDatabase":
+            return FakeQuery(self._databases)
+        return FakeQuery(self._vms)
 
 
 @pytest.fixture

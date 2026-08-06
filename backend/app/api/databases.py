@@ -91,6 +91,16 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
 
         db_user, db_password = generate_db_credentials(req.name)
 
+        # Приватная БД — это PVC на 5 ГБ (DB_PVC_SIZE_GB), на том же
+        # STORAGE_CLASS, что и диски ВМ, бэкапы и сетевые диски. Раньше место
+        # под неё не проверялось вообще — база создавалась, даже если
+        # хранилищу (LVM-пулу или корневому диску хоста) уже нечего было ей
+        # предложить.
+        from app.core.k8s_client import DB_PVC_SIZE_GB
+        from app.core.capacity import lock_host_capacity, ensure_storage_capacity
+        lock_host_capacity(db)
+        ensure_storage_capacity(db, extra_gb=DB_PVC_SIZE_GB)
+
         # Выделение ресурсов (под) СУБД в Kubernetes
         try:
             from app.core.k8s_client import K8sClient

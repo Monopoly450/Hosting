@@ -9,6 +9,13 @@ from app.core.config import settings
 
 logger = logging.getLogger("app.k8s_client")
 
+# Фиксированный размер PVC под приватную БД пользователя (create_private_db).
+# Вынесен в константу, а не оставлен строкой "5Gi" на месте использования,
+# потому что то же число нужно и проверке вместимости хранилища
+# (app.core.capacity.known_storage_reservations_gb) — держать их
+# синхронными руками означало бы рано или поздно их рассинхронизировать.
+DB_PVC_SIZE_GB = 5
+
 db_metrics_cache = {}
 
 class K8sClient:
@@ -1325,7 +1332,7 @@ class K8sClient:
                 "storageClassName": settings.STORAGE_CLASS,
                 "resources": {
                     "requests": {
-                        "storage": "5Gi"
+                        "storage": f"{DB_PVC_SIZE_GB}Gi"
                     }
                 }
             }

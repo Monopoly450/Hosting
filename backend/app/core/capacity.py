@@ -105,11 +105,9 @@ def ensure_host_capacity(db, *, cpu_cores: int, memory_gb: int, disk_gb: int):
     vms = db.query(VMTask).all()
     reserved_cpu = sum(vm.cpu_cores or 0 for vm in vms)
     reserved_stopped_ram = sum(vm.memory_gb or 0 for vm in vms if vm.status != "Running")
-    reserved_disk = sum(vm.disk_gb or 0 for vm in vms)
 
     free_cpu = max(0, host["cpu"] - reserved_cpu)
     free_ram = max(0.0, round(host["ram_gb"] - host["ram_used_gb"] - reserved_stopped_ram, 2))
-    free_disk = available_disk_gb(host["disk_gb"], host["disk_free_gb"], reserved_disk)
 
     if cpu_cores > free_cpu:
         raise HTTPException(
@@ -122,17 +120,17 @@ def ensure_host_capacity(db, *, cpu_cores: int, memory_gb: int, disk_gb: int):
             status_code=400,
             detail=f"Недостаточно свободной оперативной памяти на хосте. Запрошено: "
                    f"{memory_gb} ГБ, доступно: {free_ram} ГБ (всего {host['ram_gb']} ГБ).")
-    if disk_gb > free_disk:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Недостаточно свободного места на диске. Запрошено: {disk_gb} ГБ, "
-                   f"доступно: {free_disk} ГБ (всего {host['disk_gb']} ГБ, "
-                   f"уже зарезервировано другими ВМ: {reserved_disk} ГБ).")
+
+    # Диск ВМ — это ровно такой же PVC, как бэкап, сетевой диск или база
+    # данных: все они уходят на один и тот же STORAGE_CLASS и конкурируют за
+    # одно и то же место. Проверяем через общую функцию, а не по месту, иначе
+    # разные создающие эндпоинты снова разойдутся в том, что считают занятым.
+    ensure_storage_capacity(db, extra_gb=disk_gb)
 
 
 def available_disk_gb(host_disk_total_gb: float, host_disk_free_gb: float,
                       reserved_gb: float) -> float:
-    """Сколько диска можно обещать новой ВМ.
+    """Сколько диска можно обещать новому PVC на конкретном бэкенде хранения.
 
     Берём меньшее из двух оценок, потому что каждая ловит свой случай:
 
@@ -142,7 +140,201 @@ def available_disk_gb(host_disk_total_gb: float, host_disk_free_gb: float,
       случай, ради которого этот модуль и появился: диски тонкие, места пока
       формально много, но всё оно уже кому-то обещано.
 
-    Когда ВМ заполнят свои диски полностью, обе оценки сходятся.
+    Когда данные заполнят обещанное полностью, обе оценки сходятся. Работает
+    одинаково для корневого диска хоста и для LVM-пула — им обоим передают
+    свои total/free/reserved.
     """
     unpromised = host_disk_total_gb - reserved_gb
     return max(0.0, round(min(host_disk_free_gb, unpromised), 1))
+
+
+# --------------------------------------------------------------------------
+# Место хранения — не только диски ВМ.
+#
+# STORAGE_CLASS (одна настройка на весь сервер) используется буквально
+# ВЕЗДЕ, где создаётся PVC: диск ВМ при создании (app.api.vms), бэкап диска
+# (app.core.k8s_client.create_vm_backup), приватная база данных пользователя
+# (create_private_db, фиксированно 5 ГБ) и сетевой диск (create_pvc). Все
+# четыре конкурируют за одно и то же место — за LVM-пул, если STORAGE_CLASS
+# указывает на него, иначе за корневой диск хоста (local-path).
+#
+# S3 (MinIO) и собственная БД панели (Postgres/MariaDB из docker-compose)
+# сюда не входят — это обычные тома Docker на корневом диске хоста, не PVC
+# Kubernetes, поэтому они уже покрыты общей проверкой места на диске хоста
+# и отдельного учёта не требуют.
+# --------------------------------------------------------------------------
+
+def is_lvm_storage_class(name: str) -> bool:
+    """Тот же признак, что и в дашборде (app.api.host) — единый источник
+    истины, чтобы проверка вместимости и то, что показывает панель, не
+    расходились в том, что считать LVM-классом."""
+    name = (name or "").lower()
+    return "lvm" in name or "vg-" in name
+
+
+# Имя тома LVM жёстко задано инсталлятором (см. scripts/install-openebs-lvm.sh)
+LVM_VG_NAME = "vg-aegis"
+LVM_LOOP_IMAGE = "/var/lib/aegis/lvm-storage.img"
+
+
+def read_lvm_pool_gb() -> dict:
+    """{'active', 'total_gb', 'free_gb'} для группы томов LVM.
+
+    Читает через nsenter в пространство монтирования хоста — у контейнера
+    нет доступа к /dev/mapper и loop-устройствам напрямую (см. host_run в
+    app.api.host, та же причина). Без nsenter vgs либо ничего не находит,
+    либо падает с ошибкой доступа, и вызывающий код решил бы, что LVM
+    неактивен, хотя он просто не смог до него достучаться.
+    """
+    import subprocess
+
+    try:
+        res = subprocess.run(
+            ["nsenter", "--mount=/proc/1/ns/mnt", "vgs", "--units", "g",
+             "--nosuffix", "--noheadings", "-o", "vg_size,vg_free", LVM_VG_NAME],
+            capture_output=True, text=True, timeout=2.0,
+        )
+        if res.returncode != 0:
+            res = subprocess.run(
+                ["vgs", "--units", "g", "--nosuffix", "--noheadings",
+                 "-o", "vg_size,vg_free", LVM_VG_NAME],
+                capture_output=True, text=True, timeout=2.0,
+            )
+        if res.returncode == 0:
+            parts = res.stdout.strip().split()
+            if len(parts) >= 2:
+                total = float(parts[0].replace(",", "."))
+                free = float(parts[1].replace(",", "."))
+                return {"active": True, "total_gb": round(total, 1), "free_gb": round(free, 1)}
+    except Exception as e:
+        logger.warning(f"read_lvm_pool_gb: vgs недоступен: {e}")
+
+    # vgs недоступен (сама группа томов ещё не создана) — судим по размеру
+    # файла-образа: пока vgcreate не выполнен, это лучшая оценка ёмкости.
+    try:
+        import os
+        if os.path.exists(LVM_LOOP_IMAGE):
+            total = round(os.path.getsize(LVM_LOOP_IMAGE) / (1024 ** 3), 1)
+            return {"active": True, "total_gb": total, "free_gb": total}
+    except Exception as e:
+        logger.warning(f"read_lvm_pool_gb: не удалось прочитать {LVM_LOOP_IMAGE}: {e}")
+
+    return {"active": False, "total_gb": 0.0, "free_gb": 0.0}
+
+
+def storage_backend_totals() -> dict:
+    """{'backend', 'total_gb', 'free_gb'} — куда РЕАЛЬНО уйдёт новый PVC при
+    текущем значении STORAGE_CLASS: в LVM-пул или на корневой диск хоста."""
+    from app.core.config import settings
+
+    if is_lvm_storage_class(settings.STORAGE_CLASS):
+        lvm = read_lvm_pool_gb()
+        if lvm["active"]:
+            return {"backend": "lvm", "total_gb": lvm["total_gb"], "free_gb": lvm["free_gb"]}
+        logger.warning(
+            f"STORAGE_CLASS={settings.STORAGE_CLASS!r} указывает на LVM, но "
+            f"группа томов {LVM_VG_NAME} не отвечает — считаю по корневому диску")
+
+    host = host_totals()
+    return {"backend": "local", "total_gb": host["disk_gb"], "free_gb": host["disk_free_gb"]}
+
+
+def known_storage_reservations_gb(db, k8s=None) -> float:
+    """Сколько ГБ уже обещано на активном бэкенде хранения (см.
+    storage_backend_totals): диски ВМ + сетевые диски + базы данных, и —
+    если передан k8s-клиент — бэкапы. Бэкапы требуют обращения к
+    Kubernetes (для их размеров нет отдельной таблицы в БД), поэтому
+    считаются, только когда клиент передан явно, а не при каждой проверке."""
+    from app.models.models import VMTask, UserVolume, UserDatabase
+    from app.core.k8s_client import DB_PVC_SIZE_GB
+
+    total = sum(vm.disk_gb or 0 for vm in db.query(VMTask).all())
+    total += sum(v.size_gb or 0 for v in db.query(UserVolume).all())
+    total += db.query(UserDatabase).count() * DB_PVC_SIZE_GB
+
+    if k8s is not None:
+        total += backups_total_gb(k8s)
+
+    return float(total)
+
+
+def backups_total_gb(k8s) -> float:
+    """Суммарный размер всех бэкапов дисков ВМ (полные клоны PVC —
+    в отличие от снимков, у них известный заранее размер)."""
+    try:
+        dvs = k8s.custom_api.list_cluster_custom_object(
+            group="cdi.kubevirt.io", version="v1beta1", plural="datavolumes")
+    except Exception as e:
+        logger.warning(f"backups_total_gb: не удалось получить список DataVolume: {e}")
+        return 0.0
+
+    total = 0.0
+    for dv in dvs.get("items", []):
+        if "hosting.antigravity.io/backup-source" not in (dv.get("metadata", {}).get("labels") or {}):
+            continue
+        size_str = (dv.get("spec", {}).get("storage", {})
+                    .get("resources", {}).get("requests", {}).get("storage", "0Gi"))
+        try:
+            if size_str.endswith("Gi"):
+                total += float(size_str[:-2])
+            elif size_str.endswith("Mi"):
+                total += float(size_str[:-2]) / 1024
+        except ValueError:
+            pass
+    return total
+
+
+def ensure_storage_capacity(db, *, extra_gb: float, k8s=None):
+    """Не даёт занять на активном бэкенде хранения больше, чем там есть.
+
+    Общая проверка для ЛЮБОГО нового PVC: диска ВМ, бэкапа, сетевого диска,
+    базы данных. Раньше каждый из этих путей либо не проверял место вообще
+    (бэкапы, базы данных), либо проверял его сам и неправильно: сетевые
+    диски сверялись с LVM через vgs БЕЗ nsenter (внутри контейнера это либо
+    падает, либо не находит группу томов — проверка молча не срабатывала),
+    а диск ВМ проверялся только по свободному месту на корневом диске хоста,
+    даже если PVC на самом деле уходит в отдельный, куда более маленький
+    LVM-пул.
+    """
+    from fastapi import HTTPException
+
+    backend = storage_backend_totals()
+    reserved = known_storage_reservations_gb(db, k8s=k8s)
+    free = available_disk_gb(backend["total_gb"], backend["free_gb"], reserved)
+
+    if extra_gb > free:
+        where = "LVM-пуле" if backend["backend"] == "lvm" else "локальном диске хоста"
+        raise HTTPException(
+            status_code=400,
+            detail=f"Недостаточно места на {where}. Запрошено: {extra_gb} ГБ, "
+                   f"доступно: {free} ГБ (всего: {backend['total_gb']} ГБ, "
+                   f"уже зарезервировано: {round(reserved, 1)} ГБ).")
+
+
+def ensure_any_storage_headroom(db, k8s=None):
+    """Для операций без заранее известного размера — снимков ВМ.
+
+    В отличие от бэкапа (полный клон PVC, размер известен заранее),
+    VirtualMachineSnapshot — дифференциальный объект: он растёт по мере
+    изменений на диске уже ПОСЛЕ создания снимка, и сколько места ему
+    понадобится, нельзя знать в момент создания. Резервировать здесь нечего,
+    но пул, где уже физически не осталось места, — самостоятельная причина
+    отказать: снимку будет некуда расти, и он либо не создастся, либо
+    испортит данные вместо честного отказа.
+
+    Не выражается через ensure_storage_capacity(extra_gb=0): запрос «0
+    дополнительных ГБ» математически влезает в любое неотрицательное
+    свободное место, включая ровно ноль, — это не тот вопрос, который здесь
+    нужен.
+    """
+    from fastapi import HTTPException
+
+    backend = storage_backend_totals()
+    reserved = known_storage_reservations_gb(db, k8s=k8s)
+    free = available_disk_gb(backend["total_gb"], backend["free_gb"], reserved)
+    if free <= 0:
+        where = "LVM-пуле" if backend["backend"] == "lvm" else "локальном диске хоста"
+        raise HTTPException(
+            status_code=400,
+            detail=f"На {where} не осталось свободного места (всего: {backend['total_gb']} ГБ, "
+                   f"уже зарезервировано: {round(reserved, 1)} ГБ). Снимку будет некуда расти.")
