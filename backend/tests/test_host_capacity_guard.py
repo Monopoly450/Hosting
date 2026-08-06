@@ -105,3 +105,37 @@ def test_vm_creation_endpoint_still_checks_capacity():
 
     src = inspect.getsource(vms.create_vm)
     assert "lock_host_capacity" in src
+
+
+# --------- дашборд: "доступно" обязано учитывать резерв, а не только ---------
+# --------- физически свободное место ------------------------------------
+
+def test_dashboard_available_gb_subtracts_reservations_not_just_free_space():
+    """Живой случай: диск 212.5 ГБ, использовано хостом 53.4 ГБ (то есть
+    физически свободно 159.1 ГБ), а ВМ уже зарезервировали 200 ГБ. Раньше
+    host.py показывал available_gb = 159.1 (простое free_gb, без вычета
+    резерва) — то есть «доступно» было БОЛЬШЕ, чем реально можно было
+    получить: настоящая проверка при создании ВМ (ensure_host_capacity)
+    отказала бы уже на 12.5 ГБ, а дашборд обещал в 12 раз больше."""
+    from app.core.capacity import available_disk_gb
+
+    total, free_physical, reserved = 212.5, 159.1, 200.0
+    assert available_disk_gb(total, free_physical, reserved) == 12.5
+    # Старая формула (то, что было раньше) для контраста — она НЕ должна
+    # совпадать с новой, иначе тест ничего не проверяет
+    old_buggy_value = max(0.0, free_physical)
+    assert old_buggy_value != available_disk_gb(total, free_physical, reserved)
+
+
+def test_host_metrics_disk_block_uses_the_shared_capacity_formula():
+    """Раньше available_gb в /api/host считался как max(0.0, free_gb) прямо
+    на месте — той же арифметике, что использует ensure_host_capacity при
+    создании ВМ, там взяться было неоткуда."""
+    import inspect
+    from app.api import host
+
+    src = inspect.getsource(host.get_host_metrics)
+    assert "_cap.available_disk_gb(" in src, (
+        "дашборд должен считать available_gb через ту же формулу, что и "
+        "проверка при создании ВМ, иначе они снова разойдутся"
+    )

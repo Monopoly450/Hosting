@@ -656,6 +656,11 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
 
         # Метрики уже вычислены ранее
 
+        # Отдельный от того, что выше (там — под 15-секундным кэшем LVM и
+        # мог не выполниться в этом конкретном вызове), нужен и здесь для
+        # available_disk_gb в блоке "disk" ниже.
+        from app.core import capacity as _cap
+
         return {
             "node_name": node_name,
             "is_cluster": is_cluster,
@@ -690,7 +695,21 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                 "free_gb": shared_disk["free_gb"] if shared_disk["active"] else local_disk["free_gb"],
                 "used_percent": shared_disk["used_percent"] if shared_disk["active"] else local_disk["used_percent"],
                 "reserved_gb": reserved_disk_gb,
-                "available_gb": max(0.0, shared_disk["free_gb"] if shared_disk["active"] else local_disk["free_gb"])
+                # Было max(0.0, free_gb) — то есть просто физически свободное
+                # место, без вычета того, что уже обещано ВМ. Диски тонкие:
+                # сразу после создания ВМ место почти не убывает, поэтому это
+                # число могло показывать «доступно 148 ГБ» при резерве в
+                # 200 ГБ на диске в 212.5 ГБ — на самом деле создать новую ВМ
+                # получилось бы едва на 12 ГБ, и реальная проверка при
+                # создании (ensure_host_capacity) отказала бы именно на этой
+                # цифре, а не на показанной здесь. capacity.available_disk_gb
+                # — та же формула, что и там: меньшее из «физически свободно»
+                # и «осталось необещанного».
+                "available_gb": _cap.available_disk_gb(
+                    shared_disk["total_gb"] if shared_disk["active"] else local_disk["total_gb"],
+                    shared_disk["free_gb"] if shared_disk["active"] else local_disk["free_gb"],
+                    reserved_disk_gb,
+                )
             },
             "os_info": node.status.node_info.os_image,
             "kernel_version": node.status.node_info.kernel_version,
