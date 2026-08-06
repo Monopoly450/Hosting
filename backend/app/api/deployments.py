@@ -157,6 +157,7 @@ chpasswd:
   expire: False
 users:
   - default
+package_update: true
 packages:
 {packages_yaml}
 runcmd:

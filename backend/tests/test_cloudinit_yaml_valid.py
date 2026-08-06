@@ -222,3 +222,42 @@ def test_compose_retry_is_bounded():
     from app.services.cloudinit import COMPOSE_UP_RUNCMD
 
     assert "-le 10" in COMPOSE_UP_RUNCMD and "-le 30" in COMPOSE_UP_RUNCMD
+
+
+# ------------ apt-кэш должен обновляться перед декларативной установкой -----
+# Инцидент с живого сервера: docker.io не установился («docker: not found» в
+# runcmd), хотя стоял в packages. qemu-guest-agent чуть ниже в том же логе
+# встал нормально — потому что его установка сама делает apt-get update перед
+# install, а декларативный packages: без package_update — нет, и ставит из
+# кэша, запечённого в образ при сборке. Если тот кэш успел устареть, apt не
+# находит пакет и молча проваливает установку: cloud-init не останавливается,
+# просто идёт в runcmd дальше как ни в чём не бывало.
+
+@pytest.mark.parametrize("os_type,template", ALL_COMBINATIONS)
+def test_package_cache_is_refreshed_before_declarative_install(os_type, template):
+    doc = yaml.safe_load(_user_data(os_type, template))
+    if doc.get("packages"):
+        assert doc.get("package_update") is True, (
+            f"{os_type}/{template}: packages есть, а package_update: true — нет; "
+            f"установка может провалиться на устаревшем кэше apt/dnf/zypper"
+        )
+
+
+def test_marketplace_refreshes_the_cache_before_installing_docker():
+    from app.services.marketplace import (get_app, resolve_env,
+                                          build_marketplace_cloud_init)
+
+    for entry_id in ("n8n", "nextcloud", "wordpress"):
+        doc = yaml.safe_load(build_marketplace_cloud_init(
+            get_app(entry_id), resolve_env(get_app(entry_id), {}), "pw"))
+        assert doc.get("package_update") is True, entry_id
+
+
+def test_deploy_refreshes_the_cache_before_installing_the_stack():
+    from app.api.deployments import build_deploy_cloud_init
+
+    for stack in DEPLOY_STACKS:
+        doc = yaml.safe_load(build_deploy_cloud_init(
+            name="app1", repo_url="https://github.com/o/r", branch="main",
+            stack=stack, app_port=3000, run_command=None, password="pw"))
+        assert doc.get("package_update") is True, stack

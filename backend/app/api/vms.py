@@ -222,6 +222,19 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
 
     runcmd_yaml = "\n" + yaml_runcmd_lines(runcmd_extra) if runcmd_extra else ""
 
+    # Без package_update: true модуль packages ставит из кэша apt, ЗАПЕЧЁННОГО
+    # в образ на момент его сборки — не обновляя индекс перед установкой.
+    # Если этот кэш успел устареть к моменту, когда стартует конкретная ВМ
+    # (обычное дело для облачных образов), apt не находит пакет и молча
+    # проваливает установку — cloud-init на этом не останавливается, просто
+    # идёт в runcmd дальше. Симптом с живого сервера: docker.io не
+    # установился («docker: not found» в выводе runcmd), а qemu-guest-agent
+    # чуть ниже встал нормально — потому что его установка сама делает
+    # apt-get update перед install (см. guest_agent_runcmd), а декларативный
+    # packages — нет.
+    if packages_yaml:
+        packages_yaml = "\npackage_update: true" + packages_yaml
+
     ssh_pwauth_val = "True"
     users_yaml = "users:\n  - default"
     ssh_enable_commands = """  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true

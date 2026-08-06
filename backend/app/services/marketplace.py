@@ -351,6 +351,7 @@ chpasswd:
   expire: False
 users:
   - default
+package_update: true
 packages:
   - docker.io
   - docker-compose-v2
