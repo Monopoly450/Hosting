@@ -162,6 +162,92 @@ def test_check_dns_unresolvable(monkeypatch):
     assert ok is False and "не резолвится" in detail
 
 
+# --------------------------- Подтверждение владения --------------------------
+#
+# Инцидент на живом сервере: авторитетный NS Timeweb иногда отвечает 3+
+# секунды, системный резолвер по умолчанию сдаётся раньше и ошибку "не успел
+# ответить" не отличить от настоящего NXDOMAIN — check_ownership() возвращал
+# "TXT-запись не найдена" для записи, которая на самом деле была настроена
+# верно. Проверяем, что резолвер теперь явно публичный и терпеливый, а не
+# системный.
+
+class _FakeTxtAnswer:
+    def __init__(self, value):
+        self.strings = [value.encode()]
+
+
+class _FakeDnsResolver:
+    last_kwargs = None
+    answers = None
+    error = None
+
+    def __init__(self, configure=True):
+        type(self).last_kwargs = {"configure": configure}
+        self.nameservers = None
+        self.timeout = None
+        self.lifetime = None
+
+    def resolve(self, name, rdtype):
+        if type(self).error:
+            raise type(self).error
+        return type(self).answers
+
+
+def _patch_dns_resolver(monkeypatch, answers=None, error=None):
+    import dns.resolver
+    _FakeDnsResolver.answers = answers
+    _FakeDnsResolver.error = error
+    _FakeDnsResolver.last_kwargs = None
+    monkeypatch.setattr(dns.resolver, "Resolver", _FakeDnsResolver)
+
+
+def test_check_ownership_requires_a_token():
+    ok, detail = d.check_ownership("app.example.com", "")
+    assert ok is False and "нет токена" in detail
+
+
+def test_check_ownership_matches_the_token(monkeypatch):
+    _patch_dns_resolver(monkeypatch, answers=[_FakeTxtAnswer("aegis-verify-abc")])
+    ok, detail = d.check_ownership("app.example.com", "aegis-verify-abc")
+    assert ok is True and "подтверждено" in detail
+
+
+def test_check_ownership_wrong_value_is_not_confused_with_missing_record(monkeypatch):
+    _patch_dns_resolver(monkeypatch, answers=[_FakeTxtAnswer("something-else")])
+    ok, detail = d.check_ownership("app.example.com", "aegis-verify-abc")
+    assert ok is False and "нет нужного значения" in detail
+
+
+def test_check_ownership_reports_resolution_failure(monkeypatch):
+    _patch_dns_resolver(monkeypatch, error=Exception("boom"))
+    ok, detail = d.check_ownership("app.example.com", "aegis-verify-abc")
+    assert ok is False and "не найдена" in detail
+
+
+def test_check_ownership_uses_public_resolvers_instead_of_the_system_default(monkeypatch):
+    """Ключевая часть фикса: системный резолвер (обычно локальный стаб)
+    именно этот путь и подводил — заменяем его на явные публичные адреса
+    с бóльшим таймаутом, а не полагаемся на конфигурацию хоста."""
+    captured = {}
+
+    class RecordingResolver(_FakeDnsResolver):
+        def __init__(self, configure=True):
+            super().__init__(configure=configure)
+            captured["instance"] = self
+
+    import dns.resolver
+    RecordingResolver.answers = [_FakeTxtAnswer("aegis-verify-abc")]
+    RecordingResolver.error = None
+    monkeypatch.setattr(dns.resolver, "Resolver", RecordingResolver)
+
+    d.check_ownership("app.example.com", "aegis-verify-abc")
+
+    assert RecordingResolver.last_kwargs == {"configure": False}
+    assert captured["instance"].nameservers == ["1.1.1.1", "8.8.8.8"]
+    assert captured["instance"].timeout >= 5
+    assert captured["instance"].lifetime >= 10
+
+
 # ------------------------------ Статус Caddy --------------------------------
 
 def test_caddy_status_without_docker():

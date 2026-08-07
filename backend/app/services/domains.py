@@ -163,8 +163,19 @@ def check_ownership(domain: str, token: str) -> tuple:
         import dns.resolver
     except ImportError:
         return False, "на сервере не установлен dnspython"
+
+    # Системный резолвер (обычно локальный стаб systemd-resolved) сдаётся по
+    # своему таймауту раньше, чем успевает дождаться ответа от медленных
+    # авторитетных NS — на живом сервере тот же NS Timeweb (139.45.249.139)
+    # отвечал на некоторые запросы 3+ секунды (см. build_caddyfile/
+    # propagation_delay). Публичные резолверы обычно терпеливее и не путают
+    # "сервер не ответил вовремя" с NXDOMAIN.
+    resolver = dns.resolver.Resolver(configure=False)
+    resolver.nameservers = ["1.1.1.1", "8.8.8.8"]
+    resolver.timeout = 5
+    resolver.lifetime = 10
     try:
-        answers = dns.resolver.resolve(name, "TXT")
+        answers = resolver.resolve(name, "TXT")
     except Exception as e:
         return False, f"TXT-запись {name} не найдена: {e}"
 
