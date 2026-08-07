@@ -46,7 +46,21 @@ OS_WITH_OWN_WEB_STACK = ("bitrix",)
 # Portainer слушает 9000, Redis 6379, PostgreSQL 5432 (у Bitrix MySQL на
 # 3306), Node.js и Python — просто наборы пакетов. Всё это рядом с Bitrix
 # работает, поэтому запрещаем ровно конфликтующее, а не шаблоны целиком.
-WEB_STACK_TEMPLATES = ("lamp", "lemp", "wordpress")
+WEB_STACK_TEMPLATES = ("lamp", "lemp", "wordpress", "zabbix")
+
+# Точечные запреты «шаблон × конкретная ОС» — когда семейства недостаточно.
+#
+# Zabbix ставится из официального репозитория Zabbix SIA, а тот собран под
+# конкретные релизы: rhel/8, rhel/9, ubuntu24.04, debian12 и т.п. Адрес
+# репозитория собирается в госте из VERSION_ID (см. ZABBIX_REPO_CMD), и для
+# Fedora это ломается принципиально: у неё VERSION_ID вида «41», а репозитория
+# «el41» не существует. Собственных пакетов Zabbix в репозиториях Fedora тоже
+# нет, а подсовывать ей сборку под RHEL — гарантированный конфликт версий PHP
+# и библиотек. Честнее не предлагать шаблон вовсе, чем дать ему провалиться
+# на этапе установки.
+TEMPLATE_OS_EXCLUSIONS = {
+    "zabbix": ("fedora",),
+}
 
 
 def family_of(os_type: str) -> str:
@@ -286,6 +300,113 @@ SUSE_PHP_REPO_CMD = (
     "aegis-php || true) && "
     "zypper --non-interactive --gpg-auto-import-keys refresh aegis-php 2>/dev/null || true"
 )
+
+
+# --------------------------------------------------------------------------
+# Zabbix
+#
+# Ставится из официального репозитория Zabbix SIA (в штатных репозиториях
+# дистрибутивов Zabbix-сервера нет). Репозиторий собран под КОНКРЕТНЫЕ релизы,
+# поэтому адрес собирается уже в госте из /etc/os-release, а не зашивается:
+# ubuntu24.04, debian12, rhel/9 и т.д. Проверено, что схема с «latest» в имени
+# существует для Ubuntu 22.04/24.04, Debian 11/12/13 и RHEL 8/9 — это избавляет
+# от угадывания номера сборки пакета, который меняется от релиза к релизу.
+#
+# Веб-мастер первичной настройки не нужен: если заранее положить готовый
+# /etc/zabbix/web/zabbix.conf.php, фронтенд видит настроенное подключение и
+# сразу открывает рабочую панель. Пароль к БД генерируется в самом госте
+# (в статическом шаблоне взяться ему неоткуда) и переиспользуется из файла с
+# правами 600 — каждая команда runcmd выполняется отдельным процессом, поэтому
+# переменные между ними не живут.
+ZABBIX_VERSION = "7.0"          # текущая LTS: поддержка до 2029 года
+ZABBIX_DB_PASS_FILE = "/root/.aegis_zabbix_db_pass"
+
+# Строки конфигурации фронтенда. Пароль подставляется отдельным шагом (sed),
+# чтобы не смешивать одинарные кавычки shell с кавычками PHP.
+_ZABBIX_WEB_CONF_LINES = (
+    "'<?php' "
+    "'$DB[\"TYPE\"] = \"MYSQL\";' "
+    "'$DB[\"SERVER\"] = \"localhost\";' "
+    "'$DB[\"PORT\"] = \"0\";' "
+    "'$DB[\"DATABASE\"] = \"zabbix\";' "
+    "'$DB[\"USER\"] = \"zabbix\";' "
+    "'$DB[\"PASSWORD\"] = \"__AEGIS_ZBX_PASS__\";' "
+    "'$DB[\"SCHEMA\"] = \"\";' "
+    "'$DB[\"ENCRYPTION\"] = false;' "
+    "'$DB[\"VERIFY_HOST\"] = false;' "
+    "'$DB[\"DOUBLE_IEEE754\"] = true;' "
+    "'$ZBX_SERVER = \"localhost\";' "
+    "'$ZBX_SERVER_PORT = \"10051\";' "
+    "'$ZBX_SERVER_NAME = \"Aegis\";' "
+    "'$IMAGE_FORMAT_DEFAULT = IMAGE_FORMAT_PNG;' "
+)
+
+
+def _zabbix_common_steps(web_user: str, web_service: str) -> list:
+    """Шаги, одинаковые для всех семейств: база, схема, конфиги, запуск."""
+    p = ZABBIX_DB_PASS_FILE
+    return [
+        # Пароль БД: создаём файл сразу с правами 600, а не chmod после записи —
+        # иначе между записью и chmod он на мгновение читаем всем.
+        f"install -m 600 /dev/null {p} && openssl rand -hex 16 > {p}",
+        # log_bin_trust_function_creators нужен на время импорта схемы: она
+        # создаёт хранимые функции, а при включённом бинарном логе MariaDB это
+        # запрещает.
+        f"P=$(cat {p}); mysql -uroot -e \"create database if not exists zabbix "
+        "character set utf8mb4 collate utf8mb4_bin; "
+        "create user if not exists zabbix@localhost identified by '$P'; "
+        "grant all privileges on zabbix.* to zabbix@localhost; "
+        'set global log_bin_trust_function_creators = 1;"',
+        f"P=$(cat {p}); zcat /usr/share/zabbix-sql-scripts/mysql/server.sql.gz "
+        '| mysql --default-character-set=utf8mb4 -uzabbix -p"$P" zabbix',
+        'mysql -uroot -e "set global log_bin_trust_function_creators = 0;" || true',
+        # Пароль в конфиг сервера: строка в поставляемом файле закомментирована,
+        # поэтому сначала пробуем раскомментировать, а если её нет — дописываем.
+        f"P=$(cat {p}); sed -i \"s|^# *DBPassword=.*|DBPassword=$P|\" "
+        "/etc/zabbix/zabbix_server.conf; "
+        "grep -q '^DBPassword=' /etc/zabbix/zabbix_server.conf || "
+        'echo "DBPassword=$P" >> /etc/zabbix/zabbix_server.conf',
+        # Готовый конфиг фронтенда — именно он отменяет веб-мастер установки.
+        "mkdir -p /etc/zabbix/web && printf '%s\\n' " + _ZABBIX_WEB_CONF_LINES
+        + "> /etc/zabbix/web/zabbix.conf.php",
+        f"P=$(cat {p}); sed -i \"s|__AEGIS_ZBX_PASS__|$P|\" "
+        f"/etc/zabbix/web/zabbix.conf.php && chown {web_user}:{web_user} "
+        "/etc/zabbix/web/zabbix.conf.php && chmod 640 /etc/zabbix/web/zabbix.conf.php",
+        f"systemctl enable --now zabbix-server zabbix-agent {web_service} || true",
+        f"systemctl restart zabbix-server zabbix-agent {web_service} || true",
+    ]
+
+
+# zabbix-get и zabbix-sender — консольные утилиты: проверить элемент данных и
+# отправить значение вручную прямо из терминала панели, не открывая браузер.
+_ZABBIX_PACKAGES = ("zabbix-server-mysql zabbix-sql-scripts zabbix-agent "
+                    "zabbix-get zabbix-sender")
+
+ZABBIX_STEPS_DEBIAN = [
+    # ID и VERSION_ID из /etc/os-release дают ровно то, что ждёт репозиторий:
+    # ubuntu + 24.04 -> ubuntu24.04, debian + 12 -> debian12.
+    ". /etc/os-release && cd /tmp && "
+    f"curl -fsSLO https://repo.zabbix.com/zabbix/{ZABBIX_VERSION}/"
+    "${ID}/pool/main/z/zabbix-release/zabbix-release_latest+${ID}${VERSION_ID}_all.deb && "
+    "dpkg -i zabbix-release_latest+${ID}${VERSION_ID}_all.deb && apt-get update",
+    "DEBIAN_FRONTEND=noninteractive apt-get install -y "
+    f"{_ZABBIX_PACKAGES} zabbix-frontend-php zabbix-apache-conf",
+] + _zabbix_common_steps(web_user="www-data", web_service="apache2")
+
+ZABBIX_STEPS_RHEL = [
+    # VERSION_ID у AlmaLinux/Rocky бывает вида «9.4» — репозиторию нужен только
+    # мажорный номер, отсюда ${VERSION_ID%%.*}.
+    '. /etc/os-release && V=${VERSION_ID%%.*} && rpm -Uvh --replacepkgs '
+    f"https://repo.zabbix.com/zabbix/{ZABBIX_VERSION}/rhel/$V/x86_64/"
+    f"zabbix-release-latest-{ZABBIX_VERSION}.el$V.noarch.rpm && dnf clean all",
+    "dnf install -y "
+    f"{_ZABBIX_PACKAGES} zabbix-web-mysql zabbix-apache-conf",
+    # SELinux в облачных образах RHEL работает в режиме enforcing: без этих
+    # булевых веб-интерфейс не достучится ни до базы, ни до zabbix-server и
+    # отдаст пустую страницу либо ошибку подключения.
+    "setsebool -P httpd_can_network_connect_db on 2>/dev/null || true",
+    "setsebool -P httpd_can_connect_zabbix on 2>/dev/null || true",
+] + _zabbix_common_steps(web_user="apache", web_service="httpd")
 
 
 # Шаблоны окружения по семействам.
@@ -634,6 +755,27 @@ TEMPLATES = {
             ],
         },
     },
+    "zabbix": {
+        "label": "Zabbix (мониторинг, веб-интерфейс /zabbix)",
+        # Веб-интерфейс раскладывается по docroot и требует уже поднятого
+        # Apache и MariaDB, поэтому службы включаются до команд.
+        "services_first": True,
+        "debian": {
+            # Здесь только то, что есть в штатных репозиториях дистрибутива.
+            # Пакеты самого Zabbix живут во ВНЕШНЕМ репозитории и ставятся
+            # ниже, отдельной командой: cloud-init выполняет весь список
+            # packages одной транзакцией apt, и любое имя, которого ещё нет в
+            # индексе, провалило бы установку целиком — вместе с mariadb.
+            "packages": ["mariadb-server", "curl"],
+            "services": ["mariadb"],
+            "commands": ZABBIX_STEPS_DEBIAN,
+        },
+        "rhel": {
+            "packages": ["mariadb-server", "curl"],
+            "services": ["mariadb"],
+            "commands": ZABBIX_STEPS_RHEL,
+        },
+    },
 }
 
 
@@ -644,6 +786,10 @@ def template_supported(template: str, os_type: str) -> bool:
     # У ОС со своим веб-стеком запрещены только шаблоны, которые тоже поднимают
     # веб-сервер: два таких стека подерутся за порт 80 (см. WEB_STACK_TEMPLATES)
     if os_type in OS_WITH_OWN_WEB_STACK and template in WEB_STACK_TEMPLATES:
+        return False
+    # Точечные исключения, которые не выражаются через семейство (см.
+    # TEMPLATE_OS_EXCLUSIONS — например, Zabbix на Fedora)
+    if os_type in TEMPLATE_OS_EXCLUSIONS.get(template, ()):
         return False
     spec = TEMPLATES.get(template)
     if not spec:

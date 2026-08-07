@@ -584,3 +584,125 @@ def test_no_suse_template_keeps_php_in_the_atomic_package_list():
     for template in ("lamp", "lemp"):
         packages, _ = build_template_steps(template, "opensuse")
         assert not any("php" in p for p in packages), (template, packages)
+
+
+# ------------------------------- Zabbix -------------------------------------
+
+def test_zabbix_is_offered_only_where_official_packages_exist():
+    """Zabbix ставится из репозитория Zabbix SIA, собранного под конкретные
+    релизы. Debian/Ubuntu и RHEL-семейство там есть; Arch, Alpine и openSUSE —
+    нет (у openSUSE только сборка сообщества, не от Zabbix SIA)."""
+    for os_type in ("ubuntu", "debian", "almalinux", "rocky", "centos"):
+        assert template_supported("zabbix", os_type) is True, os_type
+    for os_type in ("arch", "alpine", "opensuse"):
+        assert template_supported("zabbix", os_type) is False, os_type
+
+
+def test_zabbix_is_not_offered_on_fedora():
+    """У Fedora VERSION_ID вида «41», а репозитория el41 не существует — адрес
+    собирается в госте из VERSION_ID и для неё сломался бы принципиально.
+    Своих пакетов Zabbix в репозиториях Fedora тоже нет."""
+    assert template_supported("zabbix", "fedora") is False
+    assert "zabbix" not in supported_templates_for("fedora")
+    # но остальные шаблоны у Fedora остаются
+    assert "docker" in supported_templates_for("fedora")
+
+
+def test_zabbix_is_blocked_on_bitrix_like_other_web_stacks():
+    """Zabbix поднимает свой Apache на порту 80 — рядом с собственным стеком
+    Bitrix это тот же конфликт, что у LAMP."""
+    from app.services.os_profiles import WEB_STACK_TEMPLATES
+
+    assert "zabbix" in WEB_STACK_TEMPLATES
+    assert template_supported("zabbix", "bitrix") is False
+
+
+def test_zabbix_repo_url_is_built_from_os_release_not_hardcoded():
+    """Репозиторий Zabbix собран под конкретные релизы (ubuntu24.04, debian12,
+    rhel/9). Зашить один адрес нельзя — он верен максимум для одной ОС."""
+    _, deb = build_template_steps("zabbix", "ubuntu")
+    repo = next(c for c in deb if "repo.zabbix.com" in c)
+    assert "/etc/os-release" in repo
+    assert "${ID}" in repo and "${VERSION_ID}" in repo
+
+    _, rhel = build_template_steps("zabbix", "almalinux")
+    repo = next(c for c in rhel if "repo.zabbix.com" in c)
+    # У AlmaLinux VERSION_ID бывает «9.4» — репозиторию нужен мажорный номер
+    assert "${VERSION_ID%%.*}" in repo
+
+
+def test_zabbix_packages_are_installed_after_the_repo_is_registered():
+    """Пакеты Zabbix есть только во внешнем репозитории. В декларативном
+    packages они провалили бы всю транзакцию — как php8 на openSUSE."""
+    for os_type in ("ubuntu", "almalinux"):
+        packages, commands = build_template_steps("zabbix", os_type)
+        assert not any("zabbix" in p for p in packages), (os_type, packages)
+        repo_at = next(i for i, c in enumerate(commands) if "repo.zabbix.com" in c)
+        install_at = next(i for i, c in enumerate(commands)
+                          if "zabbix-server-mysql" in c and "install" in c)
+        assert repo_at < install_at, os_type
+
+
+def test_zabbix_skips_the_web_setup_wizard():
+    """Готовый zabbix.conf.php — именно он отменяет веб-мастер установки,
+    иначе после разворачивания пришлось бы вручную проходить его в браузере."""
+    for os_type in ("ubuntu", "almalinux"):
+        _, commands = build_template_steps("zabbix", os_type)
+        conf = next(c for c in commands
+                    if "/etc/zabbix/web/zabbix.conf.php" in c and "printf" in c)
+        assert '$DB["TYPE"] = "MYSQL"' in conf, os_type
+        assert '$DB["DATABASE"] = "zabbix"' in conf, os_type
+
+
+def test_zabbix_db_password_is_generated_in_the_guest_and_reused():
+    """Пароль генерируется в госте (в статическом шаблоне его взять неоткуда)
+    и должен попасть в ТРИ места: пользователя БД, zabbix_server.conf и конфиг
+    фронтенда. Каждая команда runcmd — отдельный процесс, поэтому переменные
+    между ними не живут и пароль читается из файла."""
+    from app.services.os_profiles import ZABBIX_DB_PASS_FILE
+
+    _, commands = build_template_steps("zabbix", "ubuntu")
+    gen = next(c for c in commands if "openssl rand" in c)
+    # Файл создаётся сразу с правами 600, а не chmod после записи
+    assert f"install -m 600 /dev/null {ZABBIX_DB_PASS_FILE}" in gen
+
+    users = [c for c in commands if f"cat {ZABBIX_DB_PASS_FILE}" in c]
+    assert any("identified by" in c for c in users), "пароль не заводится в БД"
+    assert any("zabbix_server.conf" in c for c in users), "пароля нет в конфиге сервера"
+    assert any("zabbix.conf.php" in c for c in users), "пароля нет в конфиге фронтенда"
+
+
+def test_zabbix_imports_the_schema_before_starting_the_server():
+    """zabbix-server на пустой базе не стартует — схема должна быть залита
+    раньше."""
+    _, commands = build_template_steps("zabbix", "ubuntu")
+    schema_at = next(i for i, c in enumerate(commands) if "server.sql.gz" in c)
+    start_at = next(i for i, c in enumerate(commands) if "enable --now zabbix-server" in c)
+    assert schema_at < start_at
+
+
+def test_zabbix_installs_command_line_tools():
+    """zabbix_get и zabbix_sender — управление из терминала панели без браузера."""
+    for os_type in ("ubuntu", "almalinux"):
+        _, commands = build_template_steps("zabbix", os_type)
+        install = next(c for c in commands if "zabbix-server-mysql" in c and "install" in c)
+        assert "zabbix-get" in install and "zabbix-sender" in install, os_type
+
+
+def test_zabbix_uses_the_right_web_user_per_family():
+    """В Debian веб-сервер работает от www-data, в RHEL — от apache."""
+    _, deb = build_template_steps("zabbix", "ubuntu")
+    _, rhel = build_template_steps("zabbix", "almalinux")
+    assert any("chown www-data:www-data" in c for c in deb)
+    assert any("chown apache:apache" in c for c in rhel)
+    assert any("apache2" in c for c in deb)
+    assert any("httpd" in c for c in rhel)
+
+
+def test_zabbix_handles_selinux_only_on_rhel():
+    """В облачных образах RHEL SELinux в режиме enforcing: без булевых
+    веб-интерфейс не достучится до базы и до zabbix-server."""
+    _, rhel = build_template_steps("zabbix", "almalinux")
+    assert any("httpd_can_connect_zabbix" in c for c in rhel)
+    _, deb = build_template_steps("zabbix", "ubuntu")
+    assert not any("setsebool" in c for c in deb)

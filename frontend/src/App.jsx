@@ -209,6 +209,7 @@ const App = () => {
     { value: 'postgresql', label: 'PostgreSQL сервер' },
     { value: 'redis', label: 'Redis сервер' },
     { value: 'wordpress', label: 'WordPress (Apache + MariaDB + PHP)' },
+    { value: 'zabbix', label: 'Zabbix (мониторинг, веб-интерфейс /zabbix)' },
   ];
 
   // Шаблоны, применимые к выбранной ОС.
