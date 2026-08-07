@@ -96,8 +96,22 @@ def build_caddyfile(entries: list, email: str = "") -> str:
         lines.append(f"{e['domain']} {{")
         if e.get("dns_token"):
             # DNS-01 вместо обычного HTTP-01 — см. panel_entry().
+            #
+            # По умолчанию Caddy проверяет распространение записи, спрашивая
+            # НАПРЯМУЮ авторитетные NS домена (в обход резолверов), а
+            # propagation_delay=0 — идёт проверять сразу после создания
+            # записи. На живом сервере это дважды подводило: прямой запрос к
+            # NS Timeweb по TCP:53 подвисал на ~40с и падал по таймауту
+            # (похоже, исходящий TCP:53 наружу режет файрвол хостера), а без
+            # задержки Let's Encrypt иногда успевал спросить раньше, чем
+            # новое значение TXT (токен каждой ACME-попытки новый) реально
+            # разошлось у Timeweb. Резолверы ниже — обычные публичные, они
+            # точно доступны с любого сервера, а задержка даёт записи время
+            # долистать TTL=600 до края.
             lines.append("\ttls {")
             lines.append(f"\t\tdns timeweb {e['dns_token']}")
+            lines.append("\t\tresolvers 1.1.1.1 8.8.8.8")
+            lines.append("\t\tpropagation_delay 30s")
             lines.append("\t}")
         lines.append(f"\treverse_proxy {e['upstream']}")
         lines.append("}")

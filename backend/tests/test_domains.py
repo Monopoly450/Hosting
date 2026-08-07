@@ -77,6 +77,18 @@ def test_caddyfile_uses_dns01_when_entry_carries_a_dns_token():
     assert "reverse_proxy 127.0.0.1:8081" in cfg
 
 
+def test_caddyfile_dns01_block_avoids_the_propagation_race():
+    """Инцидент на живом сервере: без задержки Let's Encrypt иногда спрашивал
+    TXT-запись раньше, чем она реально разошлась у Timeweb (каждая ACME-
+    попытка запрашивает новый токен), а проверка НАПРЯМУЮ через авторитетные
+    NS домена подвисала на прямом TCP:53 наружу и падала по таймауту."""
+    cfg = d.build_caddyfile([
+        {"domain": "home.example.com", "upstream": "127.0.0.1:8081", "dns_token": "tok-123"},
+    ])
+    assert "propagation_delay 30s" in cfg
+    assert "resolvers 1.1.1.1 8.8.8.8" in cfg
+
+
 def test_caddyfile_plain_entry_has_no_dns_block():
     cfg = d.build_caddyfile([{"domain": "a.example.com", "upstream": "1.2.3.4:80"}])
     assert "tls {" not in cfg
