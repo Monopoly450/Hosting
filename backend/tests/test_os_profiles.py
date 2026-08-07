@@ -706,3 +706,34 @@ def test_zabbix_handles_selinux_only_on_rhel():
     assert any("httpd_can_connect_zabbix" in c for c in rhel)
     _, deb = build_template_steps("zabbix", "ubuntu")
     assert not any("setsebool" in c for c in deb)
+
+
+def test_zabbix_points_email_at_the_panel_mail_server():
+    """Иначе оповещения слать некуда: штатный канал приезжает выключенным и с
+    заглушкой mail.example.com. Сетевой путь открыт (SMTP не в списке
+    заблокированных для ВМ портов), не хватает только настройки."""
+    from app.services.os_profiles import AEGIS_BRIDGE_GATEWAY
+
+    for os_type in ("ubuntu", "almalinux"):
+        _, commands = build_template_steps("zabbix", os_type)
+        sql = next(c for c in commands if "media_type" in c)
+        assert f"smtp_server='{AEGIS_BRIDGE_GATEWAY}'" in sql, os_type
+        assert "status=0" in sql, "канал должен включаться, иначе он бесполезен"
+
+
+def test_zabbix_mail_setup_does_not_touch_gmail_or_office365():
+    """Zabbix поставляет и Gmail/Office365 с НАСТОЯЩИМИ серверами. Условие
+    должно попадать ровно в штатные Email/Email (HTML), которые идут с
+    заглушкой, иначе мы перенастроим и чужие каналы."""
+    _, commands = build_template_steps("zabbix", "ubuntu")
+    sql = next(c for c in commands if "media_type" in c)
+    assert "smtp_server='mail.example.com'" in sql, "нет условия по заглушке"
+    assert "type=0" in sql, "нет ограничения по типу «почта»"
+
+
+def test_zabbix_configures_mail_after_the_schema_exists():
+    """Таблица media_type появляется только вместе со схемой."""
+    _, commands = build_template_steps("zabbix", "ubuntu")
+    schema_at = next(i for i, c in enumerate(commands) if "server.sql.gz" in c)
+    mail_at = next(i for i, c in enumerate(commands) if "media_type" in c)
+    assert schema_at < mail_at

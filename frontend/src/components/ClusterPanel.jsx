@@ -55,6 +55,22 @@ const OS_VERSIONS = {
   ]
 };
 
+// Запасной список — только на случай, если /api/vms/os-catalog не ответил.
+// В обычной работе список приходит с бэкенда: он там один на всю систему и
+// уже отфильтрован по совместимости с выбранной ОС.
+const CLUSTER_TEMPLATE_FALLBACK = [
+  { value: 'lamp', label: 'LAMP (Apache + PHP + MariaDB)' },
+  { value: 'lemp', label: 'LEMP (Nginx + PHP-FPM + MariaDB)' },
+  { value: 'docker', label: 'Docker (Engine + Compose)' },
+  { value: 'portainer', label: 'Portainer (Docker + веб-UI :9000)' },
+  { value: 'nodejs', label: 'Node.js 20 LTS (+ pm2)' },
+  { value: 'python', label: 'Python 3 (pip + venv + gunicorn)' },
+  { value: 'postgresql', label: 'PostgreSQL сервер' },
+  { value: 'redis', label: 'Redis сервер' },
+  { value: 'wordpress', label: 'WordPress (Apache + MariaDB + PHP)' },
+  { value: 'zabbix', label: 'Zabbix (мониторинг, веб-интерфейс /zabbix)' },
+];
+
 const OSIcon = ({ type, size = 16 }) => {
   const os = type?.toLowerCase() || '';
   if (os.includes('ubuntu')) {
@@ -154,9 +170,32 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
     }
   };
 
+  // Каталог шаблонов берём с бэкенда, а не держим второй захардкоженный
+  // список рядом с тем, что в App.jsx: такой список неизбежно отстаёт (так
+  // здесь и не появился Zabbix) и вдобавок ничего не знает про совместимость
+  // с ОС — предлагал, например, LAMP на Alpine, где его нет.
+  const [osCatalog, setOsCatalog] = useState(null);
+
   useEffect(() => {
     fetchClusters();
+    fetch('/api/vms/os-catalog')
+      .then(r => (r.ok ? r.json() : null))
+      .then(setOsCatalog)
+      .catch(() => setOsCatalog(null));
   }, []);
+
+  // Шаблоны, применимые к ОС конкретной ВМ кластера. Каталог не загрузился —
+  // показываем всё: урезанный список хуже неотфильтрованного, несовместимую
+  // пару бэкенд отклонит сам, с внятным сообщением.
+  const templatesForOs = (osType) => {
+    const fallback = [{ value: '', label: 'Без шаблона (Чистая ОС)' }];
+    if (!osCatalog?.templates) return fallback.concat(CLUSTER_TEMPLATE_FALLBACK);
+    const allowed = osCatalog.supported?.[osType];
+    const list = allowed
+      ? osCatalog.templates.filter(t => allowed.includes(t.value))
+      : osCatalog.templates;
+    return fallback.concat(list);
+  };
 
   const addVmToForm = () => {
     const nextIndex = clusterVms.length;
@@ -655,18 +694,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                                   value={vm.cloud_init_template || ''} 
                                   onChange={e => handleUpdateVm(index, 'cloud_init_template', e.target.value)}
                                   placeholder="Без шаблона (Чистая ОС)"
-                                  options={[
-                                    { value: '', label: 'Без шаблона (Чистая ОС)' },
-                                    { value: 'lamp', label: 'LAMP (Apache + PHP + MariaDB)' },
-                                    { value: 'lemp', label: 'LEMP (Nginx + PHP-FPM + MariaDB)' },
-                                    { value: 'docker', label: 'Docker (Engine + Compose)' },
-                                    { value: 'portainer', label: 'Portainer (Docker + веб-UI :9000)' },
-                                    { value: 'nodejs', label: 'Node.js 20 LTS (+ pm2)' },
-                                    { value: 'python', label: 'Python 3 (pip + venv + gunicorn)' },
-                                    { value: 'postgresql', label: 'PostgreSQL сервер' },
-                                    { value: 'redis', label: 'Redis сервер' },
-                                    { value: 'wordpress', label: 'WordPress (Apache + MariaDB + PHP)' }
-                                  ]}
+                                  options={templatesForOs(vm.os_type)}
                                 />
                               </div>
 

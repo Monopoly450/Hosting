@@ -321,6 +321,11 @@ SUSE_PHP_REPO_CMD = (
 ZABBIX_VERSION = "7.0"          # текущая LTS: поддержка до 2029 года
 ZABBIX_DB_PASS_FILE = "/root/.aegis_zabbix_db_pass"
 
+# Адрес хоста со стороны ВМ: мост br-vms поднимается инсталлятором с
+# 172.20.0.1/24 и раздаёт его же как шлюз (см. install.sh). Именно по нему
+# гость достаёт службы самой панели — в частности почтовый сервер.
+AEGIS_BRIDGE_GATEWAY = "172.20.0.1"
+
 # Строки конфигурации фронтенда. Пароль подставляется отдельным шагом (sed),
 # чтобы не смешивать одинарные кавычки shell с кавычками PHP.
 _ZABBIX_WEB_CONF_LINES = (
@@ -360,6 +365,23 @@ def _zabbix_common_steps(web_user: str, web_service: str) -> list:
         f"P=$(cat {p}); zcat /usr/share/zabbix-sql-scripts/mysql/server.sql.gz "
         '| mysql --default-character-set=utf8mb4 -uzabbix -p"$P" zabbix',
         'mysql -uroot -e "set global log_bin_trust_function_creators = 0;" || true',
+        # Почтовый канал: направляем на почтовый сервер самой панели, иначе
+        # оповещения некуда слать и штатный канал остаётся выключенным с
+        # заглушкой mail.example.com.
+        #
+        # Сетевой путь уже открыт: почтовый сервер публикует 25/587 на хосте, а
+        # блокировка доступа ВМ к хосту закрывает только порты панели и её
+        # инфраструктуры (5432, 5672, 15672, 8000, 8001) — SMTP среди них нет.
+        #
+        # Условие smtp_server='mail.example.com' попадает ровно в два штатных
+        # канала («Email» и «Email (HTML)»), которые Zabbix поставляет с этой
+        # заглушкой, и не задевает Gmail/Office365 — у тех прописаны настоящие
+        # серверы. status=0 — включён (по умолчанию у media_type status=1,
+        # то есть выключен).
+        'mysql -uroot -e "update zabbix.media_type set '
+        f"smtp_server='{AEGIS_BRIDGE_GATEWAY}', smtp_port=25, "
+        "smtp_helo='aegis.local', smtp_email='zabbix@aegis.local', status=0 "
+        "where type=0 and smtp_server='mail.example.com';\" || true",
         # Пароль в конфиг сервера: строка в поставляемом файле закомментирована,
         # поэтому сначала пробуем раскомментировать, а если её нет — дописываем.
         f"P=$(cat {p}); sed -i \"s|^# *DBPassword=.*|DBPassword=$P|\" "
