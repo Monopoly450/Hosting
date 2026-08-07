@@ -1094,6 +1094,9 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client), curre
         try:
             db_vm = db.query(VMTask).filter(VMTask.name == name).first()
             if db_vm:
+                # Нужен фронту, чтобы сопоставить ВМ с привязанными доменами
+                # (Domain.target_id при target_type == "vm") — см. VMDetail.jsx.
+                vm_data["id"] = db_vm.id
                 vm_data["disk_read_mbs"] = db_vm.disk_read_mbs
                 vm_data["disk_write_mbs"] = db_vm.disk_write_mbs
                 vm_data["disk_read_iops"] = db_vm.disk_read_iops

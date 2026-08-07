@@ -49,6 +49,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [externalServers, setExternalServers] = useState([]);
   const [selectedTargetServer, setSelectedTargetServer] = useState('');
   const [migrating, setMigrating] = useState(false);
+  const [boundDomains, setBoundDomains] = useState([]);
 
   const fetchExternalServersForMigration = async () => {
     try {
@@ -187,6 +188,20 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
     const interval = setInterval(fetchSshDetails, 6000);
     return () => clearInterval(interval);
   }, [vmName, vm?.status]);
+
+  useEffect(() => {
+    if (!vm?.id) { setBoundDomains([]); return; }
+    const fetchDomains = async () => {
+      try {
+        const token = localStorage.getItem('aegis_admin_token') || '';
+        const res = await fetch('/api/domains', { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) return;
+        const data = await res.json();
+        setBoundDomains(data.filter(d => d.target_type === 'vm' && d.target_id === vm.id));
+      } catch (e) { /* не критично — просто не покажем блок */ }
+    };
+    fetchDomains();
+  }, [vm?.id]);
 
   useEffect(() => {
     let timer;
@@ -744,6 +759,22 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
                     HTTPS внутри ВМ обычно не настроен. Чтобы сайт открывался по https с настоящим
                     сертификатом, привяжите домен в разделе «Домены» — сертификат выпустится сам.
+                  </div>
+                )}
+                {boundDomains.length > 0 && (
+                  <div style={{ marginTop: '10px' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Домен:</div>
+                    {boundDomains.map(d => {
+                      const active = d.dns_ok && d.ownership_ok;
+                      return (
+                        <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                          <a href={d.url} target="_blank" rel="noreferrer" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{d.domain}</a>
+                          <span style={{ fontSize: '0.72rem', color: active ? 'var(--status-success)' : 'var(--text-secondary)' }}>
+                            {active ? '● активен (TLS)' : '○ ожидает подтверждения DNS'}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
