@@ -131,6 +131,73 @@ def test_build_entries_includes_panel_domain_even_with_no_db_domains(monkeypatch
     }]
 
 
+# --------------------------- Домены прочих сервисов ---------------------------
+#
+# Не только у панели приватный IP — почта (Roundcube) и консоль MinIO живут
+# на том же хосте и упираются в то же самое ограничение HTTP-01/TLS-ALPN-01.
+
+def test_mail_and_storage_domain_absent_without_env(monkeypatch):
+    monkeypatch.delenv("MAIL_DOMAIN", raising=False)
+    monkeypatch.delenv("STORAGE_DOMAIN", raising=False)
+    assert d.mail_domain() == "" and d.storage_domain() == ""
+
+
+def test_system_domain_entries_empty_when_nothing_configured(monkeypatch):
+    for var in ("PANEL_DOMAIN", "MAIL_DOMAIN", "STORAGE_DOMAIN", "TIMEWEB_DNS_API_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+    assert d.system_domain_entries() == []
+
+
+def test_system_domain_entries_covers_mail_and_storage_independently_of_panel(monkeypatch):
+    """Можно привязать домен к почте/хранилищу, даже не трогая панель —
+    каждая переменная работает сама по себе."""
+    monkeypatch.delenv("PANEL_DOMAIN", raising=False)
+    monkeypatch.setenv("MAIL_DOMAIN", "mail.example.com")
+    monkeypatch.setenv("STORAGE_DOMAIN", "storage.example.com")
+    monkeypatch.setenv("TIMEWEB_DNS_API_TOKEN", "tok-abc")
+
+    entries = d.system_domain_entries()
+
+    assert entries == [
+        {"domain": "mail.example.com", "upstream": d.MAIL_UPSTREAM, "dns_token": "tok-abc"},
+        {"domain": "storage.example.com", "upstream": d.STORAGE_UPSTREAM, "dns_token": "tok-abc"},
+    ]
+
+
+def test_system_domain_entries_covers_all_three_together(monkeypatch):
+    monkeypatch.setenv("PANEL_DOMAIN", "home.example.com")
+    monkeypatch.setenv("MAIL_DOMAIN", "mail.example.com")
+    monkeypatch.setenv("STORAGE_DOMAIN", "storage.example.com")
+    monkeypatch.setenv("TIMEWEB_DNS_API_TOKEN", "tok-abc")
+
+    entries = d.system_domain_entries()
+
+    assert entries == [
+        {"domain": "home.example.com", "upstream": d.PANEL_UPSTREAM, "dns_token": "tok-abc"},
+        {"domain": "mail.example.com", "upstream": d.MAIL_UPSTREAM, "dns_token": "tok-abc"},
+        {"domain": "storage.example.com", "upstream": d.STORAGE_UPSTREAM, "dns_token": "tok-abc"},
+    ]
+
+
+def test_system_domain_entries_needs_a_token_even_if_domains_are_set(monkeypatch):
+    monkeypatch.setenv("MAIL_DOMAIN", "mail.example.com")
+    monkeypatch.setenv("STORAGE_DOMAIN", "storage.example.com")
+    monkeypatch.delenv("TIMEWEB_DNS_API_TOKEN", raising=False)
+    assert d.system_domain_entries() == []
+
+
+def test_build_entries_includes_mail_and_storage_domains(monkeypatch):
+    monkeypatch.delenv("PANEL_DOMAIN", raising=False)
+    monkeypatch.setenv("MAIL_DOMAIN", "mail.example.com")
+    monkeypatch.setenv("STORAGE_DOMAIN", "storage.example.com")
+    monkeypatch.setenv("TIMEWEB_DNS_API_TOKEN", "tok-abc")
+    entries = d.build_entries(FakeDb(), object())
+    assert entries == [
+        {"domain": "mail.example.com", "upstream": d.MAIL_UPSTREAM, "dns_token": "tok-abc"},
+        {"domain": "storage.example.com", "upstream": d.STORAGE_UPSTREAM, "dns_token": "tok-abc"},
+    ]
+
+
 class _FakeDomainRow:
     def __init__(self, domain):
         self.domain = domain

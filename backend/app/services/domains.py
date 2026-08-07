@@ -46,13 +46,34 @@ def acme_email() -> str:
 # проксирует локальный Caddy, когда обслуживает домен самой панели.
 PANEL_UPSTREAM = "127.0.0.1:8081"
 
+# Оба сервиса из docker-compose.yml уже отдают себя обычным HTTP на loopback
+# (webmail: контейнер roundcube слушает 80, наружу — 127.0.0.1:8082; minio:
+# консоль на ":9001" без своего TLS) — отдельный plain-листенер, как для
+# панели, им не нужен.
+MAIL_UPSTREAM = "127.0.0.1:8082"
+STORAGE_UPSTREAM = "127.0.0.1:9001"
+
 
 def panel_domain() -> str:
     return os.getenv("PANEL_DOMAIN", "")
 
 
+def mail_domain() -> str:
+    return os.getenv("MAIL_DOMAIN", "")
+
+
+def storage_domain() -> str:
+    return os.getenv("STORAGE_DOMAIN", "")
+
+
 def timeweb_dns_token() -> str:
     return os.getenv("TIMEWEB_DNS_API_TOKEN", "")
+
+
+def _system_entry(domain: str, upstream: str, token: str) -> Optional[dict]:
+    if not domain or not token:
+        return None
+    return {"domain": domain, "upstream": upstream, "dns_token": token}
 
 
 def panel_entry() -> Optional[dict]:
@@ -68,11 +89,29 @@ def panel_entry() -> Optional[dict]:
     None, если панель не настроена как отдельный домен (нет PANEL_DOMAIN
     или TIMEWEB_DNS_API_TOKEN) — тогда всё ведёт себя как раньше.
     """
-    domain = panel_domain()
+    return _system_entry(panel_domain(), PANEL_UPSTREAM, timeweb_dns_token())
+
+
+def system_domain_entries() -> list:
+    """Домены служебных сервисов хоста — не только панели.
+
+    Почта (Roundcube) и консоль MinIO живут на том же самом хосте с тем же
+    приватным IP, что и панель — упираются в ровно то же ограничение
+    HTTP-01/TLS-ALPN-01 (см. panel_entry). Каждый сервис — своя отдельная,
+    необязательная переменная окружения; ничего не настроено — ничего не
+    добавляется, поведение не меняется.
+    """
     token = timeweb_dns_token()
-    if not domain or not token:
-        return None
-    return {"domain": domain, "upstream": PANEL_UPSTREAM, "dns_token": token}
+    entries = []
+    for domain, upstream in (
+        (panel_domain(), PANEL_UPSTREAM),
+        (mail_domain(), MAIL_UPSTREAM),
+        (storage_domain(), STORAGE_UPSTREAM),
+    ):
+        entry = _system_entry(domain, upstream, token)
+        if entry:
+            entries.append(entry)
+    return entries
 
 
 def is_valid_domain(domain: str) -> bool:
@@ -254,10 +293,7 @@ def build_entries(db, k8s) -> list:
     """
     from app.models.models import Domain
 
-    entries = []
-    panel = panel_entry()
-    if panel:
-        entries.append(panel)
+    entries = list(system_domain_entries())
 
     # Тот же приватный IP, что мешает панели (см. panel_entry), мешает и
     # клиентским доменам: HTTP-01/TLS-ALPN-01 требуют, чтобы Let's Encrypt
