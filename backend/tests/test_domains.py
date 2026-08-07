@@ -160,21 +160,21 @@ class _DomainOnlyDb:
 
 
 def test_build_entries_gives_dns01_to_customer_domains_on_a_private_host(monkeypatch):
-    """Живой инцидент: zabbbix.byteburners.ru указывал на тот же приватный
-    IP, что и панель — Let's Encrypt в принципе не признаёт приватный адрес
-    валидным для HTTP-01/TLS-ALPN-01 ("no valid A records found"). Клиентские
-    домены на приватном хосте должны получать DNS-01 точно так же, как домен
-    самой панели (см. panel_entry)."""
+    """Живой инцидент: клиентский домен указывал на тот же приватный IP, что
+    и панель — Let's Encrypt в принципе не признаёт приватный адрес валидным
+    для HTTP-01/TLS-ALPN-01 ("no valid A records found"). Клиентские домены
+    на приватном хосте должны получать DNS-01 точно так же, как домен самой
+    панели (см. panel_entry)."""
     monkeypatch.setenv("TIMEWEB_DNS_API_TOKEN", "tok-abc")
     monkeypatch.delenv("PANEL_DOMAIN", raising=False)
     monkeypatch.setattr(d, "is_private_host_ip", lambda *a, **k: True)
     monkeypatch.setattr(d, "resolve_upstream", lambda db, k8s, dom: ("10.0.0.9:80", None))
 
-    db = _DomainOnlyDb([_FakeDomainRow("zabbbix.byteburners.ru")])
+    db = _DomainOnlyDb([_FakeDomainRow("app.example.com")])
     entries = d.build_entries(db, object())
 
     assert entries == [{
-        "domain": "zabbbix.byteburners.ru",
+        "domain": "app.example.com",
         "upstream": "10.0.0.9:80",
         "dns_token": "tok-abc",
     }]
@@ -240,19 +240,18 @@ def test_check_dns_unresolvable(monkeypatch):
 def test_check_dns_resolves_a_hostname_passed_as_expected_ip(monkeypatch):
     """Живой баг: host_for_links() отдаёт то имя, через которое сейчас
     открыта панель — если это PANEL_DOMAIN (а не IP), expected_ip приходит
-    сюда доменом. Оба домена вели на один и тот же 192.168.31.14, но
-    сравнение "192.168.31.14" == "home.byteburners.ru" никогда не совпадёт
-    без резолва — пользователь видел «DNS ещё не готов» на верно настроенной
-    записи."""
+    сюда доменом. Оба домена вели на один и тот же приватный IP, но
+    сравнение IP-строки с доменной строкой никогда не совпадёт без резолва —
+    пользователь видел «DNS ещё не готов» на верно настроенной записи."""
     def fake_gethostbyname(host):
-        if host == "home.byteburners.ru":
-            return "192.168.31.14"
-        if host == "zabbbix.byteburners.ru":
-            return "192.168.31.14"
+        if host == "home.example.com":
+            return "192.168.1.14"
+        if host == "app.example.com":
+            return "192.168.1.14"
         raise AssertionError(f"unexpected host {host}")
     monkeypatch.setattr(d.socket, "gethostbyname", fake_gethostbyname)
-    ok, detail = d.check_dns("zabbbix.byteburners.ru", expected_ip="home.byteburners.ru")
-    assert ok is True and detail == "192.168.31.14"
+    ok, detail = d.check_dns("app.example.com", expected_ip="home.example.com")
+    assert ok is True and detail == "192.168.1.14"
 
 
 def test_check_dns_reports_hostname_it_could_not_resolve(monkeypatch):
