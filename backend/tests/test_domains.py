@@ -65,6 +65,60 @@ def test_caddyfile_without_email_has_no_global_block():
     assert "email" not in cfg
 
 
+def test_caddyfile_uses_dns01_when_entry_carries_a_dns_token():
+    """Домен панели (см. panel_entry) не проходит обычный HTTP-01 — приватный
+    IP недостижим извне. Такая запись должна получить блок dns вместо
+    молчаливого падения на обычный (заведомо неудачный) ACME."""
+    cfg = d.build_caddyfile([
+        {"domain": "home.example.com", "upstream": "127.0.0.1:8081", "dns_token": "tok-123"},
+    ])
+    assert "tls {" in cfg
+    assert "dns timeweb tok-123" in cfg
+    assert "reverse_proxy 127.0.0.1:8081" in cfg
+
+
+def test_caddyfile_plain_entry_has_no_dns_block():
+    cfg = d.build_caddyfile([{"domain": "a.example.com", "upstream": "1.2.3.4:80"}])
+    assert "tls {" not in cfg
+    assert "dns timeweb" not in cfg
+
+
+# ------------------------------ Домен панели ---------------------------------
+
+def test_panel_entry_absent_without_env(monkeypatch):
+    monkeypatch.delenv("PANEL_DOMAIN", raising=False)
+    monkeypatch.delenv("TIMEWEB_DNS_API_TOKEN", raising=False)
+    assert d.panel_entry() is None
+
+
+def test_panel_entry_absent_with_only_domain_set(monkeypatch):
+    monkeypatch.setenv("PANEL_DOMAIN", "home.example.com")
+    monkeypatch.delenv("TIMEWEB_DNS_API_TOKEN", raising=False)
+    assert d.panel_entry() is None
+
+
+def test_panel_entry_present_when_both_env_vars_set(monkeypatch):
+    monkeypatch.setenv("PANEL_DOMAIN", "home.example.com")
+    monkeypatch.setenv("TIMEWEB_DNS_API_TOKEN", "tok-abc")
+    entry = d.panel_entry()
+    assert entry == {
+        "domain": "home.example.com",
+        "upstream": d.PANEL_UPSTREAM,
+        "dns_token": "tok-abc",
+    }
+
+
+def test_build_entries_includes_panel_domain_even_with_no_db_domains(monkeypatch):
+    monkeypatch.setenv("PANEL_DOMAIN", "home.example.com")
+    monkeypatch.setenv("TIMEWEB_DNS_API_TOKEN", "tok-abc")
+    entries = d.build_entries(FakeDb(), object())
+    assert entries == [{
+        "domain": "home.example.com",
+        "upstream": d.PANEL_UPSTREAM,
+        "dns_token": "tok-abc",
+    }]
+
+
 def test_caddyfile_empty_is_still_valid_config():
     """Пустой Caddyfile невалиден для Caddy — должна быть заглушка,
     иначе контейнер не поднимется, когда доменов ещё нет."""
@@ -291,6 +345,19 @@ def test_reconcile_caddy_does_nothing_when_container_was_never_created():
     fake = FakeDockerClient(existing_container=None)
     assert d.reconcile_caddy(FakeDb(), object(), fake) is False
     assert fake.client.containers.created == []
+
+
+def test_reconcile_caddy_bootstraps_itself_when_panel_domain_is_configured(monkeypatch):
+    """Домен панели живёт в переменных окружения, а не в БД — значит, никто
+    не проходит через API /domains (единственное место, которое раньше
+    вызывало ensure_caddy). Первый запуск для такой установки обязан сделать
+    именно вотчдог, иначе Caddy никогда не поднимется сам."""
+    monkeypatch.setenv("PANEL_DOMAIN", "home.example.com")
+    monkeypatch.setenv("TIMEWEB_DNS_API_TOKEN", "tok-abc")
+    fake = FakeDockerClient(existing_container=None)
+    assert d.reconcile_caddy(FakeDb(), object(), fake) is True
+    assert len(fake.client.containers.created) == 1
+    assert fake.client.containers.created[0]["image"] == d.CADDY_IMAGE
 
 
 def test_reconcile_caddy_leaves_a_healthy_container_alone():

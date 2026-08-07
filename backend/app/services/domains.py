@@ -20,7 +20,11 @@ logger = logging.getLogger("app.services.domains")
 
 CADDY_CONTAINER = "aegis-caddy"
 CADDY_VOLUME = "aegis-caddy-data"      # тут Caddy хранит сертификаты
-CADDY_IMAGE = "caddy:2"
+# Не голый caddy:2: DNS-провайдеры (см. panel_entry) — Go-плагины, которые
+# линкуются в бинарник статически, поэтому образ собирается локально через
+# xcaddy (aegis-caddy/Dockerfile), а не тянется из реестра.
+CADDY_IMAGE = "aegis-caddy:local"
+CADDY_BUILD_CONTEXT = "/app/repo/aegis-caddy"
 CADDYFILE_PATH = "/etc/caddy/Caddyfile"
 
 # Метка домена: буквы/цифры/дефис, до 63 символов; минимум два уровня.
@@ -36,6 +40,39 @@ def host_ip() -> str:
 
 def acme_email() -> str:
     return os.getenv("ACME_EMAIL", "")
+
+
+# Порт из frontend/nginx.conf: plain HTTP, только на loopback — сюда
+# проксирует локальный Caddy, когда обслуживает домен самой панели.
+PANEL_UPSTREAM = "127.0.0.1:8081"
+
+
+def panel_domain() -> str:
+    return os.getenv("PANEL_DOMAIN", "")
+
+
+def timeweb_dns_token() -> str:
+    return os.getenv("TIMEWEB_DNS_API_TOKEN", "")
+
+
+def panel_entry() -> Optional[dict]:
+    """Синтетическая запись для домена самой панели (не клиентской ВМ).
+
+    Обычный ACME (HTTP-01) для неё не пройдёт: A-запись такого домена
+    нарочно указывает на приватный IP (см. is_private_host_ip), а Let's
+    Encrypt при HTTP-01 стучится на порт 80 ИЗВНЕ. Вместо этого просим Caddy
+    подтвердить владение через DNS-01 у Timeweb — тогда он сам создаёт
+    временную TXT-запись через API, и подключение к серверу снаружи для
+    выпуска сертификата не требуется вовсе.
+
+    None, если панель не настроена как отдельный домен (нет PANEL_DOMAIN
+    или TIMEWEB_DNS_API_TOKEN) — тогда всё ведёт себя как раньше.
+    """
+    domain = panel_domain()
+    token = timeweb_dns_token()
+    if not domain or not token:
+        return None
+    return {"domain": domain, "upstream": PANEL_UPSTREAM, "dns_token": token}
 
 
 def is_valid_domain(domain: str) -> bool:
@@ -57,6 +94,11 @@ def build_caddyfile(entries: list, email: str = "") -> str:
 
     for e in sorted(entries, key=lambda x: x["domain"]):
         lines.append(f"{e['domain']} {{")
+        if e.get("dns_token"):
+            # DNS-01 вместо обычного HTTP-01 — см. panel_entry().
+            lines.append("\ttls {")
+            lines.append(f"\t\tdns timeweb {e['dns_token']}")
+            lines.append("\t}")
         lines.append(f"\treverse_proxy {e['upstream']}")
         lines.append("}")
         lines.append("")
@@ -172,6 +214,10 @@ def build_entries(db, k8s) -> list:
     from app.models.models import Domain
 
     entries = []
+    panel = panel_entry()
+    if panel:
+        entries.append(panel)
+
     ready = db.query(Domain).filter(
         Domain.dns_ok == True, Domain.ownership_ok == True  # noqa: E712
     ).all()
@@ -244,11 +290,29 @@ def _caddyfile_tar(content: str) -> io.BytesIO:
 CADDY_CRASH_LOOP_THRESHOLD = 3
 
 
+def _ensure_caddy_image(cli):
+    """Гарантирует наличие образа с плагином caddy-dns/timeweb.
+
+    В отличие от остальных образов (см. docker_client.ensure_image) этот
+    нельзя просто скачать: DNS-провайдеры Caddy — Go-модули, линкуемые в
+    бинарник статически на этапе сборки (aegis-caddy/Dockerfile), готового
+    образа с нужным плагином в публичных реестрах нет.
+    """
+    from docker.errors import ImageNotFound
+    try:
+        cli.images.get(CADDY_IMAGE)
+        return False
+    except ImageNotFound:
+        logger.info(f"Собираю образ {CADDY_IMAGE} с плагином caddy-dns/timeweb (первый раз — пара минут)...")
+        cli.images.build(path=CADDY_BUILD_CONTEXT, tag=CADDY_IMAGE, rm=True)
+        logger.info(f"Образ {CADDY_IMAGE} собран.")
+        return True
+
+
 def _create_caddy(cli, caddyfile: str):
     """Создаёт и запускает Caddy с нуля — общий путь и для первого запуска,
     и для восстановления после зацикленного рестарта (см. ensure_caddy)."""
-    from app.core.docker_client import ensure_image
-    ensure_image(cli, CADDY_IMAGE, "(первый запуск может занять минуту)")
+    _ensure_caddy_image(cli)
 
     c = cli.containers.create(
         CADDY_IMAGE,
@@ -346,7 +410,17 @@ def reconcile_caddy(db, k8s, docker_client) -> bool:
     try:
         c = docker_client.client.containers.get(CADDY_CONTAINER)
     except docker.errors.NotFound:
-        return False  # ещё не создавался — нечего лечить
+        # Раньше «нечего лечить» было верно всегда: без доменов в БД никто
+        # не вызывал ensure_caddy(), а значит, и создавать нечего. Теперь
+        # panel_entry() может дать непустой список entries ещё до того, как
+        # в БД появится хоть один клиентский домен — тогда именно вотчдог
+        # (единственное, что тикает само по себе, без участия пользователя)
+        # должен поднять Caddy впервые.
+        entries = build_entries(db, k8s)
+        if not entries:
+            return False  # ещё не создавался и разворачивать нечего
+        _create_caddy(docker_client.client, build_caddyfile(entries, acme_email()))
+        return True
     except Exception as e:
         logger.error(f"reconcile_caddy: не удалось получить контейнер {CADDY_CONTAINER}: {e}")
         return False
