@@ -96,6 +96,9 @@ services:
       - AEGIS_HOST_IP=${AEGIS_HOST_IP:-}
       - REGISTRY_PORT=${REGISTRY_PORT:-5000}
       - ACME_EMAIL=${ACME_EMAIL:-}
+      # Домен самой панели и токен Timeweb для DNS-01 — см. app/services/domains.py
+      - PANEL_DOMAIN=${PANEL_DOMAIN:-}
+      - TIMEWEB_DNS_API_TOKEN=${TIMEWEB_DNS_API_TOKEN:-}
     logging:
       driver: "json-file"
       options:
@@ -140,6 +143,11 @@ services:
       - STORAGE_CLASS=${STORAGE_CLASS:-local-path}
       - AEGIS_HOST_IP=${AEGIS_HOST_IP:-}
       - REGISTRY_PORT=${REGISTRY_PORT:-5000}
+      # Вотчдог Caddy (caddy_watchdog_tick) тикает именно в этом контейнере —
+      # см. app/services/domains.py и worker.py.
+      - ACME_EMAIL=${ACME_EMAIL:-}
+      - PANEL_DOMAIN=${PANEL_DOMAIN:-}
+      - TIMEWEB_DNS_API_TOKEN=${TIMEWEB_DNS_API_TOKEN:-}
     logging:
       driver: "json-file"
       options:
