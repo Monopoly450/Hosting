@@ -162,6 +162,46 @@ def test_check_dns_unresolvable(monkeypatch):
     assert ok is False and "не резолвится" in detail
 
 
+def test_check_dns_resolves_a_hostname_passed_as_expected_ip(monkeypatch):
+    """Живой баг: host_for_links() отдаёт то имя, через которое сейчас
+    открыта панель — если это PANEL_DOMAIN (а не IP), expected_ip приходит
+    сюда доменом. Оба домена вели на один и тот же 192.168.31.14, но
+    сравнение "192.168.31.14" == "home.byteburners.ru" никогда не совпадёт
+    без резолва — пользователь видел «DNS ещё не готов» на верно настроенной
+    записи."""
+    def fake_gethostbyname(host):
+        if host == "home.byteburners.ru":
+            return "192.168.31.14"
+        if host == "zabbbix.byteburners.ru":
+            return "192.168.31.14"
+        raise AssertionError(f"unexpected host {host}")
+    monkeypatch.setattr(d.socket, "gethostbyname", fake_gethostbyname)
+    ok, detail = d.check_dns("zabbbix.byteburners.ru", expected_ip="home.byteburners.ru")
+    assert ok is True and detail == "192.168.31.14"
+
+
+def test_check_dns_reports_hostname_it_could_not_resolve(monkeypatch):
+    def fake_gethostbyname(host):
+        raise OSError("NXDOMAIN")
+    monkeypatch.setattr(d.socket, "gethostbyname", fake_gethostbyname)
+    ok, detail = d.check_dns("app.example.com", expected_ip="broken.example.com")
+    assert ok is False and "broken.example.com" in detail
+
+
+def test_check_dns_still_compares_raw_ips_directly(monkeypatch):
+    """Обычный путь (expected_ip уже IP) не должен трогать резолвер лишний
+    раз — ipaddress.ip_address() коротко замыкает ветку резолва имени."""
+    calls = []
+
+    def fake_gethostbyname(host):
+        calls.append(host)
+        return "10.0.0.5"
+    monkeypatch.setattr(d.socket, "gethostbyname", fake_gethostbyname)
+    ok, detail = d.check_dns("app.example.com", expected_ip="10.0.0.5")
+    assert ok is True
+    assert calls == ["app.example.com"]  # expected_ip ни разу не резолвился
+
+
 # --------------------------- Подтверждение владения --------------------------
 #
 # Инцидент на живом сервере: авторитетный NS Timeweb иногда отвечает 3+

@@ -191,6 +191,22 @@ def check_dns(domain: str, expected_ip: str = None) -> tuple:
     """Проверяет, что A-запись домена указывает на наш хост.
     Возвращает (ok, resolved_ip_or_error)."""
     expected = expected_ip or host_ip()
+
+    # host_for_links() (см. netutils, вызывающая сторона в api/domains.py)
+    # отдаёт не всегда IP — если панель открыта по доменному имени (например,
+    # по PANEL_DOMAIN, который сам указывает на приватный IP), expected_ip
+    # приходит сюда как это самое имя. Сравнение строки-домена со строкой-IP
+    # другого домена не совпадёт никогда, даже если оба домена ведут на один
+    # и тот же сервер — резолвим такое имя в IP перед сравнением.
+    import ipaddress
+    try:
+        ipaddress.ip_address(expected)
+    except ValueError:
+        try:
+            expected = socket.gethostbyname(expected)
+        except OSError as e:
+            return False, f"не удалось определить IP для {expected_ip}: {e}"
+
     try:
         resolved = socket.gethostbyname(domain)
     except Exception as e:
