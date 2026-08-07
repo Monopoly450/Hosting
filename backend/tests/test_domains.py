@@ -131,6 +131,81 @@ def test_build_entries_includes_panel_domain_even_with_no_db_domains(monkeypatch
     }]
 
 
+class _FakeDomainRow:
+    def __init__(self, domain):
+        self.domain = domain
+
+
+class _DomainOnlyQuery:
+    def __init__(self, items):
+        self._items = items
+
+    def filter(self, *a, **k):
+        return self
+
+    def all(self):
+        return self._items
+
+
+class _DomainOnlyDb:
+    """Отдаёт заданные домены на любой query() — resolve_upstream (который
+    полез бы за AppDeployment/VMTask) в этих тестах подменяется отдельно,
+    так что глубже мокать БД не нужно."""
+
+    def __init__(self, domains):
+        self._domains = domains
+
+    def query(self, model):
+        return _DomainOnlyQuery(self._domains)
+
+
+def test_build_entries_gives_dns01_to_customer_domains_on_a_private_host(monkeypatch):
+    """Живой инцидент: zabbbix.byteburners.ru указывал на тот же приватный
+    IP, что и панель — Let's Encrypt в принципе не признаёт приватный адрес
+    валидным для HTTP-01/TLS-ALPN-01 ("no valid A records found"). Клиентские
+    домены на приватном хосте должны получать DNS-01 точно так же, как домен
+    самой панели (см. panel_entry)."""
+    monkeypatch.setenv("TIMEWEB_DNS_API_TOKEN", "tok-abc")
+    monkeypatch.delenv("PANEL_DOMAIN", raising=False)
+    monkeypatch.setattr(d, "is_private_host_ip", lambda *a, **k: True)
+    monkeypatch.setattr(d, "resolve_upstream", lambda db, k8s, dom: ("10.0.0.9:80", None))
+
+    db = _DomainOnlyDb([_FakeDomainRow("zabbbix.byteburners.ru")])
+    entries = d.build_entries(db, object())
+
+    assert entries == [{
+        "domain": "zabbbix.byteburners.ru",
+        "upstream": "10.0.0.9:80",
+        "dns_token": "tok-abc",
+    }]
+
+
+def test_build_entries_leaves_customer_domains_alone_on_a_public_host(monkeypatch):
+    monkeypatch.setenv("TIMEWEB_DNS_API_TOKEN", "tok-abc")
+    monkeypatch.delenv("PANEL_DOMAIN", raising=False)
+    monkeypatch.setattr(d, "is_private_host_ip", lambda *a, **k: False)
+    monkeypatch.setattr(d, "resolve_upstream", lambda db, k8s, dom: ("203.0.113.5:80", None))
+
+    db = _DomainOnlyDb([_FakeDomainRow("app.example.com")])
+    entries = d.build_entries(db, object())
+
+    assert entries == [{"domain": "app.example.com", "upstream": "203.0.113.5:80"}]
+
+
+def test_build_entries_skips_dns01_for_customers_without_a_timeweb_token(monkeypatch):
+    """Без токена — без DNS-01: домен просто останется недоступен по HTTPS,
+    как и было, но не должен подставлять пустую строку в блок tls/dns."""
+    monkeypatch.delenv("TIMEWEB_DNS_API_TOKEN", raising=False)
+    monkeypatch.delenv("PANEL_DOMAIN", raising=False)
+    monkeypatch.setattr(d, "is_private_host_ip", lambda *a, **k: True)
+    monkeypatch.setattr(d, "resolve_upstream", lambda db, k8s, dom: ("10.0.0.9:80", None))
+
+    db = _DomainOnlyDb([_FakeDomainRow("app.example.com")])
+    entries = d.build_entries(db, object())
+
+    assert entries == [{"domain": "app.example.com", "upstream": "10.0.0.9:80"}]
+
+
 def test_caddyfile_empty_is_still_valid_config():
     """Пустой Caddyfile невалиден для Caddy — должна быть заглушка,
     иначе контейнер не поднимется, когда доменов ещё нет."""

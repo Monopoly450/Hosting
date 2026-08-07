@@ -259,13 +259,26 @@ def build_entries(db, k8s) -> list:
     if panel:
         entries.append(panel)
 
+    # Тот же приватный IP, что мешает панели (см. panel_entry), мешает и
+    # клиентским доменам: HTTP-01/TLS-ALPN-01 требуют, чтобы Let's Encrypt
+    # мог достучаться до хоста извне, а с приватным IP это невозможно в
+    # принципе — живой пример: "no valid A records found for
+    # zabbbix.byteburners.ru" (Let's Encrypt просто не считает приватный
+    # адрес валидным). Caddy сидит на одном-единственном хосте (network_mode
+    # host), так что для всех доменов это одно и то же да/нет — проверяем
+    # раз, а не на каждый домен отдельно.
+    dns_token = timeweb_dns_token() if is_private_host_ip() else ""
+
     ready = db.query(Domain).filter(
         Domain.dns_ok == True, Domain.ownership_ok == True  # noqa: E712
     ).all()
     for dom in ready:
         upstream, err = resolve_upstream(db, k8s, dom)
         if upstream:
-            entries.append({"domain": dom.domain, "upstream": upstream})
+            entry = {"domain": dom.domain, "upstream": upstream}
+            if dns_token:
+                entry["dns_token"] = dns_token
+            entries.append(entry)
     return entries
 
 
