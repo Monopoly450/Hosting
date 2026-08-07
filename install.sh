@@ -253,7 +253,7 @@ generate_env_file() {
 
     local postgres_password admin_token aegis_secret_key rabbitmq_user rabbitmq_pass \
           minio_user minio_password mariadb_password storage_class detected_ip host_ip \
-          acme_email registry_port
+          acme_email registry_port panel_domain
 
     postgres_password=$(ask_secret "Пароль системной базы данных PostgreSQL")
     admin_token=$(ask_secret "Токен администратора API (это же будет пароль входа в панель под admin)")
@@ -270,6 +270,20 @@ generate_env_file() {
     host_ip=$(ask_value "Определён адрес сервера: ${detected_ip:-не удалось определить}. Если сервер за NAT и внешний ('белый') IP отличается — введите его, иначе оставьте пустым" "")
 
     acme_email=$(ask_value "E-mail для уведомлений Let's Encrypt о своих доменах (можно оставить пустым и задать позже)" "")
+
+    if [ "$USE_WHIPTAIL" = true ]; then
+        whiptail --title "$WT_TITLE" --msgbox \
+"Можно сразу привязать домен к самой панели (чтобы открывать её как https://ваш-домен, без порта и IP).\n\nЕсли этот сервер стоит за приватным/локальным IP (частый случай для домашнего сервера) — обычный сертификат Let's Encrypt не выпустится, панель использует DNS-подтверждение через API Timeweb. Для этого ПОСЛЕ установки нужно будет вручную дописать в .env переменную TIMEWEB_DNS_API_TOKEN (Timeweb Cloud -> Настройки -> API-ключи).\n\nМожно просто нажать Enter и пропустить — панель останется доступна по IP:8443, домен всегда можно добавить позже." \
+            17 74
+    else
+        echo
+        echo -e "${CYAN}Можно сразу привязать домен к панели (открывать её как https://ваш-домен, без порта).${NC}"
+        echo -e "${CYAN}Если сервер за приватным/локальным IP — обычный сертификат Let's Encrypt не выпустится,${NC}"
+        echo -e "${CYAN}панель подтвердит домен через API Timeweb. Тогда ПОСЛЕ установки нужно будет вручную${NC}"
+        echo -e "${CYAN}дописать в .env переменную TIMEWEB_DNS_API_TOKEN (Timeweb Cloud -> Настройки -> API-ключи).${NC}"
+        echo -e "${CYAN}Enter — пропустить, панель останется доступна по IP:8443, домен можно добавить позже.${NC}"
+    fi
+    panel_domain=$(ask_value "Домен для самой панели (например home.example.com)" "")
 
     {
         echo "# Сгенерировано install.sh $(date +'%Y-%m-%d %H:%M:%S')"
@@ -305,10 +319,27 @@ generate_env_file() {
         else
             echo "# ACME_EMAIL=  — не задан, уведомления Let's Encrypt отключены"
         fi
+        echo
+        if [ -n "$panel_domain" ]; then
+            echo "PANEL_DOMAIN=${panel_domain}"
+            echo "# ВАЖНО: впишите сюда ваш API-токен Timeweb Cloud (Настройки -> API-ключи) —"
+            echo "# без него сертификат для PANEL_DOMAIN не выпустится (см. предупреждение после установки)."
+            echo "# TIMEWEB_DNS_API_TOKEN="
+        else
+            echo "# PANEL_DOMAIN=  — не задан, панель доступна только по IP:8443"
+            echo "# TIMEWEB_DNS_API_TOKEN=  — нужен, только если задан PANEL_DOMAIN"
+        fi
     } > "$env_file"
 
     chmod 600 "$env_file"
     log ".env создан (права 600)."
+
+    if [ -n "$panel_domain" ]; then
+        warn "Домен панели указан (${panel_domain}), но сертификат для него НЕ выпустится, пока вы"
+        warn "не допишете в .env строку TIMEWEB_DNS_API_TOKEN=<ваш токен> (Timeweb Cloud -> Настройки ->"
+        warn "API-ключи) и не перезапустите: docker compose up -d --build backend worker"
+        warn "До этого панель как обычно доступна по IP:8443."
+    fi
 }
 
 step "Настройка паролей и переменных окружения"
@@ -744,4 +775,17 @@ echo " Статус автозапуска:           systemctl status aegis-net
 echo
 echo -e "${YELLOW} Важно: AEGIS_SECRET_KEY в .env менять после первого запуска нельзя —"
 echo -e " старые секреты (пароли внешних серверов, БД, ключи S3) перестанут расшифровываться.${NC}"
+if [ -n "$PANEL_DOMAIN" ]; then
+    if [ -n "$TIMEWEB_DNS_API_TOKEN" ]; then
+        echo
+        echo -e " ${GREEN}Домен панели: ${PANEL_DOMAIN} — сертификат выпустится автоматически (обычно 1-2 минуты).${NC}"
+    else
+        echo
+        echo -e " ${YELLOW}Домен панели указан (${PANEL_DOMAIN}), но TIMEWEB_DNS_API_TOKEN в .env ещё не задан —"
+        echo -e " сертификат не выпустится, пока не допишете токен и не перезапустите:"
+        echo -e "   nano .env   # добавьте TIMEWEB_DNS_API_TOKEN=<токен из Timeweb Cloud -> Настройки -> API-ключи>"
+        echo -e "   docker compose up -d --build backend worker"
+        echo -e " До этого панель как обычно доступна по IP:8443.${NC}"
+    fi
+fi
 echo -e "${GREEN}==========================================================${NC}"
