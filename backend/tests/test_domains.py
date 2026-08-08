@@ -81,11 +81,14 @@ def test_caddyfile_dns01_block_avoids_the_propagation_race():
     """Инцидент на живом сервере: без задержки Let's Encrypt иногда спрашивал
     TXT-запись раньше, чем она реально разошлась у Timeweb (каждая ACME-
     попытка запрашивает новый токен), а проверка НАПРЯМУЮ через авторитетные
-    NS домена подвисала на прямом TCP:53 наружу и падала по таймауту."""
+    NS домена подвисала на прямом TCP:53 наружу и падала по таймауту. При
+    нескольких одновременных доменах NS Timeweb не укладывался и в дефолтный
+    двухминутный propagation_timeout — увеличен с запасом."""
     cfg = d.build_caddyfile([
         {"domain": "home.example.com", "upstream": "127.0.0.1:8081", "dns_token": "tok-123"},
     ])
     assert "propagation_delay 30s" in cfg
+    assert "propagation_timeout 5m" in cfg
     assert "resolvers 1.1.1.1 8.8.8.8" in cfg
 
 
