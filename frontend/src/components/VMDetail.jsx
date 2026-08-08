@@ -775,7 +775,10 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                           </button>
                         </div>
                         <div style={{ fontSize: '0.72rem', marginTop: '4px', color: active ? 'var(--status-success)' : 'var(--text-secondary)' }}>
-                          {active ? '● активен (TLS)' : '○ ожидает подтверждения DNS'}
+                          {/* «DNS подтверждён», а не «активен (TLS)»: сертификат
+                              выпускает Caddy уже после этой проверки — см.
+                              DomainsPanel. */}
+                          {active ? '● DNS подтверждён' : '○ ожидает подтверждения DNS'}
                         </div>
                       </div>
                     );

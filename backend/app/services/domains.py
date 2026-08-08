@@ -27,6 +27,10 @@ CADDY_IMAGE = "aegis-caddy:local"
 CADDY_BUILD_CONTEXT = "/app/repo/aegis-caddy"
 CADDYFILE_PATH = "/etc/caddy/Caddyfile"
 
+# Боевой каталог Let's Encrypt. Задаётся явно, чтобы Caddy не уходил на
+# staging после неудачных попыток — см. пояснение в build_caddyfile.
+LETSENCRYPT_PROD_CA = "https://acme-v02.api.letsencrypt.org/directory"
+
 # Метка домена: буквы/цифры/дефис, до 63 символов; минимум два уровня.
 DOMAIN_RE = re.compile(
     r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$"
@@ -151,11 +155,28 @@ def build_caddyfile(entries: list, email: str = "") -> str:
             # обычные публичные, они точно доступны с любого сервера;
             # задержка даёт записи время долистать TTL=600 до края; таймаут
             # увеличен с запасом под медленный NS.
+            #
+            # issuer задан ЯВНО и ровно один — это и есть защита от главной
+            # оставшейся поломки. По умолчанию Caddy держит список УЦ (боевой
+            # Let's Encrypt, ZeroSSL) и после нескольких неудач сам уходит на
+            # staging. Дальше он начинает чередовать попытки: staging и боевой
+            # выпуск идут по одному и тому же имени _acme-challenge.<домен>,
+            # каждый пишет туда свой токен и затирает чужой. Итог в логе —
+            # «Incorrect TXT record found»: проверяющий видит токен соседней
+            # попытки. Плюс сертификат от staging браузеры не считают
+            # доверенным, а панель при этом показывает домен активным.
+            # С одним явным issuer метаться некуда.
             lines.append("\ttls {")
-            lines.append(f"\t\tdns timeweb {e['dns_token']}")
-            lines.append("\t\tresolvers 1.1.1.1 8.8.8.8")
-            lines.append("\t\tpropagation_delay 30s")
-            lines.append("\t\tpropagation_timeout 5m")
+            lines.append(f"\t\tissuer acme {LETSENCRYPT_PROD_CA} {{")
+            if email:
+                # Глобальный `email` относится к УЦ по умолчанию; у явного
+                # issuer свой, иначе аккаунт ACME будет без контакта.
+                lines.append(f"\t\t\temail {email}")
+            lines.append(f"\t\t\tdns timeweb {e['dns_token']}")
+            lines.append("\t\t\tresolvers 1.1.1.1 8.8.8.8")
+            lines.append("\t\t\tpropagation_delay 30s")
+            lines.append("\t\t\tpropagation_timeout 5m")
+            lines.append("\t\t}")
             lines.append("\t}")
         lines.append(f"\treverse_proxy {e['upstream']}")
         lines.append("}")

@@ -722,3 +722,56 @@ def test_system_domains_are_empty_strings_when_unset(monkeypatch):
     assert d.panel_domain() == ""
     assert d.mail_domain() == ""
     assert d.storage_domain() == ""
+
+
+# ------------- один явный УЦ вместо скитаний по staging и обратно ------------
+#
+# Живой инцидент, повторявшийся четыре раза подряд: Caddy держит список УЦ
+# (боевой Let's Encrypt, ZeroSSL) и после нескольких неудач сам уходит на
+# staging. Дальше staging и боевой выпуск идут ОДНОВРЕМЕННО по одному и тому
+# же имени _acme-challenge.<домен>, каждый пишет туда свой токен и затирает
+# чужой — в логе «Incorrect TXT record found». Вдобавок сертификат от staging
+# браузеры не считают доверенным, а панель показывала домен активным.
+
+def test_dns01_block_pins_the_production_ca():
+    cfg = d.build_caddyfile([
+        {"domain": "a.example.com", "upstream": "1.2.3.4:80", "dns_token": "tok"},
+    ])
+    assert f"issuer acme {d.LETSENCRYPT_PROD_CA}" in cfg
+    assert "acme-v02.api.letsencrypt.org" in cfg
+    # staging не должен попасть в конфиг ни при каких условиях
+    assert "acme-staging" not in cfg
+
+
+def test_dns_settings_live_inside_the_issuer_block():
+    """dns/resolvers/propagation — параметры ACME-издателя. Оставленные на
+    уровне tls, они относились бы к УЦ по умолчанию, а наш явный issuer
+    остался бы без DNS-01 и провалил бы выпуск на приватном IP."""
+    cfg = d.build_caddyfile([
+        {"domain": "a.example.com", "upstream": "1.2.3.4:80", "dns_token": "tok"},
+    ])
+    issuer_at = cfg.index("issuer acme")
+    closing = cfg.index("\t\t}", issuer_at)
+    inside = cfg[issuer_at:closing]
+    for directive in ("dns timeweb tok", "resolvers 1.1.1.1 8.8.8.8",
+                      "propagation_delay 30s", "propagation_timeout 5m"):
+        assert directive in inside, directive
+
+
+def test_issuer_gets_the_contact_email_when_set():
+    """Глобальный `email` относится к УЦ по умолчанию; у явного issuer свой,
+    иначе ACME-аккаунт останется без контакта и уведомления об истечении
+    сертификата никуда не придут."""
+    cfg = d.build_caddyfile(
+        [{"domain": "a.example.com", "upstream": "1.2.3.4:80", "dns_token": "tok"}],
+        email="me@example.com")
+    issuer_at = cfg.index("issuer acme")
+    closing = cfg.index("\t\t}", issuer_at)
+    assert "email me@example.com" in cfg[issuer_at:closing]
+
+
+def test_plain_entries_still_have_no_issuer_block():
+    """Домены на публичном IP проходят обычный HTTP-01 — им явный issuer не
+    нужен, и запасной путь через ZeroSSL там скорее полезен."""
+    cfg = d.build_caddyfile([{"domain": "a.example.com", "upstream": "1.2.3.4:80"}])
+    assert "issuer" not in cfg

@@ -98,7 +98,13 @@ export default function DomainsPanel() {
     const copy = (v, k) => { navigator.clipboard.writeText(v); setCopied(k); setTimeout(() => setCopied(''), 1500); };
 
     const badge = (d) => {
-        if (d.dns_ok && d.ownership_ok) return <span className="badge" style={{ background: 'rgba(48,164,108,0.15)', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><ShieldCheck size={12} /> активен (TLS)</span>;
+        // ВАЖНО: это статус ПРОВЕРОК DNS, а не наличия сертификата. Раньше
+        // здесь было «активен (TLS)», и домен с непрошедшим выпуском
+        // выглядел полностью рабочим — причину недоступности сайта искали
+        // где угодно, кроме логов Caddy. Сертификат выпускает Caddy уже
+        // после этого шага, и на это нужно время (а иногда и несколько
+        // попыток), поэтому честная формулировка — «DNS подтверждён».
+        if (d.dns_ok && d.ownership_ok) return <span className="badge" style={{ background: 'rgba(48,164,108,0.15)', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '4px' }} title="DNS проверен, домен передан в прокси. Сертификат Caddy выпускает следом — обычно 1-2 минуты; если сайт не открывается, смотрите docker logs aegis-caddy"><ShieldCheck size={12} /> DNS подтверждён</span>;
         const text = !d.ownership_ok ? 'нужна TXT-запись' : 'ожидает A-запись';
         return <span className="badge" style={{ background: 'rgba(245,166,35,0.15)', color: '#f5a623', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={12} /> {text}</span>;
     };
