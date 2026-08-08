@@ -243,8 +243,13 @@ services:
       - "587:587"
       - "993:993"
     environment:
-      - OVERRIDE_HOSTNAME=mail.aegis.local
-      - DOMAINNAME=aegis.local
+      # Домен почты берётся из MAIL_DOMAIN — того же, что привязывается через
+      # scripts/add-domain.sh. Без него оставался зашитый aegis.local, и ящики
+      # создавались на несуществующем домене: письма с них никуда не уходили,
+      # а в подсказках интерфейса стоял пример user@domain.local.
+      # aegis.local — запасной вариант для установок без своего домена.
+      - OVERRIDE_HOSTNAME=${MAIL_DOMAIN:-mail.aegis.local}
+      - DOMAINNAME=${MAIL_DOMAIN:-aegis.local}
       - ENABLE_SPAMASSASSIN=0
       - ENABLE_CLAMAV=0
       - ENABLE_FAIL2BAN=0

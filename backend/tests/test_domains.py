@@ -696,3 +696,29 @@ def test_watchdog_recreates_a_stopped_caddy_that_refuses_to_start():
     fake = FakeDockerClient(existing_container=stuck)
     assert d.reconcile_caddy(FakeDb(), object(), fake) is True
     assert len(fake.client.containers.created) == 1
+
+
+# ------------------- домены служебных сервисов в /status --------------------
+#
+# Домены панели, почты и хранилища живут в .env, а не в БД, поэтому интерфейс
+# узнаёт о них только из /api/domains/status. Без этого в почте оставалась
+# заглушка «user@domain.local», а S3 не мог показать ссылку на консоль.
+
+def test_status_exposes_system_domains(monkeypatch):
+    monkeypatch.setenv("PANEL_DOMAIN", "home.example.com")
+    monkeypatch.setenv("MAIL_DOMAIN", "mail.example.com")
+    monkeypatch.setenv("STORAGE_DOMAIN", "storage.example.com")
+
+    assert d.panel_domain() == "home.example.com"
+    assert d.mail_domain() == "mail.example.com"
+    assert d.storage_domain() == "storage.example.com"
+
+
+def test_system_domains_are_empty_strings_when_unset(monkeypatch):
+    """Пустая строка, а не None: интерфейс подставляет запасной вариант через
+    `mail_domain || 'aegis.local'`, и None превратился бы в текст «None»."""
+    for var in ("PANEL_DOMAIN", "MAIL_DOMAIN", "STORAGE_DOMAIN"):
+        monkeypatch.delenv(var, raising=False)
+    assert d.panel_domain() == ""
+    assert d.mail_domain() == ""
+    assert d.storage_domain() == ""

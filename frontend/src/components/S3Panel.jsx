@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { FolderOpen, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, Upload, ArrowLeft, File, X, Check, Server, Code2, Terminal, Plug, HardDrive, FileText, FileImage, FileArchive, FileVideo } from 'lucide-react';
+import { FolderOpen, Plus, Trash2, Key, Info, Copy, Eye, EyeOff, Upload, Download, ArrowLeft, File, X, Check, Server, Code2, Terminal, Plug, HardDrive, FileText, FileImage, FileArchive, FileVideo, ExternalLink } from 'lucide-react';
 
 export default function S3Panel() {
+    // Консоль MinIO — корневой доступ ко ВСЕМ бакетам, поэтому кнопка входа
+    // только у администратора. Обычному пользователю она и не нужна: свои
+    // файлы он загружает и скачивает прямо здесь.
+    const isAdmin = localStorage.getItem('aegis_role') === 'admin';
     const [buckets, setBuckets] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -23,6 +27,9 @@ export default function S3Panel() {
     const [copiedKey, setCopiedKey] = useState(null);
     const [showConnect, setShowConnect] = useState(false);
     const [connTab, setConnTab] = useState('cli');
+    // Домен консоли хранилища задаётся в .env (STORAGE_DOMAIN) — интерфейс
+    // узнаёт о нём только из /api/domains/status.
+    const [storageDomain, setStorageDomain] = useState('');
 
     const getHeaders = (isMultipart = false) => {
         const token = localStorage.getItem('aegis_admin_token') || '';
@@ -75,6 +82,17 @@ export default function S3Panel() {
     useEffect(() => {
         fetchBuckets();
     }, []);
+
+    useEffect(() => {
+        // Только для админа: кнопка входа в консоль есть только у него, а
+        // /api/domains/status обычному пользователю ничего полезного здесь
+        // не даёт — не дёргаем лишний запрос.
+        if (!isAdmin) return;
+        fetch('/api/domains/status', { headers: getHeaders() })
+            .then(r => (r.ok ? r.json() : null))
+            .then(d => d && setStorageDomain(d.storage_domain || ''))
+            .catch(() => { /* необязательно: без домена покажем подсказку про туннель */ });
+    }, [isAdmin]);
 
     const handleCreateBucket = async (e) => {
         e.preventDefault();
@@ -153,6 +171,34 @@ export default function S3Panel() {
         setDragOver(false);
         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
             uploadFile(e.dataTransfer.files[0]);
+        }
+    };
+
+    const handleDownloadFile = async (fileName) => {
+        // Через fetch, а не <a href>: эндпоинт требует заголовок авторизации,
+        // а обычная ссылка его не отправит и вернёт 401.
+        try {
+            const res = await fetch(
+                `/api/s3/${selectedBucket.id}/files/${encodeURIComponent(fileName)}/download`,
+                { headers: getHeaders() }
+            );
+            if (!res.ok) {
+                let detail = 'Ошибка при скачивании файла';
+                try { detail = (await res.json()).detail || detail; } catch { /* тело не JSON */ }
+                throw new Error(detail);
+            }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName.split('/').pop();
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            // Иначе blob остаётся в памяти до перезагрузки страницы
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            alert(err.message || 'Ошибка при скачивании файла');
         }
     };
 
@@ -365,9 +411,14 @@ export default function S3Panel() {
                                         <div className="connect-tile-icon" style={{ width: '40px', height: '40px', background: 'var(--gradient-accent-soft)', color: 'var(--accent-primary)' }}>
                                             <Icon size={20} />
                                         </div>
-                                        <button className="btn-icon" onClick={() => handleDeleteFile(file.name)} title="Удалить" style={{ color: 'var(--status-danger)' }}>
-                                            <Trash2 size={15} />
-                                        </button>
+                                        <div style={{ display: 'flex', gap: '4px' }}>
+                                            <button className="btn-icon" onClick={() => handleDownloadFile(file.name)} title="Скачать">
+                                                <Download size={15} />
+                                            </button>
+                                            <button className="btn-icon" onClick={() => handleDeleteFile(file.name)} title="Удалить" style={{ color: 'var(--status-danger)' }}>
+                                                <Trash2 size={15} />
+                                            </button>
+                                        </div>
                                     </div>
                                     <div style={{ fontWeight: 600, color: 'var(--text-heading)', fontSize: '0.9rem', wordBreak: 'break-all', lineHeight: 1.3 }}>
                                         {file.name}
@@ -392,9 +443,30 @@ export default function S3Panel() {
                     <h2 className="panel-title">S3 Объектное хранилище (MinIO)</h2>
                     <p className="panel-subtitle">Создание бакетов и управление ключами доступа (API S3)</p>
                 </div>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                {isAdmin && (
+                    storageDomain ? (
+                        <a className="btn btn-secondary" href={`https://${storageDomain}`} target="_blank" rel="noreferrer">
+                            <ExternalLink size={16} /> Войти в консоль
+                        </a>
+                    ) : (
+                        <button
+                            className="btn btn-secondary"
+                            title="Консоль MinIO слушает только 127.0.0.1. Привяжите домен (STORAGE_DOMAIN) через scripts/add-domain.sh или откройте SSH-туннель: ssh -L 9001:127.0.0.1:9001 root@сервер"
+                            onClick={() => alert(
+                                'Консоль MinIO доступна только с самого сервера (слушает 127.0.0.1).\n\n'
+                                + 'Вариант 1 — привязать домен: sudo bash scripts/add-domain.sh (пункт «домен для консоли хранилища»).\n'
+                                + 'Вариант 2 — SSH-туннель: ssh -L 9001:127.0.0.1:9001 root@<IP сервера>, затем http://localhost:9001'
+                            )}
+                        >
+                            <ExternalLink size={16} /> Войти в консоль
+                        </button>
+                    )
+                )}
                 <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
                     <Plus size={16} /> Создать бакет
                 </button>
+                </div>
             </div>
 
             {error && <div className="alert alert-danger">{error}</div>}

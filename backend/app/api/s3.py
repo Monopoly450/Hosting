@@ -287,6 +287,57 @@ async def upload_file_to_bucket(bucket_id: int, file: UploadFile = File(...), cu
     finally:
         db.close()
 
+@router.get("/{bucket_id}/files/{filename:path}/download")
+def download_file_from_bucket(bucket_id: int, filename: str, current_user: User = Depends(get_current_user)):
+    """Отдаёт файл из бакета потоком.
+
+    Через панель, а не прямой ссылкой на MinIO: консоль MinIO слушает только
+    127.0.0.1, а S3 API требует подписанного запроса с ключами бакета —
+    отдавать их браузеру ради скачивания одного файла незачем. Здесь же
+    владение бакетом уже проверено тем же способом, что в остальных
+    эндпоинтах.
+    """
+    from fastapi.responses import StreamingResponse
+    from urllib.parse import quote
+
+    db = SessionLocal()
+    try:
+        bucket = db.query(UserBucket).filter(UserBucket.id == bucket_id).first()
+        if not bucket:
+            raise HTTPException(status_code=404, detail="Бакет не найден")
+        if current_user.role != "admin" and bucket.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этого бакета.")
+
+        client = get_minio_client()
+        try:
+            resp = client.get_object(bucket.bucket_name, filename)
+        except Exception as e:
+            logger.error(f"Failed to get object {filename} from MinIO bucket {bucket.bucket_name}: {e}")
+            raise HTTPException(status_code=404, detail="Файл не найден в бакете")
+
+        def _stream():
+            # Файл может быть больше памяти — отдаём кусками и обязательно
+            # освобождаем соединение пула, иначе оно останется занятым.
+            try:
+                for chunk in resp.stream(64 * 1024):
+                    yield chunk
+            finally:
+                resp.close()
+                resp.release_conn()
+
+        # Имя файла может быть кириллическим: в заголовке нужен filename* по
+        # RFC 5987, иначе браузер сохранит его с искажённым именем.
+        short = filename.rsplit("/", 1)[-1]
+        disposition = f"attachment; filename*=UTF-8''{quote(short)}"
+        return StreamingResponse(
+            _stream(),
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": disposition},
+        )
+    finally:
+        db.close()
+
+
 @router.delete("/{bucket_id}/files/{filename:path}")
 def delete_file_from_bucket(bucket_id: int, filename: str, current_user: User = Depends(get_current_user)):
     db = SessionLocal()

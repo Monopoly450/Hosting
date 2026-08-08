@@ -110,23 +110,21 @@ export default function MarketplacePanel() {
                         ))}
                     </div>
 
-                    {/* grid-cols-3 — тот же размер плиток, что у серверов и
-                        инстансов (см. index.css). Свой gridTemplateColumns здесь
-                        раньше давал более узкие карточки, и вкладки выглядели
-                        как из разных интерфейсов. */}
-                    <div className="grid-cols-3">
+                    {/* grid-cols-4 (260px), а не размер плиток серверов: записей
+                        в каталоге стало почти двадцать, и на широких карточках
+                        короткие описания оставляли много пустоты. Смайликов у
+                        названий тоже нет — иконка из каталога плохо ложится в
+                        строку с заголовком и бейджем категории. */}
+                    <div className="grid-cols-4">
                         {visible.map(app => (
-                            <div key={app.id} className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                                        <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>{app.icon}</span>
-                                        <div style={{ fontWeight: 700, color: 'var(--text-heading)' }}>{app.name}</div>
-                                    </div>
-                                    <span className="badge" style={{ fontSize: '0.7rem', flexShrink: 0 }}>{app.category}</span>
+                            <div key={app.id} className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '18px' }}>
+                                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '8px' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--text-heading)', fontSize: '0.95rem' }}>{app.name}</div>
+                                    <span className="badge" style={{ fontSize: '0.68rem', flexShrink: 0 }}>{app.category}</span>
                                 </div>
-                                <p className="text-muted" style={{ fontSize: '0.82rem', flex: 1, margin: 0 }}>{app.description}</p>
+                                <p className="text-muted" style={{ fontSize: '0.8rem', flex: 1, margin: 0, lineHeight: 1.4 }}>{app.description}</p>
                                 {app.requires_https && (
-                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', fontSize: '0.74rem', color: '#f5a623' }}>
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', fontSize: '0.72rem', color: '#f5a623' }}>
                                         <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: '1px' }} />
                                         <span>Нужен HTTPS — по IP не откроется</span>
                                     </div>

@@ -11,6 +11,11 @@ export default function MailPanel() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    // Домен почты задаётся в .env (MAIL_DOMAIN) и подставляется почтовому
+    // серверу как DOMAINNAME (см. docker-compose.yml). Интерфейс узнаёт о нём
+    // из /api/domains/status — иначе в подсказках оставалась заглушка
+    // domain.local, и было непонятно, на каком домене создавать ящик.
+    const [mailDomain, setMailDomain] = useState('');
 
     const getHeaders = () => {
         const token = localStorage.getItem('aegis_admin_token') || '';
@@ -40,6 +45,10 @@ export default function MailPanel() {
 
     useEffect(() => {
         fetchMailboxes();
+        fetch('/api/domains/status', { headers: getHeaders() })
+            .then(r => (r.ok ? r.json() : null))
+            .then(d => d && setMailDomain(d.mail_domain || ''))
+            .catch(() => { /* необязательно: без домена покажем общий пример */ });
     }, []);
 
     const handleCreateMailbox = async (e) => {
@@ -101,7 +110,11 @@ export default function MailPanel() {
             <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <div>
                     <h2 className="panel-title">Почтовый хостинг (docker-mailserver)</h2>
-                    <p className="panel-subtitle">Создание почтовых ящиков на собственных или локальных доменах</p>
+                    <p className="panel-subtitle">
+                        {mailDomain
+                            ? <>Домен почты: <strong style={{ fontFamily: 'var(--font-mono)' }}>{mailDomain}</strong> — ящики создаются на нём</>
+                            : <>Свой домен не привязан — ящики создаются на локальном <span style={{ fontFamily: 'var(--font-mono)' }}>aegis.local</span>, письма наружу с него не уйдут. Привязать: <span style={{ fontFamily: 'var(--font-mono)' }}>scripts/add-domain.sh</span></>}
+                    </p>
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
                     <a 
@@ -211,7 +224,7 @@ export default function MailPanel() {
                     <div style={{ background: 'var(--bg-surface)', padding: '15px', borderRadius: '8px' }}>
                         <h4 style={{ margin: '0 0 10px 0', color: 'var(--text-primary)' }}>Авторизация</h4>
                         <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <li><strong>Логин:</strong> Полный адрес ящика (например, <span style={{ fontFamily: 'monospace' }}>user@domain.local</span>)</li>
+                            <li><strong>Логин:</strong> Полный адрес ящика (например, <span style={{ fontFamily: 'monospace' }}>user@{mailDomain || 'aegis.local'}</span>)</li>
                             <li><strong>Пароль:</strong> Пароль, указанный при создании ящика</li>
                             <li><strong>Метод:</strong> Обычный пароль (Plain password)</li>
                         </ul>
@@ -237,11 +250,13 @@ export default function MailPanel() {
                                         className="form-control" 
                                         value={email} 
                                         onChange={e => setEmail(e.target.value)} 
-                                        required 
-                                        placeholder="Например, admin@local-project.ru"
+                                        required
+                                        placeholder={`Например, admin@${mailDomain || 'aegis.local'}`}
                                     />
                                     <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
-                                        Полный адрес, включая домен (например, name@my-domain.ru).
+                                        {mailDomain
+                                            ? <>Полный адрес, включая домен. Почтовый сервер настроен на <strong>{mailDomain}</strong> — ящики на других доменах письма отправлять не смогут.</>
+                                            : <>Полный адрес, включая домен. Свой домен не привязан, поэтому сервер принимает только <strong>aegis.local</strong> (локально).</>}
                                     </span>
                                 </div>
 

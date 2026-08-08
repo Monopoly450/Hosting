@@ -101,6 +101,12 @@ def status_(request: Request, current_user: User = Depends(get_current_user)):
     """Статус прокси и данные для настройки DNS."""
     st = dsvc.caddy_status(_docker(), host=host_for_links(request))
     st["acme_email"] = dsvc.acme_email()
+    # Домены служебных сервисов: их задают в .env, а не в БД, поэтому иначе
+    # интерфейс о них не узнает. Нужны, чтобы почта и хранилище показывали
+    # реальный адрес вместо IP с портом (см. MailPanel, S3Panel).
+    st["panel_domain"] = dsvc.panel_domain()
+    st["mail_domain"] = dsvc.mail_domain()
+    st["storage_domain"] = dsvc.storage_domain()
     return st
 
 
