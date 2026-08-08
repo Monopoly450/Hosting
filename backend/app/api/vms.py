@@ -1118,10 +1118,24 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client), curre
                 except Exception:
                     vm_data["firewall_rules"] = []
                 
-                # Если виртуальная машина активна и получила IP-адрес, автоматически пробрасываем порт
+                # Если виртуальная машина активна и получила IP-адрес, автоматически пробрасываем порт.
+                #
+                # Импорт здесь, до первого использования: ниже в этой же
+                # функции есть ещё один `from ... import pick_external_ip`, и
+                # без этого Python считал бы имя локальным для всей функции —
+                # строка ниже падала бы с UnboundLocalError.
+                from app.core.netutils import pick_external_ip
+                # Адрес выбираем pick_external_ip, а НЕ ips[0]: порядок адресов
+                # от qemu-guest-agent произвольный, и первым легко приходит
+                # служебный — docker0 (172.17.0.1) у ВМ с Docker, pod-адрес,
+                # loopback. Вотчдог в воркере всегда пользовался
+                # pick_external_ip, поэтому обе стороны переписывали правила друг
+                # за другом: открыл карточку ВМ — проброс уехал на docker0,
+                # через минуту вотчдог вернул обратно.
                 if vm_data.get("status") == "Running" and vm_data.get("ips"):
-                    ip = vm_data["ips"][0]
-                    reconcile_vm_firewall_rules(ip, db_vm.id, db_vm.ports_config, db_vm.firewall_rules, db_vm.os_type)
+                    ip = pick_external_ip(vm_data["ips"])
+                    if ip:
+                        reconcile_vm_firewall_rules(ip, db_vm.id, db_vm.ports_config, db_vm.firewall_rules, db_vm.os_type)
 
                     # Отвечает ли уже сайт — ПОДСКАЗКА рядом со ссылкой, а не
                     # условие её показа: приложение может поднматься долго
@@ -1705,8 +1719,11 @@ def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClien
             # 4. Если ВМ запущена, мгновенно перенастраиваем фаервол/порты
             vm_k8s = client.get_vm(name)
             if vm_k8s.get("status") == "Running" and vm_k8s.get("ips"):
-                ip = vm_k8s["ips"][0]
-                reconcile_vm_firewall_rules(ip, db_vm.id, db_vm.ports_config, db_vm.firewall_rules, db_vm.os_type)
+                # pick_external_ip, а не ips[0] — см. пояснение в get_vm_details
+                from app.core.netutils import pick_external_ip
+                ip = pick_external_ip(vm_k8s["ips"])
+                if ip:
+                    reconcile_vm_firewall_rules(ip, db_vm.id, db_vm.ports_config, db_vm.firewall_rules, db_vm.os_type)
                 
             return {"status": "success", "message": "Настройки ВМ сохранены"}
         finally:
