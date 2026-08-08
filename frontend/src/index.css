@@ -53,7 +53,11 @@
   --sidebar-text-hover: #0F172A;
   --sidebar-bg-hover: #F1F5F9;
   --sidebar-logo-text: #0F172A;
-  --sidebar-active-text: #FF5C00;
+  /* Тёмный оттенок бренда, а не сам #FF5C00: на белом сайдбаре у него
+     контраст 3.1:1 при норме 4.5:1 для обычного текста — активный пункт
+     выглядел выцветшим, почти как отключённый. В тёмной теме он белый
+     (см. блок [data-theme="dark"]), там проблемы нет. */
+  --sidebar-active-text: #B34100;
   --sidebar-active-bg: rgba(255, 92, 0, 0.08);
   --sidebar-active-border: rgba(255, 92, 0, 0.4);
 
@@ -189,6 +193,14 @@ body {
   overflow-y: auto;
   margin-bottom: 16px;
   padding-right: 4px;
+  /* Пунктов больше, чем влезает даже на 1440x900, и нижний обрезался ровно
+     посередине строки — выглядело как дефект вёрстки, а не как «прокрути
+     дальше». Полоса прокрутки шириной 4px этого не выдавала. Затухание у
+     нижнего края читается однозначно: список продолжается. Маска исчезает,
+     когда список прокручен до конца, — так работает animation-timeline
+     прокрутки; там, где он не поддерживается, остаётся просто мягкий край. */
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
 }
 .sidebar-nav::-webkit-scrollbar { width: 4px; }
 
@@ -884,14 +896,32 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
 .login-orb {
   position: absolute;
   border-radius: 50%;
-  filter: blur(60px);
-  opacity: 0.5;
+  /* Сильнее размытие и заметно меньше непрозрачности: свечение должно
+     оставаться фоном. При opacity 0.5 углы выцветали, и карточка теряла
+     контраст с подложкой. */
+  filter: blur(110px);
+  opacity: 0.22;
   z-index: 0;
   pointer-events: none;
 }
-.login-orb.orb-1 { width: 380px; height: 380px; background: #6d5efc; top: -80px; left: -60px; animation: floaty 12s ease-in-out infinite; }
-.login-orb.orb-2 { width: 320px; height: 320px; background: #22d3ee; bottom: -90px; right: -40px; animation: floaty 15s ease-in-out infinite reverse; }
-.login-orb.orb-3 { width: 260px; height: 260px; background: #ec4899; top: 40%; right: 20%; animation: floaty 10s ease-in-out infinite; }
+/* Цвета — от бренда (--accent-primary #FF5C00), а не произвольные.
+   Раньше здесь были фиолетовый, циан и розовый: на экране входа они спорили
+   с оранжевой кнопкой и логотипом, и первое, что видел пользователь, выглядело
+   как чужая тема. Третий шар убран — двух хватает для глубины, а меньше
+   насыщенных пятен делает карточку читаемее. */
+.login-orb.orb-1 {
+  width: 420px; height: 420px;
+  background: var(--accent-primary);
+  top: -120px; left: -100px;
+  animation: floaty 16s ease-in-out infinite;
+}
+.login-orb.orb-2 {
+  width: 340px; height: 340px;
+  background: #f59e0b;
+  bottom: -120px; right: -80px;
+  animation: floaty 20s ease-in-out infinite reverse;
+}
+.login-orb.orb-3 { display: none; }
 
 .login-card {
   position: relative;
@@ -918,7 +948,8 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
   color: #fff;
   background: var(--gradient-accent);
   box-shadow: var(--shadow-glow);
-  animation: floaty 5s ease-in-out infinite;
+  /* Без бесконечного покачивания: логотип дёргался всё время, пока человек
+     вводит пароль, и тянул взгляд на себя. Появление осталось — оно уместно. */
 }
 
 .login-title {

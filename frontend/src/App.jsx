@@ -524,7 +524,10 @@ const App = () => {
           </form>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginTop: '26px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-            <span className="status-dot live" style={{ background: 'var(--status-success)', width: '7px', height: '7px' }} />
+            {/* Без .live: пульсирующее кольцо — индикатор ЖИВОГО статуса, а
+                «соединение защищено» это константа. На экране входа оно просто
+                мигало рядом с полем пароля и тянуло взгляд. */}
+            <span className="status-dot" style={{ background: 'var(--status-success)', width: '7px', height: '7px' }} />
             Защищённое соединение · ByteBurners Cloud
           </div>
         </div>
