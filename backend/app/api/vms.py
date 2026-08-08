@@ -756,8 +756,45 @@ def clear_iptables_rules_for_port(ext_port: int):
                 del_cmd = line.replace("-A ", "-D ")
                 subprocess.run(nsenter_prefix + [f"iptables -t nat {del_cmd}"], capture_output=True, timeout=5)
 
+def default_ports_for(base: int, os_type: str = "linux", template: str = None) -> list:
+    """Стандартный набор пробрасываемых портов, посчитанный от ID ВМ.
+
+    Единственное место, где живёт эта арифметика. Раньше её копий было три —
+    в создании ВМ, в resolve_vm_ports и (точнее, её отсутствие) в создании
+    кластера: кластерным ВМ ports_config не проставлялся вовсе, и в панели
+    список портов оставался пустым, хотя правила в iptables вотчдог всё же
+    создавал по этим же числам. Расхождение «в интерфейсе портов нет, а в
+    системе они есть» ровно отсюда.
+
+    template добавляет проброс на порт своего сервиса, если он не 80.
+    Portainer слушает 9000, Grafana — 3000, и без этого они оставались вообще
+    без проброса: внутри ВМ сервис работает, а снаружи не достать. PostgreSQL
+    и Redis сюда намеренно не попали — они по умолчанию слушают только
+    localhost, и проброс вёл бы в никуда.
+    """
+    if os_type == "windows":
+        return [
+            {"ext_port": 33000 + base, "int_port": 3389, "name": "RDP"},
+            {"ext_port": 22000 + base, "int_port": 22, "name": "SSH"},
+            {"ext_port": 28000 + base, "int_port": 80, "name": "HTTP"},
+        ]
+    ports = [
+        {"ext_port": 22000 + base, "int_port": 22, "name": "SSH"},
+        {"ext_port": 28000 + base, "int_port": 80, "name": "HTTP"},
+        {"ext_port": 44300 + base, "int_port": 443, "name": "HTTPS"},
+    ]
+    if template:
+        from app.services.os_profiles import template_port
+        tpl_port = template_port(template)
+        if tpl_port and not any(p["int_port"] == tpl_port for p in ports):
+            # 29000 — свой диапазон, чтобы не столкнуться с 22xxx/28xxx/44xxx
+            ports.append({"ext_port": 29000 + base, "int_port": tpl_port, "name": "APP"})
+    return ports
+
+
 def resolve_vm_ports(vm_ip: str, vm_id: Optional[int] = None,
-                     ports_config: str = None, os_type: str = "linux") -> list:
+                     ports_config: str = None, os_type: str = "linux",
+                     template: str = None) -> list:
     """Итоговый список пробрасываемых портов ВМ.
 
     Вынесено отдельно, чтобы проверка «правила на месте?» смотрела ровно тот
@@ -784,17 +821,7 @@ def resolve_vm_ports(vm_ip: str, vm_id: Optional[int] = None,
         except Exception:
             return []
 
-    if os_type == "windows":
-        return [
-            {"ext_port": 33000 + base, "int_port": 3389, "name": "RDP"},
-            {"ext_port": 22000 + base, "int_port": 22, "name": "SSH"},
-            {"ext_port": 28000 + base, "int_port": 80, "name": "HTTP"},
-        ]
-    return [
-        {"ext_port": 22000 + base, "int_port": 22, "name": "SSH"},
-        {"ext_port": 28000 + base, "int_port": 80, "name": "HTTP"},
-        {"ext_port": 44300 + base, "int_port": 443, "name": "HTTPS"},
-    ]
+    return default_ports_for(base, os_type, template)
 
 
 def internal_port_for(ports_config: list, ext_port, default: int) -> int:
@@ -1367,20 +1394,9 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         db.commit()
         db.refresh(task)
         
-        # Генерируем дефолтные порты на основе уникального ID виртуальной машины для стабильности
-        if task.os_type == "windows":
-            default_ports = [
-                {"ext_port": 33000 + task.id, "int_port": 3389, "name": "RDP"},
-                {"ext_port": 22000 + task.id, "int_port": 22, "name": "SSH"},
-                {"ext_port": 28000 + task.id, "int_port": 80, "name": "HTTP"}
-            ]
-        else:
-            default_ports = [
-                {"ext_port": 22000 + task.id, "int_port": 22, "name": "SSH"},
-                {"ext_port": 28000 + task.id, "int_port": 80, "name": "HTTP"},
-                {"ext_port": 44300 + task.id, "int_port": 443, "name": "HTTPS"}
-            ]
-        task.ports_config = json.dumps(default_ports)
+        # Дефолтные порты от уникального ID ВМ — он стабилен между перезапусками
+        task.ports_config = json.dumps(
+            default_ports_for(task.id, task.os_type, task.cloud_init_template))
         task.static_ip = compute_static_ip(task.id)
         db.commit()
 

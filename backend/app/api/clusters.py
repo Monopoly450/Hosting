@@ -75,7 +75,20 @@ def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_c
             db.add(task)
             db.commit()
             db.refresh(task)
-            
+
+            # Порты по умолчанию — как у обычной ВМ (см. default_ports_for).
+            # Раньше кластерным ВМ ports_config не проставлялся вообще: в
+            # панели список портов оставался пустым, хотя вотчдог всё же
+            # создавал правила в iptables по тем же числам. Выглядело это как
+            # «в кластере порты не создаются», а на деле расходились интерфейс
+            # и система. Считается от ID, поэтому порт стабилен и совпадает с
+            # тем, что применит reconcile_vm_firewall_rules.
+            import json as _json
+            from app.api.vms import default_ports_for
+            task.ports_config = _json.dumps(
+                default_ports_for(task.id, task.os_type, task.cloud_init_template))
+            db.commit()
+
             publish_task("vm_tasks", {
                 "task_id": task.id,
                 "action": "create_vm"

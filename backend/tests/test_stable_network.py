@@ -169,3 +169,70 @@ def test_cluster_isolated_network_is_still_excluded():
 
     assert is_internal_ip("192.168.100.5") is True
     assert pick_external_ip(["192.168.100.5", "10.42.0.9"]) == "10.42.0.9"
+
+
+# --------------- порты по умолчанию: одна арифметика на всех ----------------
+
+def test_default_ports_are_stable_and_derived_from_the_vm_id():
+    from app.api.vms import default_ports_for
+
+    ports = {p["int_port"]: p["ext_port"] for p in default_ports_for(71)}
+    assert ports == {22: 22071, 80: 28071, 443: 44371}
+
+
+def test_windows_gets_rdp_instead_of_https():
+    from app.api.vms import default_ports_for
+
+    names = {p["name"] for p in default_ports_for(71, "windows")}
+    assert "RDP" in names and "HTTPS" not in names
+
+
+def test_resolve_vm_ports_fallback_matches_default_ports_for():
+    """Ключевой инвариант: список, который панель показывает, и список, по
+    которому вотчдог ставит правила в iptables, обязаны совпадать. Раньше эта
+    арифметика была скопирована в трёх местах и могла разъехаться."""
+    from app.api.vms import default_ports_for, resolve_vm_ports
+
+    for os_type in ("linux", "windows"):
+        assert resolve_vm_ports("172.20.0.71", 71, None, os_type) == \
+            default_ports_for(71, os_type)
+
+
+def test_templates_with_their_own_port_get_a_forwarding_rule():
+    """Живой симптом «некоторые шаблоны не работают»: Portainer слушает 9000,
+    Grafana — 3000, а порты по умолчанию только 22/80/443. Сервис внутри ВМ
+    поднимался, но снаружи его было не достать вообще."""
+    from app.api.vms import default_ports_for
+
+    graf = {p["int_port"] for p in default_ports_for(71, "linux", "grafana")}
+    port = {p["int_port"] for p in default_ports_for(71, "linux", "portainer")}
+    assert 3000 in graf
+    assert 9000 in port
+
+
+def test_web_templates_do_not_get_a_duplicate_port():
+    """LAMP, LEMP, WordPress и Zabbix слушают 80 — он уже проброшен, второй
+    записи быть не должно."""
+    from app.api.vms import default_ports_for
+
+    for tpl in ("lamp", "lemp", "wordpress", "zabbix"):
+        ports = [p["int_port"] for p in default_ports_for(71, "linux", tpl)]
+        assert ports == [22, 80, 443], tpl
+        assert len(ports) == len(set(ports)), tpl
+
+
+def test_database_templates_are_not_exposed_by_default():
+    """PostgreSQL и Redis по умолчанию слушают только localhost — проброс вёл
+    бы в никуда, а порт БД наружу открывать без нужды не стоит."""
+    from app.api.vms import default_ports_for
+
+    for tpl in ("postgresql", "redis"):
+        ports = [p["int_port"] for p in default_ports_for(71, "linux", tpl)]
+        assert 5432 not in ports and 6379 not in ports, tpl
+
+
+def test_external_ports_of_a_template_do_not_collide_with_the_standard_ones():
+    from app.api.vms import default_ports_for
+
+    ext = [p["ext_port"] for p in default_ports_for(71, "linux", "grafana")]
+    assert len(ext) == len(set(ext))

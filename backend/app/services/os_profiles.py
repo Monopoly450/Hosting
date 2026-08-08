@@ -614,6 +614,7 @@ TEMPLATES = {
     },
     "portainer": {
         "label": "Portainer (Docker + веб-UI :9000)",
+        "port": 9000,
         "_after_docker": [
             "docker volume create portainer_data",
             "docker run -d -p 9000:9000 --name portainer --restart=always "
@@ -623,6 +624,7 @@ TEMPLATES = {
     },
     "grafana": {
         "label": "Grafana (дашборды и графики :3000)",
+        "port": 3000,
         # Как и Portainer, ставится контейнером поверх Docker (см. _after_docker
         # в build_template_steps) — своих пакетов в репозиториях дистрибутивов
         # у Grafana либо нет, либо они сильно отстают от upstream.
@@ -948,3 +950,19 @@ NFS_CLIENT_PACKAGE = {
 
 def nfs_client_package(os_type: str) -> str:
     return NFS_CLIENT_PACKAGE.get(family_of(os_type), "nfs-common")
+
+
+def template_port(template: str):
+    """Порт, на котором слушает сервис шаблона, если он НЕ 80.
+
+    Порты по умолчанию у ВМ — 22, 80 и 443. Portainer слушает 9000, Grafana —
+    3000, и без этой подсказки они оставались вообще без проброса: сервис
+    внутри ВМ работает, а снаружи его не достать. Именно так выглядело
+    «некоторые шаблоны не работают».
+
+    None — значит специального порта нет: либо сервис и так на 80 (lamp, lemp,
+    wordpress, zabbix), либо шаблон вообще не поднимает веб-сервис (docker,
+    nodejs, python) и порт задаёт уже само приложение пользователя.
+    """
+    spec = TEMPLATES.get(template) or {}
+    return spec.get("port")

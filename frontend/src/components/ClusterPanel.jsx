@@ -190,6 +190,11 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
   // пару бэкенд отклонит сам, с внятным сообщением.
   const templatesForOs = (osType) => {
     const fallback = [{ value: '', label: 'Без шаблона (Чистая ОС)' }];
+    // Шаблоны проверены только на Ubuntu (TEMPLATE_OFFERED_OS на бэкенде).
+    // Проверка продублирована здесь намеренно: раньше при недоступном
+    // каталоге запасной список показывался для ЛЮБОЙ ОС, и шаблон можно было
+    // выбрать, например, для Alpine — установка потом молча не срабатывала.
+    if (osType !== 'ubuntu') return fallback;
     if (!osCatalog?.templates) return fallback.concat(CLUSTER_TEMPLATE_FALLBACK);
     const allowed = osCatalog.supported?.[osType];
     const list = allowed

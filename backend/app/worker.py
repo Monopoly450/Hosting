@@ -421,7 +421,11 @@ def apply_firewall_reconcile_daemon():
                         "name": vm.name,
                         "ports_config": vm.ports_config,
                         "firewall_rules": vm.firewall_rules,
-                        "os_type": vm.os_type
+                        "os_type": vm.os_type,
+                        # Нужен для ВМ без ports_config (созданы до того, как
+                        # его начали проставлять): у Portainer/Grafana свой
+                        # порт, и без шаблона фолбэк вернул бы только 22/80/443
+                        "cloud_init_template": vm.cloud_init_template,
                     })
             finally:
                 db.close() # Закрываем транзакцию мгновенно
@@ -446,7 +450,8 @@ def apply_firewall_reconcile_daemon():
                     if prev_ip != ip:
                         reason = f"сменился IP (было {prev_ip})" if prev_ip else "первое применение"
                     elif prerouting is not None:
-                        ports = resolve_vm_ports(ip, vm["id"], vm["ports_config"], vm["os_type"])
+                        ports = resolve_vm_ports(ip, vm["id"], vm["ports_config"], vm["os_type"],
+                                                 vm.get("cloud_init_template"))
                         if not dnat_rules_present(prerouting, ip, ports):
                             reason = "правила пропали из iptables"
 
