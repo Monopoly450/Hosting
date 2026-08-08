@@ -13,7 +13,7 @@ from app.core.auth import get_current_user
 from app.core.netutils import host_for_links
 from app.services.marketplace import (
     get_catalog, get_app, resolve_env, build_marketplace_cloud_init,
-    add_public_url, default_host,
+    add_public_url, default_host, is_template_app,
 )
 
 router = APIRouter()
@@ -101,7 +101,14 @@ def deploy(req: MarketplaceDeploy, request: Request, current_user: User = Depend
         # Адрес берём из запроса: по публичному IP из локальной сети часто
         # не пройти (NAT-петля), а по локальному — не выйти из интернета.
         env = add_public_url(env, host_for_links(request), ext_port)
-        vm.custom_user_data = build_marketplace_cloud_init(app, env, password)
+        if is_template_app(app):
+            # Окружение (LAMP, Docker, Zabbix, …) — не compose-стек, а системные
+            # пакеты и службы. cloud_init_template собирает воркер тем же
+            # generate_linux_manifest, что и для обычной ВМ, поэтому свой
+            # cloud-init здесь НЕ пишем: второй сборщик разошёлся бы с основным.
+            vm.cloud_init_template = app["template"]
+        else:
+            vm.custom_user_data = build_marketplace_cloud_init(app, env, password)
         # Тот же пароль, что попал в cloud-init: воркер положит именно его в
         # Secret, иначе SSH-доступ панели к ВМ не заработает.
         from app.core.crypto import encrypt_secret

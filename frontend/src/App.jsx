@@ -152,7 +152,6 @@ const App = () => {
   const [memoryGb, setMemoryGb] = useState(2);
   const [diskGb, setDiskGb] = useState(20);
   const [isoUrl, setIsoUrl] = useState('');
-  const [cloudInitTemplate, setCloudInitTemplate] = useState('');
   const [customUserData, setCustomUserData] = useState('');
   const [sshKey, setSshKey] = useState('');
   // Каталог ОС и совместимых с ними шаблонов окружения. Набор пакетов у
@@ -193,41 +192,9 @@ const App = () => {
       .catch(() => {});
   }, []);
 
-  // Полный список шаблонов — запасной вариант на случай, когда каталог с
-  // бэкенда недоступен. Раньше при недоступном каталоге фильтр возвращал
-  // ПУСТОЙ список, и в поле оставался единственный пункт «Без шаблона»:
-  // выбрать шаблон становилось физически невозможно, причём молча. Пустой
-  // список в интерфейсе всегда хуже неотфильтрованного — несовместимую пару
-  // бэкенд отклонит сам, с внятным сообщением.
-  const ALL_TEMPLATES = [
-    { value: 'lamp', label: 'LAMP (Apache + PHP + MariaDB)' },
-    { value: 'lemp', label: 'LEMP (Nginx + PHP-FPM + MariaDB)' },
-    { value: 'docker', label: 'Docker (Engine + Compose)' },
-    { value: 'portainer', label: 'Portainer (Docker + веб-UI :9000)' },
-    { value: 'nodejs', label: 'Node.js 20 LTS (+ pm2)' },
-    { value: 'python', label: 'Python 3 (pip + venv + gunicorn)' },
-    { value: 'postgresql', label: 'PostgreSQL сервер' },
-    { value: 'redis', label: 'Redis сервер' },
-    { value: 'wordpress', label: 'WordPress (Apache + MariaDB + PHP)' },
-    { value: 'zabbix', label: 'Zabbix (мониторинг, веб-интерфейс /zabbix)' },
-  ];
-
-  // Шаблоны, применимые к выбранной ОС.
-  const availableTemplates = React.useMemo(() => {
-    if (!osCatalog) return ALL_TEMPLATES;          // каталог не загрузился
-    const allowed = osCatalog.supported?.[osType];
-    if (!allowed) return ALL_TEMPLATES;            // ОС нет в каталоге — не прячем всё
-    return osCatalog.templates.filter(t => allowed.includes(t.value));
-  }, [osCatalog, osType]);
-
-  // Смена ОС может сделать выбранный шаблон недоступным — сбрасываем его,
-  // иначе в поле осталась бы подпись шаблона, который к этой ОС не применится.
-  useEffect(() => {
-    if (!cloudInitTemplate) return;
-    if (!availableTemplates.some(t => t.value === cloudInitTemplate)) {
-      setCloudInitTemplate('');
-    }
-  }, [availableTemplates, cloudInitTemplate]);
+  // Списка шаблонов здесь больше нет: готовые окружения переехали в
+  // «Маркетплейс» (см. TEMPLATE_APPS в backend/app/services/marketplace.py).
+  // Локальная ВМ создаёт чистую ОС, поэтому и выбирать здесь нечего.
 
   const fetchVMs = async () => {
     try {
@@ -341,7 +308,6 @@ const App = () => {
         memory_gb: parseInt(memoryGb),
         disk_gb: parseInt(diskGb),
         iso_url: selectedVersions[osType] || undefined,
-        cloud_init_template: cloudInitTemplate || undefined,
         custom_user_data: customUserData.trim() || undefined,
         ssh_key: sshKey.trim() || undefined,
         packages: packages.trim() || undefined,
@@ -368,7 +334,6 @@ const App = () => {
       const resData = await response.json();
       setName('');
       setIsoUrl('');
-      setCloudInitTemplate('');
       setCustomUserData('');
       setSshKey('');
       setShowCreateVM(false);
@@ -1176,27 +1141,18 @@ const App = () => {
                               <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Сетевая шара будет смонтирована в /mnt/network_drive.</span>
                             </div>
 
-                            {/* Для систем с установочного ISO (Windows, Proxmox, TrueNAS)
-                                cloud-init не применяется вообще — поле там прячем. */}
+                            {/* Шаблоны окружения (LAMP, Docker, Zabbix, …) переехали
+                                в «Маркетплейс»: там у каждого есть описание,
+                                заметки и предупреждения, а точка входа для
+                                «развернуть готовое» стала одна. Здесь остаётся
+                                чистая ОС — это и был смысл «Локальной ВМ». */}
                             {!(osCatalog?.iso_install || []).includes(osType) && (
                               <div className="input-group">
-                                <label className="input-label">Шаблон окружения (Cloud-Init)</label>
-                                <CustomSelect
-                                  value={cloudInitTemplate}
-                                  onChange={e => setCloudInitTemplate(e.target.value)}
-                                  placeholder="Без шаблона (Чистая ОС)"
-                                  options={[
-                                    { value: '', label: 'Без шаблона (Чистая ОС)' },
-                                    ...availableTemplates,
-                                  ]}
-                                />
-                                {osCatalog && (
-                                  <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
-                                    {osType === 'bitrix'
-                                      ? 'Bitrix поднимает собственный веб-сервер на порту 80, поэтому LAMP, LEMP и WordPress к нему не добавляются. Остальные шаблоны работают рядом с ним.'
-                                      : 'Показаны шаблоны, которые собираются на этой ОС: имена пакетов и служб у семейств Linux различаются.'}
-                                  </span>
-                                )}
+                                <span className="text-muted" style={{ fontSize: '0.75rem' }}>
+                                  Готовые окружения (LAMP, LEMP, Docker, Portainer, Grafana, Node.js,
+                                  Python, PostgreSQL, Redis, WordPress, Zabbix) — во вкладке
+                                  «Маркетплейс». Здесь создаётся чистая ОС.
+                                </span>
                               </div>
                             )}
 

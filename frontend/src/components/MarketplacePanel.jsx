@@ -110,11 +110,18 @@ export default function MarketplacePanel() {
                         ))}
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '16px' }}>
+                    {/* grid-cols-3 — тот же размер плиток, что у серверов и
+                        инстансов (см. index.css). Свой gridTemplateColumns здесь
+                        раньше давал более узкие карточки, и вкладки выглядели
+                        как из разных интерфейсов. */}
+                    <div className="grid-cols-3">
                         {visible.map(app => (
                             <div key={app.id} className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
-                                    <div style={{ fontWeight: 700, color: 'var(--text-heading)' }}>{app.name}</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                                        <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>{app.icon}</span>
+                                        <div style={{ fontWeight: 700, color: 'var(--text-heading)' }}>{app.name}</div>
+                                    </div>
                                     <span className="badge" style={{ fontSize: '0.7rem', flexShrink: 0 }}>{app.category}</span>
                                 </div>
                                 <p className="text-muted" style={{ fontSize: '0.82rem', flex: 1, margin: 0 }}>{app.description}</p>

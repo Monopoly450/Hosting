@@ -148,7 +148,8 @@ export default function ProjectsPanel() {
                     <p className="text-muted">Создайте проект, чтобы делиться ВМ, базами и деплоями с командой.</p>
                 </div>
             ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+                // grid-cols-3 — единый размер плиток с серверами и инстансами
+                <div className="grid-cols-3">
                     {projects.map(p => (
                         <div key={p.id} className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '10px', cursor: 'pointer', outline: selected?.id === p.id ? '1px solid var(--accent-primary)' : 'none' }} onClick={() => openProject(p)}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>

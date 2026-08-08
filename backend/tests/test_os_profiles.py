@@ -24,7 +24,8 @@ import yaml
 
 from app.services.os_profiles import (
     TEMPLATES, build_template_steps, family_of, has_systemd,
-    nfs_client_package, supported_templates_for, template_supported,
+    nfs_client_package, supported_templates_for, template_offered,
+    template_supported,
 )
 
 
@@ -129,6 +130,25 @@ def test_portainer_reuses_docker_steps_of_the_same_family():
     assert any("portainer/portainer-ce" in c for c in port_cmds)
 
 
+def test_grafana_reuses_docker_steps_like_portainer():
+    """Grafana ставится тем же способом, что Portainer, — контейнером поверх
+    Docker. Признак «_after_docker» в описании шаблона, а не отдельная ветка в
+    коде, поэтому добавление такого шаблона не требует правок build_template_steps."""
+    docker_pkgs, docker_cmds = build_template_steps("docker", "ubuntu")
+    graf_pkgs, graf_cmds = build_template_steps("grafana", "ubuntu")
+    assert graf_pkgs == docker_pkgs
+    assert graf_cmds[:len(docker_cmds)] == docker_cmds
+    assert any("grafana/grafana-oss" in c for c in graf_cmds)
+    assert any("-p 3000:3000" in c for c in graf_cmds)
+
+
+def test_grafana_does_not_bake_an_admin_password_into_cloud_init():
+    """cloud-init остаётся в логах и в метаданных ВМ. Пароль там не нужен:
+    Grafana сама потребует сменить дефолтный admin при первом входе."""
+    _, cmds = build_template_steps("grafana", "ubuntu")
+    assert not any("GF_SECURITY_ADMIN_PASSWORD" in c for c in cmds)
+
+
 def test_wordpress_chowns_to_the_right_web_user():
     _, deb = build_template_steps("wordpress", "ubuntu")
     _, rhel = build_template_steps("wordpress", "rocky")
@@ -154,9 +174,30 @@ def test_unsupported_template_yields_no_packages():
     assert packages == [] and commands == []
 
 
-def test_every_os_supports_at_least_one_template():
+def test_templates_are_offered_only_on_ubuntu():
+    """Шаблоны предлагаются только там, где реально проверены.
+
+    Технически они собираются и на остальных семействах (см. пакеты и службы
+    под rhel/suse/arch/alpine и тесты ниже), но проверить каждую пару
+    «шаблон × ОС» на живом сервере нереально, а репозитории разъезжаются.
+    Поэтому в интерфейсе предлагается только Ubuntu, а для остальных ОС список
+    пуст — это видно сразу, а не после провалившейся установки."""
+    assert supported_templates_for("ubuntu")
     for os_type in _all_linux_os_types():
-        assert supported_templates_for(os_type), os_type
+        if os_type == "ubuntu":
+            continue
+        assert supported_templates_for(os_type) == [], os_type
+
+
+def test_offering_is_narrower_than_technical_support():
+    """template_supported отвечает «соберётся ли», template_offered —
+    «предлагаем ли». Второе строго уже первого, и путать их нельзя: сборка
+    для не-Ubuntu продолжает работать, если шаблон пришёл через API."""
+    assert template_supported("docker", "centos") is True
+    assert template_offered("docker", "centos") is False
+    assert template_offered("docker", "ubuntu") is True
+    # без шаблона — всегда можно, на любой ОС
+    assert template_offered("", "centos") is True
 
 
 def test_bitrix_rejects_only_the_templates_that_fight_for_port_80():
@@ -598,14 +639,17 @@ def test_zabbix_is_offered_only_where_official_packages_exist():
         assert template_supported("zabbix", os_type) is False, os_type
 
 
-def test_zabbix_is_not_offered_on_fedora():
+def test_zabbix_is_not_supported_on_fedora():
     """У Fedora VERSION_ID вида «41», а репозитория el41 не существует — адрес
     собирается в госте из VERSION_ID и для неё сломался бы принципиально.
-    Своих пакетов Zabbix в репозиториях Fedora тоже нет."""
+    Своих пакетов Zabbix в репозиториях Fedora тоже нет.
+
+    Это запрет именно технический (template_supported), не связанный с тем, что
+    шаблоны сейчас предлагаются только на Ubuntu: он остаётся в силе, даже если
+    Fedora когда-нибудь вернётся в TEMPLATE_OFFERED_OS."""
     assert template_supported("zabbix", "fedora") is False
-    assert "zabbix" not in supported_templates_for("fedora")
-    # но остальные шаблоны у Fedora остаются
-    assert "docker" in supported_templates_for("fedora")
+    # остальные шаблоны на Fedora технически собираются
+    assert template_supported("docker", "fedora") is True
 
 
 def test_zabbix_is_blocked_on_bitrix_like_other_web_stacks():

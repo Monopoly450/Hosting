@@ -168,15 +168,22 @@ def test_deploy_survives_a_branch_name_with_punctuation():
 def test_every_marketplace_app_produces_valid_cloud_init():
     """Каталог маркетплейса — тоже отдельный сборщик cloud-init."""
     from app.services.marketplace import (get_catalog, get_app, resolve_env,
-                                          build_marketplace_cloud_init)
+                                          build_marketplace_cloud_init,
+                                          is_template_app)
 
     catalog = get_catalog()
     apps = catalog if isinstance(catalog, list) else catalog.get("apps", catalog)
     assert apps, "каталог маркетплейса пуст — проверка выродилась бы в пустую"
 
+    checked = 0
     for entry in apps:
         slug = entry.get("slug") or entry.get("id") or entry.get("name")
         app = get_app(slug)
+        # Окружения (LAMP, Docker, …) собирает не этот сборщик, а
+        # generate_linux_manifest в воркере — он проверен в test_os_profiles.
+        if is_template_app(app):
+            continue
+        checked += 1
         ud = build_marketplace_cloud_init(app, resolve_env(app, {}), "pw123")
         doc = yaml.safe_load(ud)
         assert isinstance(doc, dict), slug
@@ -186,6 +193,8 @@ def test_every_marketplace_app_produces_valid_cloud_init():
         files = {w["path"]: w.get("content", "") for w in (doc.get("write_files") or [])}
         assert "/opt/app/docker-compose.yml" in files, slug
         yaml.safe_load(files["/opt/app/docker-compose.yml"])
+
+    assert checked, "все записи каталога оказались окружениями — проверка выродилась"
 
 
 def test_marketplace_compose_up_retries_instead_of_giving_up_once():

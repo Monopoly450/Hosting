@@ -587,6 +587,21 @@ TEMPLATES = {
             "portainer/portainer-ce:latest",
         ],
     },
+    "grafana": {
+        "label": "Grafana (дашборды и графики :3000)",
+        # Как и Portainer, ставится контейнером поверх Docker (см. _after_docker
+        # в build_template_steps) — своих пакетов в репозиториях дистрибутивов
+        # у Grafana либо нет, либо они сильно отстают от upstream.
+        "_after_docker": [
+            "docker volume create grafana_data",
+            # GF_SECURITY_ADMIN_PASSWORD не задаём: при первом входе Grafana
+            # сама потребует сменить дефолтный admin/admin, и пароль не
+            # окажется ни в логе cloud-init, ни в истории команд.
+            "docker run -d -p 3000:3000 --name grafana --restart=always "
+            "-v grafana_data:/var/lib/grafana "
+            "grafana/grafana-oss:latest",
+        ],
+    },
     "nodejs": {
         "label": "Node.js 20 LTS (+ pm2)",
         "debian": {
@@ -802,7 +817,11 @@ TEMPLATES = {
 
 
 def template_supported(template: str, os_type: str) -> bool:
-    """Поддерживается ли шаблон окружения для этой ОС."""
+    """Поддерживается ли шаблон окружения для этой ОС — технически.
+
+    Отвечает на вопрос «соберётся ли», а не «предлагаем ли»: что показывать в
+    интерфейсе, решает template_offered (см. ниже).
+    """
     if not template:
         return True
     # У ОС со своим веб-стеком запрещены только шаблоны, которые тоже поднимают
@@ -816,16 +835,37 @@ def template_supported(template: str, os_type: str) -> bool:
     spec = TEMPLATES.get(template)
     if not spec:
         return False
-    if template == "portainer":
-        # Portainer — это Docker плюс запуск контейнера, поэтому доступен везде,
-        # где доступен сам Docker.
+    if "_after_docker" in spec:
+        # Portainer и Grafana — это Docker плюс запуск контейнера, поэтому
+        # доступны везде, где доступен сам Docker.
         return template_supported("docker", os_type)
     return family_of(os_type) in spec
 
 
+# ОС, для которых шаблоны окружения предлагаются в интерфейсе.
+#
+# Технически они собираются и на остальных семействах (весь набор пакетов и
+# служб под rhel/suse/arch/alpine выше — рабочий и покрыт тестами), но
+# поддерживать вживую десяток дистрибутивов в каждом шаблоне слишком дорого:
+# репозитории разъезжаются, имена пакетов меняются, и проверить каждую пару
+# «шаблон × ОС» на живом сервере нереально. Поэтому предлагаем шаблоны там,
+# где они действительно проверены, — на Ubuntu; для остальных ОС список пуст,
+# и это видно сразу, а не после провалившейся установки.
+TEMPLATE_OFFERED_OS = ("ubuntu",)
+
+
+def template_offered(template: str, os_type: str) -> bool:
+    """Предлагать ли шаблон для этой ОС в интерфейсе."""
+    if not template:
+        return True
+    if os_type not in TEMPLATE_OFFERED_OS:
+        return False
+    return template_supported(template, os_type)
+
+
 def supported_templates_for(os_type: str) -> list:
-    """Список шаблонов, применимых к данной ОС (для интерфейса)."""
-    return [name for name in TEMPLATES if template_supported(name, os_type)]
+    """Список шаблонов, предлагаемых для данной ОС (для интерфейса)."""
+    return [name for name in TEMPLATES if template_offered(name, os_type)]
 
 
 def build_template_steps(template: str, os_type: str):
@@ -839,9 +879,11 @@ def build_template_steps(template: str, os_type: str):
 
     family = family_of(os_type)
 
-    if template == "portainer":
+    spec_all = TEMPLATES[template]
+    if "_after_docker" in spec_all:
+        # Portainer, Grafana: сам Docker плюс запуск контейнера поверх него.
         packages, commands = build_template_steps("docker", os_type)
-        return packages, commands + TEMPLATES["portainer"]["_after_docker"]
+        return packages, commands + spec_all["_after_docker"]
 
     spec = TEMPLATES[template][family]
     packages = list(spec["packages"])

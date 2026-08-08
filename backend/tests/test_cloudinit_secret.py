@@ -236,6 +236,8 @@ def test_no_app_is_left_inline_above_the_limit():
     from app.services import marketplace as mp
 
     for app in mp.CATALOG:
+        if mp.is_template_app(app):
+            continue  # окружения собирает воркер, не этот сборщик
         env = mp.add_public_url(mp.resolve_env(app, {}), "10.0.0.5", 28042)
         userdata = mp.build_marketplace_cloud_init(app, env, "pw")
 

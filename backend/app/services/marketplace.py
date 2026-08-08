@@ -1,9 +1,23 @@
 """Каталог приложений «в один клик» и генерация cloud-init для их деплоя.
 
-Каждое приложение — самодостаточный docker-compose (приложение + его БД, если
-нужна). Деплой поднимает выделенную ВМ, пишет compose и .env и запускает
-`docker compose up -d`. Секретные env-переменные генерируются автоматически,
-поэтому установка действительно «в один клик».
+В каталоге два вида записей, и различает их поле "kind":
+
+* "compose" (по умолчанию) — самодостаточный docker-compose (приложение + его
+  БД, если нужна). Деплой поднимает выделенную ВМ, пишет compose и .env и
+  запускает `docker compose up -d`. Секретные env-переменные генерируются
+  автоматически, поэтому установка действительно «в один клик».
+
+* "template" — окружение из app.services.os_profiles (LAMP, LEMP, Node.js,
+  Python, Docker, Portainer, Zabbix). Это не контейнеризованное приложение, а
+  набор системных пакетов и служб, поэтому подменять его самодельным compose
+  было бы неправдой: LAMP — это системный Apache и MariaDB, а не пара
+  контейнеров. Для таких записей API кладёт имя шаблона в
+  VMTask.cloud_init_template и НЕ трогает custom_user_data — cloud-init собирает
+  воркер тем же generate_linux_manifest, что и для обычной ВМ. Второго сборщика
+  здесь нет намеренно: он бы разошёлся с основным при первой же правке.
+
+Все записи разворачиваются на Ubuntu — это единственная ОС, на которой шаблоны
+предлагаются (см. TEMPLATE_OFFERED_OS в os_profiles).
 """
 import secrets
 
@@ -245,7 +259,112 @@ volumes:
   redis_data:
 """,
     },
+    {
+        "id": "grafana",
+        "name": "Grafana",
+        "description": "Дашборды и графики по метрикам из Prometheus, БД и других источников.",
+        "category": "Мониторинг",
+        "icon": "📊",
+        "app_port": 3000,
+        # Пароль admin не задаём через env: Grafana сама потребует сменить его
+        # при первом входе, и он не окажется ни в cloud-init, ни в логах.
+        "note": ("Первый вход — admin / admin, Grafana сразу попросит задать "
+                 "новый пароль."),
+        "env": [],
+        "compose": """services:
+  grafana:
+    image: grafana/grafana-oss:latest
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SERVER_ROOT_URL: ${PUBLIC_URL}
+      # Grafana за реверс-прокси (см. вкладку «Домены»): без этого редиректы
+      # после логина уводят на localhost.
+      GF_SERVER_SERVE_FROM_SUB_PATH: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+volumes:
+  grafana_data:
+""",
+    },
 ]
+
+# --- Окружения из os_profiles, показанные в маркетплейсе -------------------
+#
+# Раньше их выбирали при создании локальной ВМ («Шаблон окружения»), и это был
+# второй, отдельный от маркетплейса путь получить готовую машину — с той же
+# сутью, но другим интерфейсом и без предупреждений и заметок каталога. Теперь
+# точка входа одна: всё, что можно развернуть в один клик, лежит в
+# маркетплейсе. Сами шаблоны остались в os_profiles без изменений — здесь
+# только их описание для каталога.
+TEMPLATE_APPS = [
+    {
+        "id": "tpl-lamp", "template": "lamp",
+        "name": "LAMP", "description": "Apache + PHP + MariaDB как системные службы (не в контейнерах).",
+        "category": "Окружения", "icon": "🅰️", "app_port": 80,
+    },
+    {
+        "id": "tpl-lemp", "template": "lemp",
+        "name": "LEMP", "description": "Nginx + PHP-FPM + MariaDB как системные службы.",
+        "category": "Окружения", "icon": "🇳", "app_port": 80,
+    },
+    {
+        "id": "tpl-docker", "template": "docker",
+        "name": "Docker", "description": "Чистая ВМ с Docker Engine и Compose — база под свои контейнеры.",
+        "category": "Окружения", "icon": "🐳", "app_port": 80,
+        "note": "Своего веб-интерфейса нет: это заготовка под ваши контейнеры. Доступ по SSH.",
+    },
+    {
+        "id": "tpl-portainer", "template": "portainer",
+        "name": "Portainer", "description": "Веб-интерфейс управления Docker-контейнерами.",
+        "category": "Окружения", "icon": "🧭", "app_port": 9000,
+    },
+    {
+        "id": "tpl-grafana", "template": "grafana",
+        "name": "Grafana (в Docker)", "description": "То же, что приложение Grafana, но поверх шаблона Docker — если нужна ВМ с Docker и Grafana рядом.",
+        "category": "Окружения", "icon": "📊", "app_port": 3000,
+        "note": "Первый вход — admin / admin, Grafana сразу попросит задать новый пароль.",
+    },
+    {
+        "id": "tpl-nodejs", "template": "nodejs",
+        "name": "Node.js 20 LTS", "description": "Node.js 20 и pm2 — окружение под своё приложение.",
+        "category": "Окружения", "icon": "🟩", "app_port": 3000,
+        "note": "Своего веб-интерфейса нет: это окружение под ваш код. Доступ по SSH.",
+    },
+    {
+        "id": "tpl-python", "template": "python",
+        "name": "Python 3", "description": "Python 3 с pip, venv и gunicorn — окружение под своё приложение.",
+        "category": "Окружения", "icon": "🐍", "app_port": 8000,
+        "note": "Своего веб-интерфейса нет: это окружение под ваш код. Доступ по SSH.",
+    },
+    {
+        "id": "tpl-postgresql", "template": "postgresql",
+        "name": "PostgreSQL (системный)", "description": "PostgreSQL как системная служба, а не в контейнере.",
+        "category": "Окружения", "icon": "🐘", "app_port": 5432,
+    },
+    {
+        "id": "tpl-redis", "template": "redis",
+        "name": "Redis (системный)", "description": "Redis как системная служба, а не в контейнере.",
+        "category": "Окружения", "icon": "🧱", "app_port": 6379,
+    },
+    {
+        "id": "tpl-wordpress", "template": "wordpress",
+        "name": "WordPress (LAMP)", "description": "WordPress на системном Apache + MariaDB, без контейнеров.",
+        "category": "Окружения", "icon": "📝", "app_port": 80,
+    },
+    {
+        "id": "tpl-zabbix", "template": "zabbix",
+        "name": "Zabbix", "description": "Сервер мониторинга Zabbix с веб-интерфейсом на /zabbix.",
+        "category": "Окружения", "icon": "🛰️", "app_port": 80,
+        "note": "Веб-интерфейс открывается по пути /zabbix, а не в корне сайта.",
+    },
+]
+
+for _app in TEMPLATE_APPS:
+    _app.setdefault("kind", "template")
+    _app.setdefault("env", [])
+    CATALOG.append(_app)
 
 _BY_ID = {a["id"]: a for a in CATALOG}
 
@@ -257,6 +376,7 @@ def get_catalog() -> list:
         out.append({
             "id": a["id"], "name": a["name"], "description": a["description"],
             "category": a["category"], "icon": a["icon"], "app_port": a["app_port"],
+            "kind": a.get("kind", "compose"),
             # Предупреждения показываем ДО установки: иначе пользователь узнаёт
             # об ограничении, только наткнувшись на нерабочий интерфейс.
             "requires_https": a.get("requires_https", False),
@@ -266,6 +386,10 @@ def get_catalog() -> list:
                     for e in a["env"]],
         })
     return out
+
+
+def is_template_app(app: dict) -> bool:
+    return app.get("kind") == "template"
 
 
 def get_app(app_id: str):

@@ -63,6 +63,7 @@ const CLUSTER_TEMPLATE_FALLBACK = [
   { value: 'lemp', label: 'LEMP (Nginx + PHP-FPM + MariaDB)' },
   { value: 'docker', label: 'Docker (Engine + Compose)' },
   { value: 'portainer', label: 'Portainer (Docker + веб-UI :9000)' },
+  { value: 'grafana', label: 'Grafana (дашборды и графики :3000)' },
   { value: 'nodejs', label: 'Node.js 20 LTS (+ pm2)' },
   { value: 'python', label: 'Python 3 (pip + venv + gunicorn)' },
   { value: 'postgresql', label: 'PostgreSQL сервер' },
@@ -690,12 +691,18 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
 
                               <div className="input-group">
                                 <label className="input-label">Шаблон окружения (Cloud-Init)</label>
-                                <CustomSelect 
-                                  value={vm.cloud_init_template || ''} 
+                                <CustomSelect
+                                  value={vm.cloud_init_template || ''}
                                   onChange={e => handleUpdateVm(index, 'cloud_init_template', e.target.value)}
                                   placeholder="Без шаблона (Чистая ОС)"
                                   options={templatesForOs(vm.os_type)}
                                 />
+                                {vm.os_type !== 'ubuntu' && (
+                                  <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>
+                                    Шаблоны окружения проверены на Ubuntu — для остальных ОС список пуст.
+                                    Выберите Ubuntu, если нужен готовый стек.
+                                  </span>
+                                )}
                               </div>
 
                               <div className="input-group">
