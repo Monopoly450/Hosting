@@ -116,3 +116,56 @@ def test_resolve_vm_ip_matches_pick_external_ip():
     for ips in cases:
         assert resolve_vm_ip(ips) == pick_external_ip(ips)
     assert resolve_vm_ip(["192.168.100.5", "10.42.0.9"]) == "10.42.0.9"
+
+
+# ---------- мосты Docker внутри гостя не должны выдаваться за адрес ВМ -------
+#
+# Живой инцидент: у ВМ с Grafana панель показывала IP 172.17.0.1 и туда же
+# уходил DNAT проброса портов. Это docker0 ВНУТРИ гостя — он появляется, как
+# только шаблон (docker/portainer/grafana) или приложение маркетплейса ставит
+# Docker. На хосте 172.17.0.1 — его собственный docker0, поэтому проброс уводил
+# трафик в никуда: сайт не открывался, SSH по проброшенному порту рвался.
+
+def test_docker0_inside_the_guest_is_not_taken_for_the_vm_address():
+    from app.core.netutils import pick_external_ip, is_internal_ip
+
+    assert is_internal_ip("172.17.0.1") is True
+    # реальный набор с ВМ, где поставили Docker
+    assert pick_external_ip(["172.17.0.1", "172.20.0.42"]) == "172.20.0.42"
+
+
+def test_docker_user_defined_networks_are_also_ignored():
+    """Compose-стеки создают свои сети: 172.18.0.1, 172.19.0.1 и далее."""
+    from app.core.netutils import is_internal_ip
+
+    for octet in (17, 18, 19, 21, 22, 31):
+        assert is_internal_ip(f"172.{octet}.0.1") is True, octet
+
+
+def test_br_vms_subnet_is_not_swallowed_by_the_docker_range():
+    """172.20.0.0/24 — наш собственный мост br-vms (см. install.sh), настоящий
+    адрес обычных ВМ. Он лежит внутри диапазона, который Docker занимает по
+    умолчанию, поэтому исключать 172.16/12 целиком нельзя."""
+    from app.core.netutils import is_internal_ip, pick_external_ip
+
+    assert is_internal_ip("172.20.0.55") is False
+    assert pick_external_ip(["10.42.0.9", "172.20.0.55"]) == "172.20.0.55"
+
+
+def test_vm_with_docker_still_reports_its_bridge_address_not_docker0():
+    """Порядок в списке от qemu-guest-agent не гарантирован — docker0 может
+    прийти первым."""
+    from app.core.netutils import pick_external_ip
+
+    assert pick_external_ip(["172.17.0.1", "10.42.0.9", "172.20.0.7"]) == "172.20.0.7"
+    assert pick_external_ip(["172.20.0.7", "172.17.0.1"]) == "172.20.0.7"
+
+
+def test_cluster_isolated_network_is_still_excluded():
+    """Решение коммита 135746d: подсеть 192.168.100.0/24 одинакова у ВСЕХ
+    кластеров, поэтому с хоста она неоднозначна и проброс идёт на Pod IP.
+    Правка про docker0 это поведение менять не должна."""
+    from app.core.netutils import is_internal_ip, pick_external_ip
+
+    assert is_internal_ip("192.168.100.5") is True
+    assert pick_external_ip(["192.168.100.5", "10.42.0.9"]) == "10.42.0.9"
