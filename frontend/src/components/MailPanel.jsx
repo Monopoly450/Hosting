@@ -16,6 +16,10 @@ export default function MailPanel() {
     // из /api/domains/status — иначе в подсказках оставалась заглушка
     // domain.local, и было непонятно, на каком домене создавать ящик.
     const [mailDomain, setMailDomain] = useState('');
+    // IP самого хоста: на нём слушают порты почты (25/143/587/993) и вебмейл
+    // (8082). Нужен и как запасной адрес без домена, и чтобы было видно, куда
+    // указывать MX/A-записи.
+    const [hostIp, setHostIp] = useState('');
 
     const getHeaders = () => {
         const token = localStorage.getItem('aegis_admin_token') || '';
@@ -47,7 +51,11 @@ export default function MailPanel() {
         fetchMailboxes();
         fetch('/api/domains/status', { headers: getHeaders() })
             .then(r => (r.ok ? r.json() : null))
-            .then(d => d && setMailDomain(d.mail_domain || ''))
+            .then(d => {
+                if (!d) return;
+                setMailDomain(d.mail_domain || '');
+                setHostIp(d.host_ip || '');
+            })
             .catch(() => { /* необязательно: без домена покажем общий пример */ });
     }, []);
 
@@ -101,8 +109,21 @@ export default function MailPanel() {
         alert('Скопировано в буфер обмена!');
     };
 
+    // Адрес почтового сервера для IMAP/SMTP.
+    //
+    // Раньше здесь стоял window.location.hostname — адрес, по которому открыта
+    // ПАНЕЛЬ. С привязанным доменом панели это давало home.byteburners.ru в
+    // настройках почты, хотя почта живёт на своём домене. Порты почты слушает
+    // сам хост, поэтому верный адрес — почтовый домен, а без него IP хоста.
     const getMailServerIP = () => {
-        return window.location.hostname;
+        return mailDomain || hostIp || window.location.hostname;
+    };
+
+    // Куда ведёт «Войти в Webmail». С доменом — на него (Caddy проксирует его
+    // на Roundcube и держит сертификат), иначе на порт 8082 хоста.
+    const webmailUrl = () => {
+        if (mailDomain) return `https://${mailDomain}`;
+        return `http://${hostIp || window.location.hostname}:8082`;
     };
 
     return (
@@ -117,9 +138,9 @@ export default function MailPanel() {
                     </p>
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
-                    <a 
-                        href={`http://${getMailServerIP()}:8082`} 
-                        target="_blank" 
+                    <a
+                        href={webmailUrl()}
+                        target="_blank"
                         rel="noopener noreferrer" 
                         className="btn btn-secondary"
                         style={{ display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}
@@ -218,6 +239,17 @@ export default function MailPanel() {
                             <li><strong>Сервер:</strong> <span style={{ fontFamily: 'monospace' }}>{getMailServerIP()}</span></li>
                             <li><strong>Порт (Без SSL):</strong> <span style={{ fontFamily: 'monospace' }}>25</span></li>
                             <li><strong>Порт (STARTTLS):</strong> <span style={{ fontFamily: 'monospace' }}>587</span></li>
+                        </ul>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-surface)', padding: '15px', borderRadius: '8px' }}>
+                        <h4 style={{ margin: '0 0 10px 0', color: 'var(--text-primary)' }}>Сервер (куда указывать DNS)</h4>
+                        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <li><strong>IP хоста:</strong> <span style={{ fontFamily: 'monospace' }}>{hostIp || '—'}</span></li>
+                            <li><strong>Вебмейл (Roundcube):</strong> <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{webmailUrl()}</span></li>
+                            {mailDomain
+                                ? <li className="text-muted" style={{ fontSize: '0.8rem' }}>MX-запись домена <span style={{ fontFamily: 'monospace' }}>{mailDomain}</span> должна указывать на этот IP, иначе входящие письма до сервера не дойдут.</li>
+                                : <li className="text-muted" style={{ fontSize: '0.8rem' }}>Порты почты (25, 143, 587, 993) слушает сам хост по этому адресу.</li>}
                         </ul>
                     </div>
 
