@@ -407,10 +407,14 @@ ethernets:
 ssh_pwauth: {ssh_pwauth_val}
 disable_root: false
 chpasswd:
-  list: |
-    root:{password}
-    {default_user}:{password}
-  expire: False
+  expire: false
+  users:
+    - name: root
+      password: {password}
+      type: text
+    - name: {default_user}
+      password: {password}
+      type: text
 {users_yaml}
 {mounts_yaml}{autologin_yaml}
 runcmd:

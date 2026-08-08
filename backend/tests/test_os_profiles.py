@@ -855,3 +855,39 @@ def test_user_supplied_packages_also_go_through_the_retrying_install():
     assert yaml.safe_load(ud).get("packages") is None
     assert "htop tmux" in ud
     assert ud.index("while [ $i -le 60 ]") < ud.index("htop tmux")
+
+
+def test_chpasswd_uses_the_modern_users_form_not_the_deprecated_list():
+    """cloud-init 22.2 объявил chpasswd.list устаревшим и удалит его в 27.2.
+    На живом сервере это уже давало `extended_status: degraded done` в
+    cloud-init status — пока безобидно, но после обновления образа Ubuntu
+    пароли просто перестали бы применяться, и ВМ стала бы недоступна."""
+    from app.api.vms import generate_linux_manifest
+
+    doc = yaml.safe_load(_cloudinit_of(generate_linux_manifest(FakeReq("ubuntu"), "pw"))["userData"])
+    ch = doc["chpasswd"]
+    assert "list" not in ch
+    assert ch["expire"] is False
+    names = {u["name"]: u for u in ch["users"]}
+    assert set(names) == {"root", "ubuntu"}
+    for u in names.values():
+        assert u["password"] == "pw"
+        # без type: text cloud-init ждёт уже хэшированный пароль
+        assert u["type"] == "text"
+
+
+def test_no_builder_keeps_the_deprecated_chpasswd_list():
+    """Сборщиков cloud-init три (обычная ВМ, маркетплейс, деплой) — устаревшая
+    форма не должна остаться ни в одном."""
+    from app.api.vms import generate_linux_manifest
+    from app.services.marketplace import (get_app, resolve_env,
+                                          build_marketplace_cloud_init)
+
+    app = get_app("grafana")
+    userdatas = [
+        _cloudinit_of(generate_linux_manifest(FakeReq("ubuntu"), "pw"))["userData"],
+        build_marketplace_cloud_init(app, resolve_env(app, {}), "pw"),
+    ]
+    for ud in userdatas:
+        assert "list: |" not in ud
+        assert yaml.safe_load(ud)["chpasswd"].get("users")

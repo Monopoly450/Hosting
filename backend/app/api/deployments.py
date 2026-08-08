@@ -151,10 +151,14 @@ def build_deploy_cloud_init(name: str, repo_url: str, branch: str, stack: str,
 ssh_pwauth: True
 disable_root: false
 chpasswd:
-  list: |
-    root:{password}
-    {default_user}:{password}
-  expire: False
+  expire: false
+  users:
+    - name: root
+      password: {password}
+      type: text
+    - name: {default_user}
+      password: {password}
+      type: text
 users:
   - default
 package_update: true
