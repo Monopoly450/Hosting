@@ -151,15 +151,18 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     from app.services.os_profiles import build_template_steps, nfs_client_package
     template_packages, template_commands = build_template_steps(req.cloud_init_template, req.os_type)
 
-    # Обработка пакетов
-    packages_yaml = ""
+    # Обработка пакетов.
+    #
+    # Список собираем здесь, а СТАВИМ его ниже, в runcmd после ожидания сети
+    # (см. install_packages_runcmd). Декларативный `packages:` выполняется на
+    # стадии config — раньше runcmd, а значит, раньше ожидания сети, и на
+    # живом сервере молча не срабатывал: ВМ поднималась без окружения вовсе.
     all_packages = []
     if req.packages:
         all_packages.extend([p.strip() for p in req.packages.split(",") if p.strip()])
     all_packages.extend(template_packages)
-    if all_packages:
-        packages_yaml = "\npackages:\n" + "\n".join([f"  - {p}" for p in all_packages])
-            
+
+
     # Обработка сетевых дисков
     mounts_yaml = ""
     extra_volumes = []
@@ -192,11 +195,8 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
             # в openSUSE — nfs-client. Без правильного имени монтирование
             # сетевого диска на не-Debian системах не работало.
             nfs_pkg = nfs_client_package(req.os_type)
-            if nfs_pkg not in packages_yaml:
-                if packages_yaml:
-                    packages_yaml += f"\n  - {nfs_pkg}"
-                else:
-                    packages_yaml = f"\npackages:\n  - {nfs_pkg}"
+            if nfs_pkg not in all_packages:
+                all_packages.append(nfs_pkg)
 
     # Команды шаблонов и Bitrix уходят в YAML через yaml_runcmd_lines, а не
     # подстановкой как есть: команда с двоеточием и пробелом внутри (а такие
@@ -206,34 +206,39 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
 
     runcmd_extra = []
     if req.os_type == "bitrix":
-        if "wget" not in packages_yaml:
-            if packages_yaml:
-                packages_yaml += "\n  - wget"
-            else:
-                packages_yaml = "\npackages:\n  - wget"
+        if "wget" not in all_packages:
+            all_packages.append("wget")
         runcmd_extra += [
             "wget http://repos.1c-bitrix.ru/yum/bitrix-env.sh",
             "chmod +x bitrix-env.sh",
             f"./bitrix-env.sh -s -p -H {req.name}",
         ]
 
+    # Установка пакетов — ПЕРВОЙ строкой, до команд шаблона и Bitrix: они на
+    # эти пакеты и опираются (mariadb для Zabbix, wget для bitrix-env.sh).
+    # Сам этот блок попадает в runcmd уже после ожидания сети — см. ниже, где
+    # собирается итоговый runcmd.
+    from app.services.os_profiles import install_packages_runcmd
+    packages_cmd = install_packages_runcmd(req.os_type, all_packages)
+    if packages_cmd:
+        runcmd_extra.insert(0, packages_cmd)
+
     # Дополнительные команды шаблона
     runcmd_extra += list(template_commands or [])
 
     runcmd_yaml = "\n" + yaml_runcmd_lines(runcmd_extra) if runcmd_extra else ""
 
-    # Без package_update: true модуль packages ставит из кэша apt, ЗАПЕЧЁННОГО
-    # в образ на момент его сборки — не обновляя индекс перед установкой.
-    # Если этот кэш успел устареть к моменту, когда стартует конкретная ВМ
-    # (обычное дело для облачных образов), apt не находит пакет и молча
-    # проваливает установку — cloud-init на этом не останавливается, просто
-    # идёт в runcmd дальше. Симптом с живого сервера: docker.io не
-    # установился («docker: not found» в выводе runcmd), а qemu-guest-agent
-    # чуть ниже встал нормально — потому что его установка сама делает
-    # apt-get update перед install (см. guest_agent_runcmd), а декларативный
-    # packages — нет.
-    if packages_yaml:
-        packages_yaml = "\npackage_update: true" + packages_yaml
+    # Декларативного `packages:` в этом cloud-config больше нет намеренно.
+    # Он ставился на стадии config, то есть ДО runcmd, а значит и до
+    # ограниченного ожидания сети — защитить его этим ожиданием невозможно
+    # физически. Плюс он брал apt-индекс из кэша, ЗАПЕЧЁННОГО в образ при его
+    # сборке: к запуску конкретной ВМ кэш обычно устаревал, apt не находил
+    # пакет и молча проваливал установку. Симптом с живого сервера — ВМ
+    # поднималась без окружения вовсе: ни mariadb у Zabbix, ни docker у
+    # приложений маркетплейса, причём без ошибок в панели. Теперь пакеты
+    # ставятся в runcmd после ожидания сети и с повторами (см.
+    # install_packages_runcmd) — тем же способом, каким давно ставится
+    # qemu-guest-agent, у которого этой проблемы как раз не было.
 
     ssh_pwauth_val = "True"
     users_yaml = "users:\n  - default"
@@ -407,7 +412,7 @@ chpasswd:
     {default_user}:{password}
   expire: False
 {users_yaml}
-{packages_yaml}{mounts_yaml}{autologin_yaml}
+{mounts_yaml}{autologin_yaml}
 runcmd:
   - echo "root:{password}" | chpasswd
   - echo "{default_user}:{password}" | chpasswd

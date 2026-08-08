@@ -253,13 +253,41 @@ def test_package_cache_is_refreshed_before_declarative_install(os_type, template
 
 
 def test_marketplace_refreshes_the_cache_before_installing_docker():
+    """Индекс apt в облачном образе запечён на момент его сборки и к запуску
+    ВМ обычно устаревает — без обновления docker.io просто не находится.
+
+    Раньше это обеспечивал `package_update: true`, но декларативный
+    `packages:` выполняется до ожидания сети и потому не работал вовсе (см.
+    test_marketplace_installs_docker_after_the_network_wait). Теперь apt-get
+    update входит в саму команду установки, в runcmd."""
     from app.services.marketplace import (get_app, resolve_env,
                                           build_marketplace_cloud_init)
 
     for entry_id in ("n8n", "nextcloud", "wordpress"):
-        doc = yaml.safe_load(build_marketplace_cloud_init(
-            get_app(entry_id), resolve_env(get_app(entry_id), {}), "pw"))
-        assert doc.get("package_update") is True, entry_id
+        ud = build_marketplace_cloud_init(
+            get_app(entry_id), resolve_env(get_app(entry_id), {}), "pw")
+        doc = yaml.safe_load(ud)
+        # декларативного пути больше нет — он обходил ожидание сети
+        assert doc.get("packages") is None, entry_id
+        assert doc.get("package_update") is None, entry_id
+        install = next(c for c in doc["runcmd"] if "docker.io" in c)
+        assert "apt-get update && apt-get install -y" in install, entry_id
+
+
+def test_marketplace_installs_docker_after_the_network_wait():
+    """Инцидент на живом сервере: ВМ маркетплейса поднималась без docker
+    («Command 'docker' not found»), и compose-стек молча не запускался.
+    docker.io стоял в декларативном `packages:` — стадия config, то есть до
+    runcmd и до ограниченного ожидания сети."""
+    from app.services.marketplace import (get_app, resolve_env,
+                                          build_marketplace_cloud_init)
+
+    ud = build_marketplace_cloud_init(
+        get_app("grafana"), resolve_env(get_app("grafana"), {}), "pw")
+    wait_at = ud.index("while [ $i -le 60 ]")
+    install_at = ud.index("docker.io")
+    compose_at = ud.index("docker compose")
+    assert wait_at < install_at < compose_at
 
 
 def test_deploy_refreshes_the_cache_before_installing_the_stack():

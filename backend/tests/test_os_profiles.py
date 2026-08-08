@@ -272,9 +272,12 @@ def test_network_drives_use_the_right_nfs_package():
     from app.api.vms import generate_linux_manifest
 
     ci = _cloudinit_of(generate_linux_manifest(FakeReq("rocky", drives="srv:/export"), "pw"))
-    doc = yaml.safe_load(ci["userData"])
-    assert "nfs-utils" in doc["packages"]
-    assert "nfs-common" not in doc["packages"]
+    # Пакет ставится в runcmd после ожидания сети, а не декларативным
+    # `packages:` — см. test_no_declarative_packages_block_anywhere.
+    ud = ci["userData"]
+    assert "nfs-utils" in ud
+    assert "nfs-common" not in ud
+    assert ud.index("while [ $i -le 60 ]") < ud.index("nfs-utils")
 
 
 # --------------------- ожидание сети не должно висеть -----------------------
@@ -781,3 +784,74 @@ def test_zabbix_configures_mail_after_the_schema_exists():
     schema_at = next(i for i, c in enumerate(commands) if "server.sql.gz" in c)
     mail_at = next(i for i, c in enumerate(commands) if "media_type" in c)
     assert schema_at < mail_at
+
+
+# ------- пакеты ставятся в runcmd, а не декларативным `packages:` -----------
+#
+# Живой инцидент: ВМ поднималась, SSH работал, а окружения не было вообще —
+# ни mariadb у Zabbix, ни docker у приложений маркетплейса, и ни одной ошибки
+# в панели. Причина: модуль `packages` cloud-init выполняется на стадии
+# CONFIG, а runcmd — на FINAL. Ограниченное ожидание сети живёт в runcmd,
+# значит защитить `packages:` оно не может физически: к его запуску пакеты уже
+# пытались поставиться по неподнявшейся сети и провалились.
+
+@pytest.mark.parametrize("os_type", _all_linux_os_types())
+def test_no_declarative_packages_block_anywhere(os_type):
+    """Ни одна ОС не должна вернуться к `packages:` — это тот самый путь,
+    который обходит ожидание сети."""
+    from app.api.vms import generate_linux_manifest
+
+    ud = _cloudinit_of(generate_linux_manifest(FakeReq(os_type, "docker"), "pw"))["userData"]
+    doc = yaml.safe_load(ud)
+    assert doc.get("packages") is None, os_type
+
+
+def test_template_packages_are_installed_after_the_network_wait():
+    from app.api.vms import generate_linux_manifest
+
+    ud = _cloudinit_of(generate_linux_manifest(FakeReq("ubuntu", "zabbix"), "pw"))["userData"]
+    wait_at = ud.index("while [ $i -le 60 ]")
+    install_at = ud.index("mariadb-server")
+    start_at = ud.index("systemctl enable --now mariadb")
+    # ожидание сети -> установка пакетов -> запуск служб, которые их требуют
+    assert wait_at < install_at < start_at
+
+
+def test_package_install_retries_like_the_guest_agent():
+    """Одна попытка apt-get не годится: сразу после загрузки dpkg-лок занят
+    unattended-upgrades. У qemu-guest-agent цикл повторов был всегда, у
+    пакетов шаблона — нет, отсюда и расхождение в поведении."""
+    from app.services.os_profiles import install_packages_runcmd, PACKAGE_INSTALL_RETRIES
+
+    cmd = install_packages_runcmd("ubuntu", ["mariadb-server"])
+    assert f"$i -le {PACKAGE_INSTALL_RETRIES}" in cmd
+    assert PACKAGE_INSTALL_RETRIES >= 10
+    assert "sleep" in cmd
+
+
+def test_package_install_uses_the_native_manager_first():
+    from app.services.os_profiles import install_packages_runcmd
+
+    deb = install_packages_runcmd("ubuntu", ["curl"])
+    rhel = install_packages_runcmd("rocky", ["curl"])
+    assert deb.index("apt-get") < deb.index("dnf")
+    assert rhel.index("dnf") < rhel.index("apt-get")
+
+
+def test_no_packages_means_no_command():
+    from app.services.os_profiles import install_packages_runcmd
+
+    assert install_packages_runcmd("ubuntu", []) == ""
+    assert install_packages_runcmd("ubuntu", None) == ""
+
+
+def test_user_supplied_packages_also_go_through_the_retrying_install():
+    """Пакеты из поля «Дополнительные пакеты» — тот же путь, что у шаблона."""
+    from app.api.vms import generate_linux_manifest
+
+    req = FakeReq("ubuntu")
+    req.packages = "htop, tmux"
+    ud = _cloudinit_of(generate_linux_manifest(req, "pw"))["userData"]
+    assert yaml.safe_load(ud).get("packages") is None
+    assert "htop tmux" in ud
+    assert ud.index("while [ $i -le 60 ]") < ud.index("htop tmux")

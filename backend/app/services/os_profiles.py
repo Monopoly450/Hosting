@@ -133,6 +133,40 @@ def install_package_cmd_chain(os_type: str, package: str) -> str:
     return " || ".join(f"({cmd} {package}) && break" for cmd in ordered)
 
 
+# Сколько раз повторять установку пакетов, прежде чем сдаться. Столько же, что
+# у qemu-guest-agent (см. cloudinit.guest_agent_runcmd): причина повторов та же
+# — занятый dpkg-лок от unattended-upgrades сразу после загрузки и не до конца
+# поднявшаяся сеть.
+PACKAGE_INSTALL_RETRIES = 30
+
+
+def install_packages_runcmd(os_type: str, packages) -> str:
+    """Установка списка пакетов ОДНОЙ строкой runcmd, с повторами.
+
+    Зачем не декларативный `packages:` в cloud-config: этот модуль
+    (package-update-upgrade-install) выполняется на стадии CONFIG, а runcmd —
+    на стадии FINAL, то есть заведомо позже. Ограниченное ожидание сети
+    (WAIT_NETWORK_RUNCMD) живёт в runcmd, поэтому защитить `packages:` оно не
+    может физически: к моменту его запуска пакеты уже пытались (и не смогли)
+    поставиться.
+
+    Симптом на живом сервере: ВМ поднималась, SSH работал, а окружения не было
+    вообще — ни mariadb у Zabbix, ни docker у приложений маркетплейса, причём
+    без единой ошибки в панели. Дальше валилось всё, что от них зависит:
+    `systemctl enable --now mariadb` не находил юнит, `docker compose up` —
+    команду docker.
+
+    Возвращает пустую строку, если ставить нечего.
+    """
+    pkgs = [p for p in (packages or []) if p]
+    if not pkgs:
+        return ""
+    joined = " ".join(pkgs)
+    chain = install_package_cmd_chain(os_type, joined)
+    return (f"i=1; while [ $i -le {PACKAGE_INSTALL_RETRIES} ]; do "
+            f"{chain} || sleep 5; i=$((i+1)); done || true")
+
+
 # Семейства, где брандмауэр гостя включён по умолчанию и блокирует HTTP.
 #
 # firewalld установлен и активен в RHEL-семействе (CentOS/Rocky/Alma/Fedora) и

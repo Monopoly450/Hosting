@@ -457,6 +457,12 @@ def build_marketplace_cloud_init(app: dict, env: dict, password: str, default_us
     (см. build_network_data в app.services.cloudinit), одинаково для обычных
     ВМ, маркетплейса и деплоя из GitHub. Раньше каждый сборщик писал свой
     файл netplan, и их приходилось держать синхронными вручную.
+
+    Docker ставится в runcmd после ожидания сети, а не декларативным
+    `packages:`: тот выполняется на стадии config, то есть до runcmd и до
+    ожидания сети. На живом сервере это давало ВМ вообще без docker
+    («Command 'docker' not found»), а следом молча не поднимался и весь
+    compose-стек. Подробности — в os_profiles.install_packages_runcmd.
     """
     env_content = "\n".join(f"{k}={v}" for k, v in env.items())
     compose_block = _indent(app["compose"], 6)
@@ -464,6 +470,10 @@ def build_marketplace_cloud_init(app: dict, env: dict, password: str, default_us
 
     from app.services.cloudinit import (GUEST_AGENT_RETRY_RUNCMD, WAIT_NETWORK_RUNCMD,
                                         COMPOSE_UP_RUNCMD)
+    from app.services.os_profiles import install_packages_runcmd
+
+    # Маркетплейс всегда разворачивает Ubuntu (см. api/marketplace.deploy).
+    docker_install_cmd = install_packages_runcmd("ubuntu", ["docker.io", "docker-compose-v2"])
 
     return f"""#cloud-config
 ssh_pwauth: True
@@ -475,10 +485,6 @@ chpasswd:
   expire: False
 users:
   - default
-package_update: true
-packages:
-  - docker.io
-  - docker-compose-v2
 write_files:
   - path: /opt/app/docker-compose.yml
     content: |
@@ -491,7 +497,7 @@ runcmd:
   - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config || true
   - systemctl restart ssh || systemctl restart sshd || true
 {WAIT_NETWORK_RUNCMD}
-  - apt-get update || true
+  - {docker_install_cmd}
   - systemctl enable --now docker 2>/dev/null || true
   - usermod -aG docker {default_user} 2>/dev/null || true
 {COMPOSE_UP_RUNCMD}
