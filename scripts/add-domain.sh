@@ -149,8 +149,11 @@ if [ -z "$admin_token" ]; then
 fi
 
 log "Применяю конфиг Caddy (POST /api/domains/reapply)..."
+# X-Admin-Token, не Authorization: Bearer — тот зарезервирован под JWT
+# сессии после логина через веб (см. backend/app/core/auth.py,
+# get_current_user: сырой ADMIN_TOKEN распознаётся только в X-Admin-Token).
 REAPPLY=$(curl -s -X POST "http://127.0.0.1:8000/api/domains/reapply" \
-    -H "Authorization: Bearer ${admin_token}")
+    -H "X-Admin-Token: ${admin_token}")
 
 if echo "$REAPPLY" | grep -q '"applied":true'; then
     log "Конфиг применён. Caddy подхватит домены в течение минуты и выпустит сертификаты через DNS-01."
