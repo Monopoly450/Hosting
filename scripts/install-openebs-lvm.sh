@@ -83,9 +83,25 @@ helm repo add openebs-lvm https://openebs.github.io/lvm-localpv || true
 helm repo update
 
 log "Установка OpenEBS LVM LocalPV драйвера..."
+# crds.csi.volumeSnapshots.enabled=false — иначе установка падает так:
+#
+#   CustomResourceDefinition "volumesnapshotcontents.snapshot.storage.k8s.io"
+#   exists and cannot be imported into the current release: invalid ownership
+#   metadata; label validation error: missing key
+#   "app.kubernetes.io/managed-by": must be set to "Helm"
+#
+# Эти CRD уже поставил install.sh обычным kubectl apply (вместе со
+# snapshot-controller, без которого снимки не работают вовсе), поэтому
+# метаданных владения Helm на них нет, и чарт отказывается их присваивать.
+#
+# Отключаем их в чарте, а не проставляем метки владения существующим CRD:
+# при втором варианте CRD оказались бы в собственности релиза openebs-lvm, и
+# его удаление снесло бы снимки KubeVirt заодно. Источник правды для этих CRD
+# — install.sh, чарту они не нужны.
 helm upgrade --install openebs-lvm openebs-lvm/lvm-localpv \
   --namespace openebs-lvm \
-  --create-namespace
+  --create-namespace \
+  --set crds.csi.volumeSnapshots.enabled=false
 
 log "Ожидание готовности подов OpenEBS LVM..."
 sleep 5

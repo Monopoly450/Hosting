@@ -353,6 +353,44 @@ SUSE_PHP_REPO_CMD = (
 # правами 600 — каждая команда runcmd выполняется отдельным процессом, поэтому
 # переменные между ними не живут.
 ZABBIX_VERSION = "7.0"          # текущая LTS: поддержка до 2029 года
+WP_DB_PASS_FILE = "/root/.aegis_wp_db_pass"
+
+
+def _wordpress_db_steps(web_user: str) -> list:
+    """База, пользователь и wp-config.php для WordPress.
+
+    Без этих шагов шаблон разворачивал Apache, MariaDB и файлы WordPress — но
+    ни базы, ни wp-config.php не создавал. Мастер установки при первом
+    открытии просил реквизиты БД, которых не существует, и пройти его было
+    нельзя: шаблон выглядел рабочим, а сайт поднять было невозможно.
+
+    Пароль генерируется в файл с правами 600 (как у Zabbix, см.
+    _zabbix_common_steps), а не подставляется в cloud-init: тот остаётся в
+    логах и в метаданных ВМ.
+    """
+    p = WP_DB_PASS_FILE
+    return [
+        f"install -m 600 /dev/null {p} && openssl rand -hex 16 > {p}",
+        f"P=$(cat {p}); mysql -uroot -e \"create database if not exists wordpress "
+        "character set utf8mb4 collate utf8mb4_unicode_ci; "
+        "create user if not exists wordpress@localhost identified by '$P'; "
+        "grant all privileges on wordpress.* to wordpress@localhost; flush privileges;\"",
+        # -n: при повторном запуске cloud-init не затираем уже настроенный конфиг
+        "cp -n /var/www/html/wp-config-sample.php /var/www/html/wp-config.php",
+        f"P=$(cat {p}); sed -i \"s/database_name_here/wordpress/; s/username_here/wordpress/; "
+        "s/password_here/$P/\" /var/www/html/wp-config.php",
+        # Соли по умолчанию одинаковы во всех установках — генерируем свои.
+        # Разделитель | вместо /, т.к. base64 может содержать слеши (их же и
+        # вырезаем), а & в base64 не встречается и sed его не подменит.
+        "for k in AUTH_KEY SECURE_AUTH_KEY LOGGED_IN_KEY NONCE_KEY AUTH_SALT "
+        "SECURE_AUTH_SALT LOGGED_IN_SALT NONCE_SALT; do "
+        "S=$(openssl rand -base64 48 | tr -d '\\n/'); "
+        "sed -i \"s|define( *'$k'.*|define('$k', '$S');|\" /var/www/html/wp-config.php; done",
+        f"chown {web_user}:{web_user} /var/www/html/wp-config.php && "
+        "chmod 640 /var/www/html/wp-config.php",
+    ]
+
+
 ZABBIX_DB_PASS_FILE = "/root/.aegis_zabbix_db_pass"
 
 # Адрес хоста со стороны ВМ: мост br-vms поднимается инсталлятором с
@@ -801,6 +839,7 @@ TEMPLATES = {
                 "wget -q https://wordpress.org/latest.tar.gz -O /tmp/wp.tar.gz",
                 "tar -xzf /tmp/wp.tar.gz -C /var/www/html/ --strip-components=1",
                 "chown -R www-data:www-data /var/www/html/",
+            ] + _wordpress_db_steps("www-data") + [
                 "a2enmod rewrite && systemctl restart apache2 || true",
             ],
         },
@@ -824,6 +863,11 @@ TEMPLATES = {
                 # PHP подключается к MariaDB; без этого булева SELinux рвёт
                 # соединение веб-сервера с базой.
                 "setsebool -P httpd_can_network_connect_db on 2>/dev/null || true",
+            ] + _wordpress_db_steps("apache") + [
+                # wp-config.php создан ПОСЛЕ первого restorecon выше, поэтому
+                # контекст ему нужно восстановить отдельно — иначе SELinux не
+                # даст Apache прочитать конфиг, и сайт отдаст 403.
+                "restorecon /var/www/html/wp-config.php 2>/dev/null || true",
                 "systemctl restart httpd || true",
             ],
         },

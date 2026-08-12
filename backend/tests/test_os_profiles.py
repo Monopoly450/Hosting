@@ -891,3 +891,74 @@ def test_no_builder_keeps_the_deprecated_chpasswd_list():
     for ud in userdatas:
         assert "list: |" not in ud
         assert yaml.safe_load(ud)["chpasswd"].get("users")
+
+
+# ------------------- WordPress: база и wp-config.php ------------------------
+#
+# Шаблон разворачивал Apache, MariaDB и файлы WordPress, но не создавал ни
+# базу, ни wp-config.php. Мастер установки при первом открытии просил
+# реквизиты БД, которых не существует, и пройти его было нельзя: шаблон
+# выглядел рабочим, а сайт поднять было невозможно.
+
+@pytest.mark.parametrize("os_type", ["ubuntu", "rocky"])
+def test_wordpress_creates_its_database_and_config(os_type):
+    _, cmds = build_template_steps("wordpress", os_type)
+    joined = "\n".join(cmds)
+    assert "create database if not exists wordpress" in joined
+    assert "wordpress@localhost" in joined
+    assert "wp-config.php" in joined
+
+
+@pytest.mark.parametrize("os_type", ["ubuntu", "rocky"])
+def test_wordpress_config_is_written_after_the_files_are_unpacked(os_type):
+    """wp-config-sample.php появляется только после распаковки архива —
+    копирование раньше молча создало бы пустой конфиг."""
+    _, cmds = build_template_steps("wordpress", os_type)
+    untar = next(i for i, c in enumerate(cmds) if "tar -xzf" in c)
+    cp = next(i for i, c in enumerate(cmds) if "wp-config-sample.php" in c)
+    assert untar < cp
+
+
+@pytest.mark.parametrize("os_type", ["ubuntu", "rocky"])
+def test_wordpress_database_is_created_after_mariadb_is_up(os_type):
+    _, cmds = build_template_steps("wordpress", os_type)
+    start_db = next(i for i, c in enumerate(cmds) if "--now mariadb" in c)
+    create = next(i for i, c in enumerate(cmds) if "create database" in c)
+    assert start_db < create
+
+
+@pytest.mark.parametrize("os_type", ["ubuntu", "rocky"])
+def test_wordpress_password_is_not_baked_into_cloud_init(os_type):
+    """Пароль БД генерируется в файл с правами 600 внутри гостя. cloud-init
+    остаётся в логах и в метаданных ВМ — постоянному паролю там не место."""
+    from app.services.os_profiles import WP_DB_PASS_FILE
+
+    _, cmds = build_template_steps("wordpress", os_type)
+    joined = "\n".join(cmds)
+    assert f"install -m 600 /dev/null {WP_DB_PASS_FILE}" in joined
+    assert "openssl rand" in joined
+    # пароль читается из файла, а не подставлен строкой
+    assert f"P=$(cat {WP_DB_PASS_FILE})" in joined
+
+
+@pytest.mark.parametrize("os_type", ["ubuntu", "rocky"])
+def test_wordpress_generates_unique_salts(os_type):
+    """Соли в wp-config-sample.php одинаковы во всех установках мира."""
+    _, cmds = build_template_steps("wordpress", os_type)
+    joined = "\n".join(cmds)
+    assert "AUTH_KEY" in joined and "NONCE_SALT" in joined
+    assert "openssl rand -base64" in joined
+
+
+def test_wordpress_config_gets_its_selinux_context_on_rhel():
+    """Первый restorecon отрабатывает до создания wp-config.php, поэтому файлу
+    нужен отдельный — иначе SELinux не даст Apache его прочитать и сайт
+    отдаст 403 при полностью верных правах."""
+    _, cmds = build_template_steps("wordpress", "rocky")
+    cfg = next(i for i, c in enumerate(cmds) if "chmod 640 /var/www/html/wp-config.php" in c)
+    restore = next(i for i, c in enumerate(cmds)
+                   if "restorecon /var/www/html/wp-config.php" in c)
+    assert cfg < restore
+    # в Debian SELinux нет — там этой команды быть не должно
+    _, deb = build_template_steps("wordpress", "ubuntu")
+    assert not any("restorecon" in c for c in deb)
