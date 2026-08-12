@@ -210,7 +210,7 @@ export default function DeploymentsPanel() {
 
     return (
         <div className="panel-container">
-            <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <div className="panel-header">
                 <div>
                     <h2 className="panel-title">Деплой приложений из GitHub</h2>
                     <p className="panel-subtitle">Каждый деплой разворачивается на своей выделенной виртуальной машине</p>

@@ -86,7 +86,7 @@ export default function RegistryPanel() {
 
     return (
         <div className="panel-container">
-            <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+            <div className="panel-header">
                 <div>
                     <h2 className="panel-title">Контейнерный реестр</h2>
                     <p className="panel-subtitle">Приватный Docker-реестр для ваших образов</p>

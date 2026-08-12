@@ -909,7 +909,7 @@ export default function DatabasesPanel() {
 
     return (
         <div className="panel-container">
-            <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <div className="panel-header">
                 <div>
                     <h2 className="panel-title">Управляемые базы данных</h2>
                     <p className="panel-subtitle">Изолированные БД PostgreSQL и MySQL для ваших проектов</p>

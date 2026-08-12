@@ -131,7 +131,7 @@ export default function ProjectsPanel() {
 
     return (
         <div className="panel-container">
-            <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+            <div className="panel-header">
                 <div>
                     <h2 className="panel-title">Проекты и доступы</h2>
                     <p className="panel-subtitle">Объединяйте ресурсы в проекты и давайте коллегам доступ по ролям</p>

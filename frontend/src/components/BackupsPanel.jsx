@@ -125,7 +125,7 @@ export default function BackupsPanel() {
 
     return (
         <div className="panel-container">
-            <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+            <div className="panel-header">
                 <div>
                     <h2 className="panel-title">Запланированные бэкапы</h2>
                     <p className="panel-subtitle">Автоматические резервные копии ВМ и баз данных по расписанию (время в UTC)</p>

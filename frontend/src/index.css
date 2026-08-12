@@ -329,7 +329,18 @@ body {
 
 .panel-container { }
 
-.panel-header { margin-bottom: 22px; }
+/* Раскладка заголовка вкладки живёт здесь, а не в inline-стилях каждой
+   панели. Раньше все пятнадцать панелей повторяли один и тот же flex
+   вручную, и отступ снизу у них разъезжался: 18px, 20px, 22px — заголовки
+   вкладок были разной высоты, что и бросалось в глаза при переключении. */
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
 
 .panel-title {
   font-size: 1.4rem;

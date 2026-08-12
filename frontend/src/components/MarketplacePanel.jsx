@@ -63,9 +63,14 @@ export default function MarketplacePanel() {
 
     return (
         <div className="panel-container">
-            <div className="panel-header" style={{ marginBottom: '18px' }}>
-                <h2 className="panel-title">Маркетплейс приложений</h2>
-                <p className="panel-subtitle">Популярные приложения в один клик — каждое разворачивается в отдельной ВМ</p>
+            {/* Заголовок с подзаголовком — в общей обёртке, как в остальных
+                панелях: .panel-header теперь flex со space-between, и без неё
+                название и описание разъехались бы по разным краям строки. */}
+            <div className="panel-header">
+                <div>
+                    <h2 className="panel-title">Маркетплейс приложений</h2>
+                    <p className="panel-subtitle">Популярные приложения в один клик — каждое разворачивается в отдельной ВМ</p>
+                </div>
             </div>
 
             {error && <div className="alert alert-danger">{error}</div>}

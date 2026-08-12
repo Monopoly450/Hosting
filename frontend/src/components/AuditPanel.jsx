@@ -53,7 +53,7 @@ export default function AuditPanel() {
 
     return (
         <div className="panel-container">
-            <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+            <div className="panel-header">
                 <div>
                     <h2 className="panel-title">Логи аудита</h2>
                     <p className="panel-subtitle">Кто, когда и с какого IP выполнял действия в системе</p>

@@ -113,7 +113,7 @@ export default function DomainsPanel() {
 
     return (
         <div className="panel-container">
-            <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+            <div className="panel-header">
                 <div>
                     <h2 className="panel-title">Свои домены и TLS</h2>
                     <p className="panel-subtitle">Привяжите свой домен — сертификат Let's Encrypt выпустится автоматически</p>

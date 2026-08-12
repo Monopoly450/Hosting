@@ -151,7 +151,7 @@ export default function VolumesPanel() {
 
     return (
         <div className="panel-container">
-            <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <div className="panel-header">
                 <div>
                     <h2 className="panel-title">Сетевые диски (Persistent Volumes)</h2>
                     <p className="panel-subtitle">Динамическое создание и горячее подключение (hotplug) дисков к ВМ</p>

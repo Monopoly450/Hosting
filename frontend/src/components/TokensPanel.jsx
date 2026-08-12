@@ -67,7 +67,7 @@ export default function TokensPanel() {
 
     return (
         <div className="panel-container">
-            <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+            <div className="panel-header">
                 <div>
                     <h2 className="panel-title">API-токены</h2>
                     <p className="panel-subtitle">Для доступа к API из CLI, скриптов и Terraform без пароля</p>
