@@ -388,6 +388,23 @@ def caddy_status(docker_client, host: str = "") -> dict:
     return info
 
 
+def _caddy_failure_reason(c) -> str:
+    """Последние строки лога контейнера — чтобы причина падения была видна.
+
+    Вотчдог умеет пересоздать зацикленный Caddy, но раньше писал в лог только
+    сам факт: «зациклен на перезапуске». Настоящая причина (обычно «address
+    already in use» — порт 80 или 443 занят чем-то на хосте) оставалась
+    только внутри контейнера, и добраться до неё можно было лишь вручную
+    через docker logs. Теперь она попадает в лог воркера сразу.
+    """
+    try:
+        raw = c.logs(tail=15, stdout=True, stderr=True)
+        text = raw.decode("utf-8", errors="ignore").strip() if isinstance(raw, bytes) else str(raw).strip()
+        return text or "(лог контейнера пуст)"
+    except Exception as e:
+        return f"(не удалось прочитать лог контейнера: {e})"
+
+
 def _caddyfile_tar(content: str) -> io.BytesIO:
     """Упаковывает Caddyfile в tar для put_archive."""
     data = content.encode()
@@ -499,7 +516,8 @@ def ensure_caddy(docker_client, caddyfile: str):
     if _caddy_crash_looping(c):
         logger.warning(
             f"{CADDY_CONTAINER} зациклен на перезапуске (status={c.status}, "
-            f"RestartCount={c.attrs.get('RestartCount', 0)}) — пересоздаю вместо попытки оживить."
+            f"RestartCount={c.attrs.get('RestartCount', 0)}) — пересоздаю вместо попытки оживить.\n"
+            f"Последние строки его лога:\n{_caddy_failure_reason(c)}"
         )
         c.remove(force=True)
         _create_caddy(cli, caddyfile)
@@ -544,6 +562,13 @@ def reconcile_caddy(db, k8s, docker_client) -> bool:
     state = _caddy_state(c)
     if state is None:
         return False
+
+    # Причина — в лог сразу, до пересоздания: после него контейнер будет уже
+    # новый, и прежние строки о падении пропадут вместе со старым.
+    logger.warning(
+        f"{CADDY_CONTAINER}: состояние «{state}». Последние строки его лога:\n"
+        f"{_caddy_failure_reason(c)}"
+    )
 
     if state == "stopped":
         # Останавливать Caddy незачем ни одному сценарию панели, поэтому

@@ -775,3 +775,52 @@ def test_plain_entries_still_have_no_issuer_block():
     нужен, и запасной путь через ZeroSSL там скорее полезен."""
     cfg = d.build_caddyfile([{"domain": "a.example.com", "upstream": "1.2.3.4:80"}])
     assert "issuer" not in cfg
+
+
+# --------- причина падения Caddy должна попадать в лог, а не в docker logs ---
+
+class _LoggingContainer(FakeContainer):
+    def __init__(self, *a, log=b"Error: loading initial config: ... address already in use", **kw):
+        super().__init__(*a, **kw)
+        self._log = log
+        self.logs_calls = 0
+
+    def logs(self, **kwargs):
+        self.logs_calls += 1
+        return self._log
+
+
+def test_crash_reason_is_read_from_the_container_log():
+    """Вотчдог умел пересоздать зацикленный Caddy, но писал только сам факт.
+    Настоящая причина — обычно занятый порт 80/443 — оставалась внутри
+    контейнера, и добраться до неё можно было лишь руками через docker logs."""
+    c = _LoggingContainer(status="restarting", restart_count=5)
+    reason = d._caddy_failure_reason(c)
+    assert "address already in use" in reason
+    assert c.logs_calls == 1
+
+
+def test_crash_reason_survives_an_unreadable_log():
+    """Диагностика не должна мешать восстановлению: если лог не прочитался,
+    вотчдог обязан всё равно пересоздать контейнер."""
+    class NoLogs(FakeContainer):
+        def logs(self, **kwargs):
+            raise RuntimeError("container is gone")
+
+    c = NoLogs(status="restarting", restart_count=5)
+    reason = d._caddy_failure_reason(c)
+    assert "не удалось прочитать" in reason
+
+
+def test_empty_log_is_reported_explicitly_not_as_blank():
+    c = _LoggingContainer(status="restarting", restart_count=5, log=b"   ")
+    assert "пуст" in d._caddy_failure_reason(c)
+
+
+def test_watchdog_still_recreates_after_reading_the_log():
+    """Главное — что диагностика не сломала само восстановление."""
+    stuck = _LoggingContainer(status="restarting", restart_count=10)
+    fake = FakeDockerClient(existing_container=stuck)
+    assert d.reconcile_caddy(FakeDb(), object(), fake) is True
+    assert stuck.removed_force is True
+    assert len(fake.client.containers.created) == 1
