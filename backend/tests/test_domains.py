@@ -824,3 +824,48 @@ def test_watchdog_still_recreates_after_reading_the_log():
     assert d.reconcile_caddy(FakeDb(), object(), fake) is True
     assert stuck.removed_force is True
     assert len(fake.client.containers.created) == 1
+
+
+# ------------- служебные сервисы заданы таблицей, а не ветками --------------
+
+def test_rabbitmq_console_can_have_its_own_domain(monkeypatch):
+    """Консоль RabbitMQ слушает только 127.0.0.1:15672 — без домена до неё
+    можно добраться лишь SSH-туннелем."""
+    for var in ("PANEL_DOMAIN", "MAIL_DOMAIN", "STORAGE_DOMAIN"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("RABBITMQ_DOMAIN", "queue.example.com")
+    monkeypatch.setenv("TIMEWEB_DNS_API_TOKEN", "tok")
+
+    assert d.system_domain_entries() == [
+        {"domain": "queue.example.com", "upstream": d.RABBITMQ_UPSTREAM, "dns_token": "tok"},
+    ]
+
+
+def test_every_service_in_the_table_is_reachable_from_system_domains(monkeypatch):
+    """system_domains() и system_domain_entries() читают одну и ту же таблицу —
+    забыть сервис в одном из них теперь нельзя."""
+    monkeypatch.setenv("TIMEWEB_DNS_API_TOKEN", "tok")
+    for env, _upstream, _label in d.SYSTEM_SERVICES:
+        monkeypatch.setenv(env, f"{env.lower()}.example.com")
+
+    domains = d.system_domains()
+    entries = {e["domain"] for e in d.system_domain_entries()}
+    assert set(domains) == {env.lower() for env, _, _ in d.SYSTEM_SERVICES}
+    assert entries == {v for v in domains.values()}
+
+
+def test_service_table_has_no_duplicate_upstreams_or_vars():
+    """Опечатка вида «два сервиса на одном порту» иначе всплыла бы только на
+    живом сервере: Caddy проксировал бы два домена в один и тот же сервис."""
+    envs = [env for env, _, _ in d.SYSTEM_SERVICES]
+    ups = [u for _, u, _ in d.SYSTEM_SERVICES]
+    assert len(envs) == len(set(envs))
+    assert len(ups) == len(set(ups))
+
+
+def test_databases_are_deliberately_absent_from_the_table():
+    """Caddy — реверс-прокси для HTTP, а PostgreSQL и MariaDB общаются по
+    своему бинарному протоколу поверх TCP: домен для них указывал бы в никуда.
+    Явный тест, чтобы их не добавили «для полноты»."""
+    ups = " ".join(u for _, u, _ in d.SYSTEM_SERVICES)
+    assert ":5432" not in ups and ":3306" not in ups

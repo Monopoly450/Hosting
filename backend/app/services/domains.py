@@ -56,6 +56,28 @@ PANEL_UPSTREAM = "127.0.0.1:8081"
 # панели, им не нужен.
 MAIL_UPSTREAM = "127.0.0.1:8082"
 STORAGE_UPSTREAM = "127.0.0.1:9001"
+# Веб-консоль RabbitMQ. Как и остальные служебные порты, слушает только
+# 127.0.0.1 (см. docker-compose.yml) — до неё либо SSH-туннель, либо этот
+# домен через Caddy. Учётные данные у неё свои: RABBITMQ_USER/RABBITMQ_PASS.
+RABBITMQ_UPSTREAM = "127.0.0.1:15672"
+
+# Служебные сервисы хоста, которым можно дать свой домен.
+#
+# Таблица, а не набор веток: раньше каждый новый сервис требовал править и
+# system_domain_entries, и /api/domains/status, и add-domain.sh — и они
+# разъезжались. Теперь достаточно строки здесь.
+#
+# Сюда попадает только то, что отдаёт HTTP: Caddy — реверс-прокси для HTTP, и
+# СУБД через него не проксируются. PostgreSQL и MariaDB общаются по своему
+# бинарному протоколу поверх TCP, поэтому домена у них быть не может — к ним
+# подключаются по адресу и порту (см. «хаб подключения» у баз в панели).
+SYSTEM_SERVICES = (
+    # (env-переменная, upstream, человеческое имя)
+    ("PANEL_DOMAIN", PANEL_UPSTREAM, "панель управления"),
+    ("MAIL_DOMAIN", MAIL_UPSTREAM, "вебмейл (Roundcube)"),
+    ("STORAGE_DOMAIN", STORAGE_UPSTREAM, "консоль хранилища (MinIO)"),
+    ("RABBITMQ_DOMAIN", RABBITMQ_UPSTREAM, "консоль очереди (RabbitMQ)"),
+)
 
 
 def panel_domain() -> str:
@@ -68,6 +90,15 @@ def mail_domain() -> str:
 
 def storage_domain() -> str:
     return os.getenv("STORAGE_DOMAIN", "")
+
+
+def rabbitmq_domain() -> str:
+    return os.getenv("RABBITMQ_DOMAIN", "")
+
+
+def system_domains() -> dict:
+    """{env-переменная в нижнем регистре: домен} — для /api/domains/status."""
+    return {env.lower(): os.getenv(env, "") for env, _, _ in SYSTEM_SERVICES}
 
 
 def timeweb_dns_token() -> str:
@@ -99,20 +130,19 @@ def panel_entry() -> Optional[dict]:
 def system_domain_entries() -> list:
     """Домены служебных сервисов хоста — не только панели.
 
-    Почта (Roundcube) и консоль MinIO живут на том же самом хосте с тем же
-    приватным IP, что и панель — упираются в ровно то же ограничение
+    Почта, консоль MinIO и консоль RabbitMQ живут на том же самом хосте с тем
+    же приватным IP, что и панель — упираются в ровно то же ограничение
     HTTP-01/TLS-ALPN-01 (см. panel_entry). Каждый сервис — своя отдельная,
     необязательная переменная окружения; ничего не настроено — ничего не
     добавляется, поведение не меняется.
+
+    Список сервисов — в SYSTEM_SERVICES, добавление нового не требует правок
+    здесь.
     """
     token = timeweb_dns_token()
     entries = []
-    for domain, upstream in (
-        (panel_domain(), PANEL_UPSTREAM),
-        (mail_domain(), MAIL_UPSTREAM),
-        (storage_domain(), STORAGE_UPSTREAM),
-    ):
-        entry = _system_entry(domain, upstream, token)
+    for env, upstream, _label in SYSTEM_SERVICES:
+        entry = _system_entry(os.getenv(env, ""), upstream, token)
         if entry:
             entries.append(entry)
     return entries

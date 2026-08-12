@@ -104,9 +104,16 @@ def status_(request: Request, current_user: User = Depends(get_current_user)):
     # Домены служебных сервисов: их задают в .env, а не в БД, поэтому иначе
     # интерфейс о них не узнает. Нужны, чтобы почта и хранилище показывали
     # реальный адрес вместо IP с портом (см. MailPanel, S3Panel).
-    st["panel_domain"] = dsvc.panel_domain()
-    st["mail_domain"] = dsvc.mail_domain()
-    st["storage_domain"] = dsvc.storage_domain()
+    #
+    # Собираем из таблицы SYSTEM_SERVICES, а не перечисляем по одному: раньше
+    # добавление сервиса требовало не забыть про это место, и оно отставало.
+    domains = dsvc.system_domains()
+    st.update(domains)
+    # Описание сервисов — чтобы интерфейс мог показать список без своей копии
+    st["system_services"] = [
+        {"key": env.lower(), "label": label, "domain": domains.get(env.lower(), "")}
+        for env, _upstream, label in dsvc.SYSTEM_SERVICES
+    ]
     return st
 
 

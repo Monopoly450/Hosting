@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# Привязывает домены служебных сервисов (панель, почта, хранилище) к уже
+# Привязывает домены служебных сервисов (панель, почта, хранилище, очередь) к уже
 # УСТАНОВЛЕННОМУ серверу — не трогая остальные пароли и настройки в .env.
 # Использование:
 #
 #   sudo bash scripts/add-domain.sh
 #
-# В .env правит только четыре строки: PANEL_DOMAIN, MAIL_DOMAIN,
-# STORAGE_DOMAIN, TIMEWEB_DNS_API_TOKEN — заменяет их (даже если сейчас
+# В .env правит только строки PANEL_DOMAIN, MAIL_DOMAIN, STORAGE_DOMAIN,
+# RABBITMQ_DOMAIN и TIMEWEB_DNS_API_TOKEN — заменяет их (даже если сейчас
 # закомментированы) или дописывает в конец, если их ещё не было вовсе.
 # Остальной .env (пароли БД, ADMIN_TOKEN, AEGIS_SECRET_KEY и т.д.) не
 # трогается ни при каких условиях — в отличие от install.sh, который на
@@ -72,6 +72,7 @@ echo
 current_panel=$(get_env_var PANEL_DOMAIN)
 current_mail=$(get_env_var MAIL_DOMAIN)
 current_storage=$(get_env_var STORAGE_DOMAIN)
+current_rabbit=$(get_env_var RABBITMQ_DOMAIN)
 current_token=$(get_env_var TIMEWEB_DNS_API_TOKEN)
 
 read -rp "Домен для панели управления [${current_panel:-нет}]: " panel_domain
@@ -83,8 +84,11 @@ mail_domain="${mail_domain:-$current_mail}"
 read -rp "Домен для консоли хранилища (MinIO) [${current_storage:-нет}]: " storage_domain
 storage_domain="${storage_domain:-$current_storage}"
 
+read -rp "Домен для консоли очереди (RabbitMQ) [${current_rabbit:-нет}]: " rabbit_domain
+rabbit_domain="${rabbit_domain:-$current_rabbit}"
+
 token="$current_token"
-if [ -n "$panel_domain$mail_domain$storage_domain" ]; then
+if [ -n "$panel_domain$mail_domain$storage_domain$rabbit_domain" ]; then
     echo
     echo -e "${CYAN}Указан хотя бы один домен. Сервер стоит на приватном IP, поэтому обычный"
     echo -e "сертификат Let's Encrypt не выпустится — нужен API-токен Timeweb Cloud"
@@ -101,7 +105,7 @@ if [ -n "$panel_domain$mail_domain$storage_domain" ]; then
     fi
 fi
 
-if [ -z "$panel_domain$mail_domain$storage_domain" ]; then
+if [ -z "$panel_domain$mail_domain$storage_domain$rabbit_domain" ]; then
     log "Доменов не указано — .env не менялся, всё осталось как есть."
     exit 0
 fi
@@ -109,6 +113,7 @@ fi
 [ -n "$panel_domain" ] && set_env_var PANEL_DOMAIN "$panel_domain"
 [ -n "$mail_domain" ] && set_env_var MAIL_DOMAIN "$mail_domain"
 [ -n "$storage_domain" ] && set_env_var STORAGE_DOMAIN "$storage_domain"
+[ -n "$rabbit_domain" ] && set_env_var RABBITMQ_DOMAIN "$rabbit_domain"
 [ -n "$token" ] && set_env_var TIMEWEB_DNS_API_TOKEN "$token"
 chmod 600 "$ENV_FILE"
 log ".env обновлён."
@@ -169,6 +174,7 @@ echo -e "==========================================================${NC}"
 [ -n "$panel_domain" ] && echo "   https://${panel_domain}"
 [ -n "$mail_domain" ] && echo "   https://${mail_domain}"
 [ -n "$storage_domain" ] && echo "   https://${storage_domain}"
+[ -n "$rabbit_domain" ] && echo "   https://${rabbit_domain}"
 echo
 echo " Логи Caddy, если сертификат не выпустился:"
 echo "   docker logs aegis-caddy --tail 50"

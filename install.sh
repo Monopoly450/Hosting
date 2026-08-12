@@ -253,7 +253,7 @@ generate_env_file() {
 
     local postgres_password admin_token aegis_secret_key rabbitmq_user rabbitmq_pass \
           minio_user minio_password mariadb_password storage_class detected_ip host_ip \
-          acme_email registry_port panel_domain mail_domain storage_domain timeweb_token
+          acme_email registry_port panel_domain mail_domain storage_domain rabbitmq_domain timeweb_token
 
     postgres_password=$(ask_secret "Пароль системной базы данных PostgreSQL")
     admin_token=$(ask_secret "Токен администратора API (это же будет пароль входа в панель под admin)")
@@ -288,9 +288,10 @@ generate_env_file() {
     panel_domain=$(ask_value "Домен для панели управления" "")
     mail_domain=$(ask_value "Домен для почты/вебмейла (Roundcube)" "")
     storage_domain=$(ask_value "Домен для консоли хранилища (MinIO)" "")
+    rabbitmq_domain=$(ask_value "Домен для консоли очереди (RabbitMQ)" "")
 
     timeweb_token=""
-    if [ -n "$panel_domain$mail_domain$storage_domain" ]; then
+    if [ -n "$panel_domain$mail_domain$storage_domain$rabbitmq_domain" ]; then
         timeweb_token=$(ask_value "API-токен Timeweb Cloud (Настройки -> API-ключи; можно оставить пустым и дописать в .env позже)" "")
     fi
 
@@ -344,9 +345,14 @@ generate_env_file() {
         else
             echo "# STORAGE_DOMAIN=  — не задан, консоль MinIO доступна только по IP:9001"
         fi
+        if [ -n "$rabbitmq_domain" ]; then
+            echo "RABBITMQ_DOMAIN=${rabbitmq_domain}"
+        else
+            echo "# RABBITMQ_DOMAIN=  — не задан, консоль RabbitMQ только через SSH-туннель"
+        fi
         if [ -n "$timeweb_token" ]; then
             echo "TIMEWEB_DNS_API_TOKEN=${timeweb_token}"
-        elif [ -n "$panel_domain$mail_domain$storage_domain" ]; then
+        elif [ -n "$panel_domain$mail_domain$storage_domain$rabbitmq_domain" ]; then
             echo "# ВАЖНО: указан домен выше, но токен не введён — впишите его сюда"
             echo "# (Timeweb Cloud -> Настройки -> API-ключи), иначе сертификаты не выпустятся."
             echo "# TIMEWEB_DNS_API_TOKEN="
@@ -358,7 +364,7 @@ generate_env_file() {
     chmod 600 "$env_file"
     log ".env создан (права 600)."
 
-    if [ -n "$panel_domain$mail_domain$storage_domain" ] && [ -z "$timeweb_token" ]; then
+    if [ -n "$panel_domain$mail_domain$storage_domain$rabbitmq_domain" ] && [ -z "$timeweb_token" ]; then
         warn "Домен(ы) указаны, но TIMEWEB_DNS_API_TOKEN не введён — сертификаты НЕ выпустятся, пока вы"
         warn "не допишете в .env строку TIMEWEB_DNS_API_TOKEN=<ваш токен> (Timeweb Cloud -> Настройки ->"
         warn "API-ключи) и не перезапустите: docker compose up -d --build backend worker"
@@ -820,13 +826,14 @@ echo " Статус автозапуска:           systemctl status aegis-net
 echo
 echo -e "${YELLOW} Важно: AEGIS_SECRET_KEY в .env менять после первого запуска нельзя —"
 echo -e " старые секреты (пароли внешних серверов, БД, ключи S3) перестанут расшифровываться.${NC}"
-if [ -n "$PANEL_DOMAIN$MAIL_DOMAIN$STORAGE_DOMAIN" ]; then
+if [ -n "$PANEL_DOMAIN$MAIL_DOMAIN$STORAGE_DOMAIN$RABBITMQ_DOMAIN" ]; then
     if [ -n "$TIMEWEB_DNS_API_TOKEN" ]; then
         echo
         echo -e " ${GREEN}Домены заданы — сертификаты выпустятся автоматически (обычно 1-2 минуты):${NC}"
         [ -n "$PANEL_DOMAIN" ] && echo -e "   ${GREEN}https://${PANEL_DOMAIN}${NC}"
         [ -n "$MAIL_DOMAIN" ] && echo -e "   ${GREEN}https://${MAIL_DOMAIN}${NC}"
         [ -n "$STORAGE_DOMAIN" ] && echo -e "   ${GREEN}https://${STORAGE_DOMAIN}${NC}"
+        [ -n "$RABBITMQ_DOMAIN" ] && echo -e "   ${GREEN}https://${RABBITMQ_DOMAIN}${NC}"
     else
         echo
         echo -e " ${YELLOW}Домен(ы) указаны, но TIMEWEB_DNS_API_TOKEN в .env ещё не задан —"

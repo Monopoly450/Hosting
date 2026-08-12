@@ -101,6 +101,7 @@ services:
       - PANEL_DOMAIN=${PANEL_DOMAIN:-}
       - MAIL_DOMAIN=${MAIL_DOMAIN:-}
       - STORAGE_DOMAIN=${STORAGE_DOMAIN:-}
+      - RABBITMQ_DOMAIN=${RABBITMQ_DOMAIN:-}
       - TIMEWEB_DNS_API_TOKEN=${TIMEWEB_DNS_API_TOKEN:-}
     logging:
       driver: "json-file"
@@ -152,6 +153,7 @@ services:
       - PANEL_DOMAIN=${PANEL_DOMAIN:-}
       - MAIL_DOMAIN=${MAIL_DOMAIN:-}
       - STORAGE_DOMAIN=${STORAGE_DOMAIN:-}
+      - RABBITMQ_DOMAIN=${RABBITMQ_DOMAIN:-}
       - TIMEWEB_DNS_API_TOKEN=${TIMEWEB_DNS_API_TOKEN:-}
     logging:
       driver: "json-file"
