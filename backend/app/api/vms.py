@@ -1550,9 +1550,24 @@ def delete_vm(name: str, force: bool = False, client: K8sClient = Depends(get_k8
         try:
             db_vm = db.query(VMTask).filter(VMTask.name == name).first()
             if db_vm:
-                from app.models.models import AppDeployment, UserDatabase, UserVolume
+                from app.models.models import AppDeployment, UserDatabase, UserVolume, Domain
                 # Отвязываем БД от ВМ (сама БД — отдельный ресурс, не удаляем)
                 db.query(UserDatabase).filter(UserDatabase.associated_vm_id == db_vm.id).update({"associated_vm_id": None})
+
+                # Домены, которые вели на эту ВМ или на её деплой, удаляем
+                # вместе с ней. Без этого запись оставалась в базе и в конфиге
+                # Caddy, указывая на несуществующий адрес: домен показывался
+                # активным, а открывался 502. Плюс имя оставалось занятым —
+                # тот же домен нельзя было привязать к новой ВМ.
+                dep_ids = [d.id for d in db.query(AppDeployment).filter(AppDeployment.vm_id == db_vm.id).all()]
+                domains_removed = db.query(Domain).filter(
+                    Domain.target_type == "vm", Domain.target_id == db_vm.id
+                ).delete(synchronize_session=False)
+                if dep_ids:
+                    domains_removed += db.query(Domain).filter(
+                        Domain.target_type == "deployment", Domain.target_id.in_(dep_ids)
+                    ).delete(synchronize_session=False)
+
                 # Если ВМ была частью деплоя приложения — удаляем и запись деплоя
                 db.query(AppDeployment).filter(AppDeployment.vm_id == db_vm.id).delete()
                 # Каскад: удаляем привязанные к ВМ сетевые диски (PVC + запись)
@@ -1566,9 +1581,22 @@ def delete_vm(name: str, force: bool = False, client: K8sClient = Depends(get_k8
 
                 db.delete(db_vm)
                 db.commit()
+
+                # Домены пропали из базы — надо убрать их и из работающего
+                # Caddy, иначе он до перезапуска продолжит держать сайт с
+                # мёртвым upstream и продлевать для него сертификат.
+                if domains_removed:
+                    try:
+                        from app.api.domains import _apply_config
+                        _apply_config(db)
+                    except Exception as e:
+                        # Удаление ВМ уже состоялось — сбой перегенерации
+                        # конфига не повод возвращать ошибку. Вотчдог Caddy
+                        # приведёт конфиг в порядок на следующем тике.
+                        logger.warning(f"Не удалось переприменить конфиг Caddy после удаления ВМ {name}: {e}")
         finally:
             db.close()
-            
+
         return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

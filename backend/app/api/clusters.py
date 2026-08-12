@@ -32,14 +32,32 @@ def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_c
         # кластера вместе вышли бы за лимит).
         from app.core.quotas import enforce_quota
         from app.core.ratelimit import check_rate_limit
+        from app.core.capacity import lock_host_capacity, ensure_host_capacity
         check_rate_limit(current_user, "create_cluster")
+
+        total_vcpus = sum(vm.cpu_cores for vm in req.vms)
+        total_ram = sum(vm.memory_gb for vm in req.vms)
+        total_disk = sum(vm.disk_gb for vm in req.vms)
+
         enforce_quota(
             db, current_user,
             add_vms=len(req.vms),
-            add_vcpus=sum(vm.cpu_cores for vm in req.vms),
-            add_ram_gb=sum(vm.memory_gb for vm in req.vms),
-            add_storage_gb=sum(vm.disk_gb for vm in req.vms),
+            add_vcpus=total_vcpus,
+            add_ram_gb=total_ram,
+            add_storage_gb=total_disk,
         )
+        # Ресурсы ХОСТА: квота ограничивает пользователя, а это — про то, что
+        # железа столько есть. Проверки не было вовсе, и кластер спокойно
+        # создавался поверх исчерпанного хоста: ВМ намертво вставали в
+        # планировании, а панель показывала «доступно 0».
+        #
+        # Считаем СУММУ всех ВМ кластера, а не каждую по очереди: по
+        # отдельности они пройдут проверку все, а вместе не влезут — ровно так
+        # и набирается перерасход. Блокировка до подсчёта, чтобы два
+        # параллельных создания кластера не прочитали одно и то же состояние.
+        lock_host_capacity(db)
+        ensure_host_capacity(db, cpu_cores=total_vcpus,
+                             memory_gb=total_ram, disk_gb=total_disk)
 
         cluster = Cluster(name=req.name, network_name=f"{req.name}-net", owner_id=current_user.id)
         db.add(cluster)
