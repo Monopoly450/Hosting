@@ -10,6 +10,7 @@ from app.db import SessionLocal
 from app.models.models import User, UserBucket
 from app.core.auth import get_current_user
 from app.core.crypto import encrypt_secret, decrypt_secret
+from app.core.rbac import require_access, visible_project_ids
 
 router = APIRouter()
 logger = logging.getLogger("app.api.s3")
@@ -166,7 +167,15 @@ def list_buckets(current_user: User = Depends(get_current_user)):
         if current_user.role == "admin":
             buckets = db.query(UserBucket).all()
         else:
-            buckets = db.query(UserBucket).filter(UserBucket.owner_id == current_user.id).all()
+            # Свои + отданные в проекты, где пользователь состоит. Без второго
+            # условия привязка бакета к проекту ничего не давала: участник
+            # просто не видел его в списке.
+            from sqlalchemy import or_
+            pids = visible_project_ids(db, current_user)
+            cond = [UserBucket.owner_id == current_user.id]
+            if pids:
+                cond.append(UserBucket.project_id.in_(pids))
+            buckets = db.query(UserBucket).filter(or_(*cond)).all()
 
         res = []
         for b in buckets:
@@ -192,8 +201,8 @@ def delete_bucket(bucket_id: int, current_user: User = Depends(get_current_user)
         if not bucket:
             raise HTTPException(status_code=404, detail="Бакет не найден")
 
-        if current_user.role != "admin" and bucket.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этого бакета.")
+        require_access(db, current_user, bucket.owner_id, bucket.project_id, need="editor",
+                       message="Доступ запрещён: бакет не ваш и не в вашем проекте.")
 
         client = get_minio_client()
 
@@ -235,9 +244,9 @@ def list_bucket_files(bucket_id: int, current_user: User = Depends(get_current_u
         bucket = db.query(UserBucket).filter(UserBucket.id == bucket_id).first()
         if not bucket:
             raise HTTPException(status_code=404, detail="Бакет не найден")
-        if current_user.role != "admin" and bucket.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этого бакета.")
-            
+        require_access(db, current_user, bucket.owner_id, bucket.project_id, need="viewer",
+                       message="Доступ запрещён: бакет не ваш и не в вашем проекте.")
+
         client = get_minio_client()
         try:
             if not client.bucket_exists(bucket.bucket_name):
@@ -264,9 +273,9 @@ async def upload_file_to_bucket(bucket_id: int, file: UploadFile = File(...), cu
         bucket = db.query(UserBucket).filter(UserBucket.id == bucket_id).first()
         if not bucket:
             raise HTTPException(status_code=404, detail="Бакет не найден")
-        if current_user.role != "admin" and bucket.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этого бакета.")
-            
+        require_access(db, current_user, bucket.owner_id, bucket.project_id, need="editor",
+                       message="Доступ запрещён: бакет не ваш и не в вашем проекте.")
+
         client = get_minio_client()
         
         # Читаем файл в память и загружаем в MinIO
@@ -305,8 +314,8 @@ def download_file_from_bucket(bucket_id: int, filename: str, current_user: User 
         bucket = db.query(UserBucket).filter(UserBucket.id == bucket_id).first()
         if not bucket:
             raise HTTPException(status_code=404, detail="Бакет не найден")
-        if current_user.role != "admin" and bucket.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этого бакета.")
+        require_access(db, current_user, bucket.owner_id, bucket.project_id, need="viewer",
+                       message="Доступ запрещён: бакет не ваш и не в вашем проекте.")
 
         client = get_minio_client()
         try:
@@ -345,9 +354,9 @@ def delete_file_from_bucket(bucket_id: int, filename: str, current_user: User = 
         bucket = db.query(UserBucket).filter(UserBucket.id == bucket_id).first()
         if not bucket:
             raise HTTPException(status_code=404, detail="Бакет не найден")
-        if current_user.role != "admin" and bucket.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этого бакета.")
-            
+        require_access(db, current_user, bucket.owner_id, bucket.project_id, need="editor",
+                       message="Доступ запрещён: бакет не ваш и не в вашем проекте.")
+
         client = get_minio_client()
         try:
             client.remove_object(bucket.bucket_name, filename)

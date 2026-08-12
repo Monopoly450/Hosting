@@ -10,6 +10,7 @@ from app.db import SessionLocal
 from app.models.models import User, VMTask, AppDeployment
 from app.core.auth import get_current_user
 from app.core.netutils import host_for_links
+from app.core.rbac import require_access, visible_project_ids
 
 router = APIRouter()
 logger = logging.getLogger("app.api.deployments")
@@ -349,7 +350,14 @@ def list_deployments(request: Request, current_user: User = Depends(get_current_
         if current_user.role == "admin":
             deps = db.query(AppDeployment).all()
         else:
-            deps = db.query(AppDeployment).filter(AppDeployment.owner_id == current_user.id).all()
+            # Свои + отданные в проекты, где пользователь состоит: без второго
+            # условия участник не видел общий деплой, хотя права на него есть.
+            from sqlalchemy import or_
+            pids = visible_project_ids(db, current_user)
+            cond = [AppDeployment.owner_id == current_user.id]
+            if pids:
+                cond.append(AppDeployment.project_id.in_(pids))
+            deps = db.query(AppDeployment).filter(or_(*cond)).all()
         res = []
         for d in deps:
             owner = db.query(User).filter(User.id == d.owner_id).first()
@@ -366,8 +374,8 @@ def delete_deployment(dep_id: int, current_user: User = Depends(get_current_user
         dep = db.query(AppDeployment).filter(AppDeployment.id == dep_id).first()
         if not dep:
             raise HTTPException(status_code=404, detail="Деплой не найден.")
-        if current_user.role != "admin" and dep.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещён.")
+        require_access(db, current_user, dep.owner_id, dep.project_id, need="editor",
+                       message="Доступ запрещён: деплой не ваш и не в вашем проекте.")
 
         # Удаляем выделенную ВМ (через очередь) и запись VMTask
         vm_id_to_delete = dep.vm_id
@@ -407,8 +415,8 @@ def get_deployment_logs(dep_id: int, current_user: User = Depends(get_current_us
         dep = db.query(AppDeployment).filter(AppDeployment.id == dep_id).first()
         if not dep:
             raise HTTPException(status_code=404, detail="Деплой не найден.")
-        if current_user.role != "admin" and dep.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещён.")
+        require_access(db, current_user, dep.owner_id, dep.project_id, need="viewer",
+                       message="Доступ запрещён: деплой не ваш и не в вашем проекте.")
 
         if not dep.vm_name:
             return {"logs": "Виртуальная машина еще не создана."}
@@ -503,8 +511,8 @@ def redeploy_app(dep_id: int, current_user: User = Depends(get_current_user)):
         dep = db.query(AppDeployment).filter(AppDeployment.id == dep_id).first()
         if not dep:
             raise HTTPException(status_code=404, detail="Деплой не найден.")
-        if current_user.role != "admin" and dep.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещён.")
+        require_access(db, current_user, dep.owner_id, dep.project_id, need="editor",
+                       message="Доступ запрещён: деплой не ваш и не в вашем проекте.")
 
         # У приложения из маркетплейса нет репозитория: branch хранит прочерк, а
         # каталога /opt/app не существует — команды ниже сделали бы

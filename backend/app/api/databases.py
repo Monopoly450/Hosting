@@ -9,6 +9,7 @@ from app.db import SessionLocal
 from app.models.models import User, UserDatabase, VMTask
 from app.core.auth import get_current_user
 from app.core.crypto import encrypt_secret, decrypt_secret
+from app.core.rbac import require_access, visible_project_ids
 
 router = APIRouter()
 logger = logging.getLogger("app.api.databases")
@@ -157,7 +158,15 @@ def list_databases(current_user: User = Depends(get_current_user)):
         if current_user.role == "admin":
             databases = db.query(UserDatabase).all()
         else:
-            databases = db.query(UserDatabase).filter(UserDatabase.owner_id == current_user.id).all()
+            # Свои + отданные в проекты, где пользователь состоит. Раньше здесь
+            # был только owner_id, поэтому привязка базы к проекту ничего не
+            # давала: участник её просто не видел.
+            from sqlalchemy import or_
+            pids = visible_project_ids(db, current_user)
+            cond = [UserDatabase.owner_id == current_user.id]
+            if pids:
+                cond.append(UserDatabase.project_id.in_(pids))
+            databases = db.query(UserDatabase).filter(or_(*cond)).all()
             
         from app.core.k8s_client import K8sClient
         k8s = K8sClient()
@@ -200,8 +209,8 @@ def delete_database(db_id: int, current_user: User = Depends(get_current_user)):
         if not user_db:
             raise HTTPException(status_code=404, detail="База данных не найдена")
 
-        if current_user.role != "admin" and user_db.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этой базы данных.")
+        require_access(db, current_user, user_db.owner_id, user_db.project_id, need="editor",
+                       message="Доступ запрещён: база не ваша и не в вашем проекте.")
 
         # Физическое удаление ресурсов в Kubernetes
         try:
@@ -234,8 +243,8 @@ def bind_database(db_id: int, req: DatabaseBindRequest, current_user: User = Dep
         if not user_db:
             raise HTTPException(status_code=404, detail="База данных не найдена")
 
-        if current_user.role != "admin" and user_db.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        require_access(db, current_user, user_db.owner_id, user_db.project_id, need="editor",
+                       message="Доступ запрещён: база не ваша и не в вашем проекте.")
 
         from app.core.k8s_client import K8sClient
         k8s = K8sClient()
@@ -244,8 +253,8 @@ def bind_database(db_id: int, req: DatabaseBindRequest, current_user: User = Dep
             vm = db.query(VMTask).filter(VMTask.id == req.vm_id).first()
             if not vm:
                 raise HTTPException(status_code=404, detail="Виртуальная машина не найдена")
-            if current_user.role != "admin" and vm.owner_id != current_user.id:
-                raise HTTPException(status_code=403, detail="Виртуальная машина вам не принадлежит")
+            require_access(db, current_user, vm.owner_id, vm.project_id, need="editor",
+                           message="Виртуальная машина не ваша и не в вашем проекте")
             
             # Обновляем сетевую политику: разрешаем доступ только от выбранной ВМ
             try:
@@ -286,8 +295,8 @@ def get_database_metrics(db_id: int, current_user: User = Depends(get_current_us
         if not user_db:
             raise HTTPException(status_code=404, detail="База данных не найдена")
             
-        if current_user.role != "admin" and user_db.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        require_access(db, current_user, user_db.owner_id, user_db.project_id, need="viewer",
+                       message="Доступ запрещён: база не ваша и не в вашем проекте.")
             
         from app.core.k8s_client import K8sClient
         k8s = K8sClient()
@@ -321,8 +330,8 @@ def execute_sql_query(db_id: int, req: SQLQueryRequest, current_user: User = Dep
         if not user_db:
             raise HTTPException(status_code=404, detail="База данных не найдена")
             
-        if current_user.role != "admin" and user_db.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        require_access(db, current_user, user_db.owner_id, user_db.project_id, need="editor",
+                       message="Доступ запрещён: база не ваша и не в вашем проекте.")
             
         sql = req.sql.strip()
         from app.core.k8s_client import K8sClient
@@ -384,8 +393,8 @@ def get_database_tables(db_id: int, current_user: User = Depends(get_current_use
         if not user_db:
             raise HTTPException(status_code=404, detail="База данных не найдена")
             
-        if current_user.role != "admin" and user_db.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        require_access(db, current_user, user_db.owner_id, user_db.project_id, need="viewer",
+                       message="Доступ запрещён: база не ваша и не в вашем проекте.")
             
         from app.core.k8s_client import K8sClient
         k8s = K8sClient()
@@ -427,8 +436,8 @@ def list_database_backups(db_id: int, current_user: User = Depends(get_current_u
         if not user_db:
             raise HTTPException(status_code=404, detail="База данных не найдена")
             
-        if current_user.role != "admin" and user_db.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        require_access(db, current_user, user_db.owner_id, user_db.project_id, need="viewer",
+                       message="Доступ запрещён: база не ваша и не в вашем проекте.")
             
         from app.api.s3 import get_minio_client
         client = get_minio_client()
@@ -463,8 +472,8 @@ def create_database_backup(db_id: int, current_user: User = Depends(get_current_
         if not user_db:
             raise HTTPException(status_code=404, detail="База данных не найдена")
             
-        if current_user.role != "admin" and user_db.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        require_access(db, current_user, user_db.owner_id, user_db.project_id, need="editor",
+                       message="Доступ запрещён: база не ваша и не в вашем проекте.")
             
         from app.core.k8s_client import K8sClient
         k8s = K8sClient()
@@ -520,8 +529,8 @@ def restore_database_backup(db_id: int, filename: str, current_user: User = Depe
         if not user_db:
             raise HTTPException(status_code=404, detail="База данных не найдена")
             
-        if current_user.role != "admin" and user_db.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        require_access(db, current_user, user_db.owner_id, user_db.project_id, need="editor",
+                       message="Доступ запрещён: база не ваша и не в вашем проекте.")
             
         from app.api.s3 import get_minio_client
         client = get_minio_client()
@@ -562,8 +571,8 @@ def delete_database_backup(db_id: int, filename: str, current_user: User = Depen
         if not user_db:
             raise HTTPException(status_code=404, detail="База данных не найдена")
             
-        if current_user.role != "admin" and user_db.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        require_access(db, current_user, user_db.owner_id, user_db.project_id, need="editor",
+                       message="Доступ запрещён: база не ваша и не в вашем проекте.")
             
         from app.api.s3 import get_minio_client
         client = get_minio_client()
@@ -586,8 +595,8 @@ def download_database_backup(db_id: int, filename: str, current_user: User = Dep
         if not user_db:
             raise HTTPException(status_code=404, detail="База данных не найдена")
             
-        if current_user.role != "admin" and user_db.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        require_access(db, current_user, user_db.owner_id, user_db.project_id, need="viewer",
+                       message="Доступ запрещён: база не ваша и не в вашем проекте.")
             
         from app.api.s3 import get_minio_client
         client = get_minio_client()

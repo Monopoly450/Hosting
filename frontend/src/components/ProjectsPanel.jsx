@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FolderKanban, Plus, Trash2, X, Users, Server, Database, Rocket, UserPlus, Link2 } from 'lucide-react';
+import { FolderKanban, Plus, Trash2, X, Users, Server, Database, Rocket, UserPlus, Link2, HardDrive } from 'lucide-react';
 import CustomSelect from './CustomSelect';
 
 const ROLE_LABEL = { owner: 'владелец', editor: 'редактор', viewer: 'наблюдатель', admin: 'админ' };
@@ -18,7 +18,7 @@ export default function ProjectsPanel() {
 
     const [selected, setSelected] = useState(null);   // открытый проект
     const [members, setMembers] = useState([]);
-    const [resources, setResources] = useState({ vm: [], database: [], deployment: [] });
+    const [resources, setResources] = useState({ vm: [], database: [], deployment: [], bucket: [] });
 
     // формы
     const [name, setName] = useState('');
@@ -43,15 +43,17 @@ export default function ProjectsPanel() {
     };
 
     const fetchResources = async () => {
-        const [v, d, dep] = await Promise.all([
+        const [v, d, dep, s3] = await Promise.all([
             fetch('/api/vms', { headers: headers() }),
             fetch('/api/databases', { headers: headers() }),
             fetch('/api/deployments', { headers: headers() }),
+            fetch('/api/s3', { headers: headers() }),
         ]);
         setResources({
             vm: v.ok ? (await v.json()).filter(x => x.id) : [],
             database: d.ok ? await d.json() : [],
             deployment: dep.ok ? await dep.json() : [],
+            bucket: s3.ok ? await s3.json() : [],
         });
     };
 
@@ -163,6 +165,7 @@ export default function ProjectsPanel() {
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Server size={13} /> {p.resources.vm}</span>
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Database size={13} /> {p.resources.database}</span>
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Rocket size={13} /> {p.resources.deployment}</span>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }} title="Бакеты S3"><HardDrive size={13} /> {p.resources.bucket ?? 0}</span>
                             </div>
                             <div className="text-muted" style={{ fontSize: '0.74rem' }}>владелец: {p.owner_username}</div>
                         </div>
@@ -228,7 +231,8 @@ export default function ProjectsPanel() {
                                 Ресурс станет виден участникам проекта. Наблюдатели смогут только смотреть, редакторы — управлять.
                             </p>
                             <form onSubmit={assign} style={{ display: 'flex', gap: '6px', alignItems: 'flex-end' }}>
-                                <div className="input-group" style={{ marginBottom: 0, width: '140px' }}>
+                                {/* 165px — чтобы «Хранилище S3» помещалось в одну строку */}
+                                <div className="input-group" style={{ marginBottom: 0, width: '165px' }}>
                                     <label className="input-label">Тип</label>
                                     <CustomSelect
                                         value={resType}
@@ -237,6 +241,7 @@ export default function ProjectsPanel() {
                                             { value: 'vm', label: 'Виртуалка' },
                                             { value: 'database', label: 'База данных' },
                                             { value: 'deployment', label: 'Деплой' },
+                                            { value: 'bucket', label: 'Хранилище S3' },
                                         ]}
                                     />
                                 </div>
@@ -247,7 +252,7 @@ export default function ProjectsPanel() {
                                         onChange={e => setResId(e.target.value)}
                                         placeholder="— выберите —"
                                         options={(resources[resType] || []).map(r => ({
-                                            value: r.id, label: r.name || r.db_name,
+                                            value: r.id, label: r.name || r.db_name || r.bucket_name,
                                         }))}
                                     />
                                 </div>

@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.db import SessionLocal
 from app.models.models import (
-    User, Project, ProjectMember, VMTask, UserDatabase, AppDeployment,
+    User, Project, ProjectMember, VMTask, UserDatabase, AppDeployment, UserBucket,
 )
 from app.core.auth import get_current_user
 from app.core.rbac import ROLES, project_role, visible_project_ids
@@ -19,6 +19,7 @@ RESOURCE_MODELS = {
     "vm": VMTask,
     "database": UserDatabase,
     "deployment": AppDeployment,
+    "bucket": UserBucket,
 }
 
 
@@ -54,7 +55,7 @@ class ProjectInfo(BaseModel):
 
 
 class ResourceAssign(BaseModel):
-    resource_type: str = Field(..., description="vm | database | deployment")
+    resource_type: str = Field(..., description="vm | database | deployment | bucket")
     resource_id: int
     project_id: Optional[int] = Field(None, description="null — открепить от проекта")
 
@@ -214,7 +215,10 @@ def assign_resource(req: ResourceAssign, current_user: User = Depends(get_curren
     Требует прав editor в проекте и владения самим ресурсом."""
     model = RESOURCE_MODELS.get(req.resource_type)
     if not model:
-        raise HTTPException(status_code=400, detail="resource_type: vm | database | deployment")
+        raise HTTPException(
+            status_code=400,
+            detail=f"resource_type должен быть одним из: {' | '.join(RESOURCE_MODELS)}",
+        )
 
     db = SessionLocal()
     try:

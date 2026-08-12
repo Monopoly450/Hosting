@@ -58,6 +58,10 @@ class UserBucket(Base):
     access_key = Column(String, nullable=False)
     secret_key = Column(String, nullable=False)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    # Общий доступ через проекты — как у ВМ, баз и деплоев. Без этой колонки
+    # бакет нельзя было отдать команде вовсе: доступ проверялся строго по
+    # owner_id, и вкладка «Проекты и доступы» про S3 ничего не знала.
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     owner = relationship("User", back_populates="buckets")

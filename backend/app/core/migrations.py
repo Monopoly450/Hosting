@@ -59,6 +59,7 @@ MIGRATION_STATEMENTS = [
     "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS project_id INTEGER;",
     "ALTER TABLE user_databases ADD COLUMN IF NOT EXISTS project_id INTEGER;",
     "ALTER TABLE app_deployments ADD COLUMN IF NOT EXISTS project_id INTEGER;",
+    "ALTER TABLE user_buckets ADD COLUMN IF NOT EXISTS project_id INTEGER;",
     # Двухфакторная аутентификация (TOTP)
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR;",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE;",
