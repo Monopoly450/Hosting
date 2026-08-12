@@ -296,16 +296,22 @@ services:
   # :15672 (очередь) — те же upstream'ы, что у Caddy.
   #
   # profiles: контейнер поднимается только когда в .env задан
-  # COMPOSE_PROFILES=cloudflare — иначе docker compose пытался бы запустить
-  # cloudflared с пустым токеном и уводил бы его в бесконечный рестарт.
-  # install.sh выставляет и токен, и профиль сразу.
+  # COMPOSE_PROFILES=cloudflare. install.sh и add-domain.sh выставляют и
+  # токен, и профиль сразу вместе, никогда по отдельности.
+  #
+  # Токен ниже — с запасным пустым значением (:-), НЕ обязательным (:?).
+  # Docker Compose интерполирует переменные ВСЕХ сервисов при разборе файла
+  # ещё до того, как отфильтрует их по активным профилям — обязательная
+  # переменная здесь ломала бы любой `docker compose` (up, ps, даже --help)
+  # на КАЖДОЙ установке, которая просто не подключала Cloudflare Tunnel,
+  # что и произошло на живом сервере сразу после этого коммита.
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: aegis-cloudflared
     profiles: ["cloudflare"]
     network_mode: host
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN не задан в .env — уберите COMPOSE_PROFILES=cloudflare или задайте токен туннеля}
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
     logging:
       driver: "json-file"
       options:
