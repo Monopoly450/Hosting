@@ -105,10 +105,47 @@ def timeweb_dns_token() -> str:
     return os.getenv("TIMEWEB_DNS_API_TOKEN", "")
 
 
-def _system_entry(domain: str, upstream: str, token: str) -> Optional[dict]:
+def cloudflare_dns_token() -> str:
+    return os.getenv("CLOUDFLARE_DNS_API_TOKEN", "")
+
+
+# Имя провайдера здесь — это имя плагина Caddy (caddy-dns/<name>), поэтому
+# оно же попадает в директиву `dns <name> <token>` Caddyfile. Плагины должны
+# быть собраны в образ: см. aegis-caddy/Dockerfile.
+DNS_PROVIDERS = (
+    ("cloudflare", cloudflare_dns_token),
+    ("timeweb", timeweb_dns_token),
+)
+
+DEFAULT_DNS_PROVIDER = "timeweb"
+
+
+def dns_provider() -> tuple:
+    """(имя провайдера, токен) из .env или ("", "").
+
+    Провайдер не один намеренно: сервер за NAT — обычное дело не только у
+    Timeweb, а DNS-01 работает у любого провайдера с API. Порядок фиксирован,
+    чтобы при двух заданных токенах поведение не зависело от порядка словаря.
+    """
+    for name, getter in DNS_PROVIDERS:
+        token = getter()
+        if token:
+            return name, token
+    return "", ""
+
+
+def dns_token() -> str:
+    """Токен активного провайдера — без разницы, какого именно."""
+    return dns_provider()[1]
+
+
+def _system_entry(domain: str, upstream: str, token: str, provider: str = "") -> Optional[dict]:
     if not domain or not token:
         return None
-    return {"domain": domain, "upstream": upstream, "dns_token": token}
+    entry = {"domain": domain, "upstream": upstream, "dns_token": token}
+    if provider and provider != DEFAULT_DNS_PROVIDER:
+        entry["dns_provider"] = provider
+    return entry
 
 
 def panel_entry() -> Optional[dict]:
@@ -122,9 +159,10 @@ def panel_entry() -> Optional[dict]:
     выпуска сертификата не требуется вовсе.
 
     None, если панель не настроена как отдельный домен (нет PANEL_DOMAIN
-    или TIMEWEB_DNS_API_TOKEN) — тогда всё ведёт себя как раньше.
+    или токена DNS-провайдера) — тогда всё ведёт себя как раньше.
     """
-    return _system_entry(panel_domain(), PANEL_UPSTREAM, timeweb_dns_token())
+    provider, token = dns_provider()
+    return _system_entry(panel_domain(), PANEL_UPSTREAM, token, provider)
 
 
 def system_domain_entries() -> list:
@@ -139,10 +177,10 @@ def system_domain_entries() -> list:
     Список сервисов — в SYSTEM_SERVICES, добавление нового не требует правок
     здесь.
     """
-    token = timeweb_dns_token()
+    provider, token = dns_provider()
     entries = []
     for env, upstream, _label in SYSTEM_SERVICES:
-        entry = _system_entry(os.getenv(env, ""), upstream, token)
+        entry = _system_entry(os.getenv(env, ""), upstream, token, provider)
         if entry:
             entries.append(entry)
     return entries
@@ -202,7 +240,7 @@ def build_caddyfile(entries: list, email: str = "") -> str:
                 # Глобальный `email` относится к УЦ по умолчанию; у явного
                 # issuer свой, иначе аккаунт ACME будет без контакта.
                 lines.append(f"\t\t\temail {email}")
-            lines.append(f"\t\t\tdns timeweb {e['dns_token']}")
+            lines.append(f"\t\t\tdns {e.get('dns_provider') or DEFAULT_DNS_PROVIDER} {e['dns_token']}")
             lines.append("\t\t\tresolvers 1.1.1.1 8.8.8.8")
             lines.append("\t\t\tpropagation_delay 30s")
             lines.append("\t\t\tpropagation_timeout 5m")
@@ -359,7 +397,7 @@ def build_entries(db, k8s) -> list:
     # сидит на одном-единственном хосте (network_mode host), так что для
     # всех доменов это одно и то же да/нет — проверяем раз, а не на каждый
     # домен отдельно.
-    dns_token = timeweb_dns_token() if is_private_host_ip() else ""
+    provider, token = dns_provider() if is_private_host_ip() else ("", "")
 
     ready = db.query(Domain).filter(
         Domain.dns_ok == True, Domain.ownership_ok == True  # noqa: E712
@@ -368,8 +406,10 @@ def build_entries(db, k8s) -> list:
         upstream, err = resolve_upstream(db, k8s, dom)
         if upstream:
             entry = {"domain": dom.domain, "upstream": upstream}
-            if dns_token:
-                entry["dns_token"] = dns_token
+            if token:
+                entry["dns_token"] = token
+                if provider != DEFAULT_DNS_PROVIDER:
+                    entry["dns_provider"] = provider
             entries.append(entry)
     return entries
 
@@ -629,6 +669,95 @@ def reconcile_caddy(db, k8s, docker_client) -> bool:
     caddyfile = build_caddyfile(entries, acme_email())
     ensure_caddy(docker_client, caddyfile)
     return True
+
+
+def apply_config(db, k8s=None) -> dict:
+    """Пересобирает Caddyfile из активных доменов и применяет его.
+
+    Никогда не бросает исключение: применение конфига — побочный эффект
+    добавления/удаления домена, и его сбой не должен ронять сам запрос.
+    Живёт здесь, а не в api/domains.py, потому что то же самое нужно фоновой
+    доперепроверке доменов в воркере (autoverify_tick).
+    """
+    from app.core.docker_client import HostDockerClient
+
+    try:
+        docker_client = HostDockerClient()   # __init__ уже подключается
+        if not docker_client.is_available():
+            return {"applied": False, "reason": "Docker недоступен"}
+        if k8s is None:
+            from app.core.k8s_client import K8sClient
+            k8s = K8sClient()
+        entries = build_entries(db, k8s)
+        caddyfile = build_caddyfile(entries, acme_email())
+    except Exception as e:
+        logger.error(f"Не удалось собрать конфиг Caddy: {e}")
+        return {"applied": False, "reason": str(e)}
+    try:
+        ensure_caddy(docker_client, caddyfile)
+        return {"applied": True, "sites": len(entries)}
+    except Exception as e:
+        logger.error(f"Не удалось применить конфиг Caddy: {e}")
+        return {"applied": False, "reason": str(e)}
+
+
+def verify_domain_row(db, dom, expected_ip: str) -> dict:
+    """Одна проверка домена: владение (TXT) и маршрутизация (A).
+
+    Порядок важен: пока владение не доказано, домен в конфиг не попадает,
+    даже если A-запись уже указывает на этот сервер.
+    """
+    from datetime import datetime
+
+    own_ok, own_detail = check_ownership(dom.domain, dom.verification_token)
+    dns_ok, dns_detail = check_dns(dom.domain, expected_ip=expected_ip)
+
+    dom.ownership_ok = own_ok
+    dom.dns_ok = dns_ok
+    dom.last_checked = datetime.utcnow()
+    ready = own_ok and dns_ok
+    dom.status = "active" if ready else "pending"
+    dom.last_error = None if ready else (own_detail if not own_ok else dns_detail)
+    db.commit()
+    return {
+        "ready": ready,
+        "ownership_ok": own_ok, "ownership_detail": own_detail,
+        "dns_ok": dns_ok, "detail": dns_detail,
+    }
+
+
+def autoverify_tick(k8s):
+    """Доводит до готовности домены, которые ещё не прошли проверку.
+
+    Нужен из-за задержки распространения DNS: записи создаются сразу (сами —
+    см. services/dns_api.py, или руками у регистратора), а публичные
+    резолверы видят их через десятки секунд. Проверять прямо в обработчике
+    HTTP-запроса бессмысленно — он почти всегда упрётся в «ещё не видно», и
+    пользователю пришлось бы жать «Проверить» вручную до победного.
+
+    Тик дешёвый: пока нет ни одного неподтверждённого домена, не делается
+    вообще ничего.
+    """
+    from app.db import SessionLocal
+    from app.models.models import Domain
+
+    db = SessionLocal()
+    try:
+        pending = db.query(Domain).filter(Domain.status != "active").all()
+        if not pending:
+            return
+        became_ready = False
+        for dom in pending:
+            try:
+                if verify_domain_row(db, dom, host_ip())["ready"]:
+                    logger.info(f"Домен {dom.domain} подтверждён — включаю в конфиг прокси.")
+                    became_ready = True
+            except Exception as e:
+                logger.warning(f"autoverify {dom.domain}: {e}")
+        if became_ready:
+            apply_config(db, k8s)
+    finally:
+        db.close()
 
 
 def caddy_watchdog_tick(k8s):

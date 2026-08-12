@@ -1,6 +1,5 @@
 """API своих доменов с автоматическим TLS через Caddy."""
 import logging
-from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, status, Request
@@ -21,11 +20,6 @@ def _docker():
     c = HostDockerClient()
     c.connect()
     return c
-
-
-def _k8s():
-    from app.core.k8s_client import K8sClient
-    return K8sClient()
 
 
 class DomainCreate(BaseModel):
@@ -50,6 +44,10 @@ class DomainInfo(BaseModel):
     last_error: Optional[str]
     last_checked: Optional[str]
     url: str
+    # Заполняются только при добавлении домена: удалось ли создать DNS-записи
+    # автоматически (см. services/dns_api.py) и что именно произошло.
+    auto: Optional[bool] = None
+    auto_detail: Optional[str] = None
 
 
 def _to_info(d: Domain) -> DomainInfo:
@@ -74,26 +72,9 @@ def _owned(db, domain_id: int, user: User) -> Domain:
 
 
 def _apply_config(db):
-    """Пересобирает Caddyfile из активных доменов и применяет его.
-
-    Никогда не бросает исключение: применение конфига — побочный эффект
-    добавления/удаления домена, и его сбой не должен ронять сам запрос.
-    """
-    try:
-        docker_client = _docker()
-        if not docker_client.is_available():
-            return {"applied": False, "reason": "Docker недоступен"}
-        entries = dsvc.build_entries(db, _k8s())
-        caddyfile = dsvc.build_caddyfile(entries, dsvc.acme_email())
-    except Exception as e:
-        logger.error(f"Не удалось собрать конфиг Caddy: {e}")
-        return {"applied": False, "reason": str(e)}
-    try:
-        dsvc.ensure_caddy(docker_client, caddyfile)
-        return {"applied": True, "sites": len(entries)}
-    except Exception as e:
-        logger.error(f"Не удалось применить конфиг Caddy: {e}")
-        return {"applied": False, "reason": str(e)}
+    # Сама логика — в сервисе: ровно то же самое делает фоновая
+    # доперепроверка доменов в воркере (dsvc.autoverify_tick).
+    return dsvc.apply_config(db)
 
 
 @router.get("/status")
@@ -114,6 +95,10 @@ def status_(request: Request, current_user: User = Depends(get_current_user)):
         {"key": env.lower(), "label": label, "domain": domains.get(env.lower(), "")}
         for env, _upstream, label in dsvc.SYSTEM_SERVICES
     ]
+    # Есть ли API-токен DNS-провайдера: с ним панель заводит записи сама, и
+    # интерфейсу незачем показывать инструкцию по ручной правке DNS.
+    from app.services import dns_api
+    st.update(dns_api.automation())
     return st
 
 
@@ -168,7 +153,26 @@ def create_domain(req: DomainCreate, current_user: User = Depends(get_current_us
         db.add(dom)
         db.commit()
         db.refresh(dom)
-        return _to_info(dom)
+
+        # Заводим DNS-записи сами, если в .env есть токен провайдера. Раньше
+        # здесь всё заканчивалось: пользователь шёл к регистратору и создавал
+        # TXT и A руками, хотя токен той же зоны уже лежал в .env для ACME.
+        #
+        # Сразу проверять созданное бессмысленно — публичные резолверы увидят
+        # запись через десятки секунд. Домен доводит до готовности фоновая
+        # проверка в воркере (dsvc.autoverify_tick), а кнопка «Проверить»
+        # остаётся для тех, кто не хочет ждать тика.
+        from app.services import dns_api
+        auto = dns_api.setup_records(dom.domain, dom.verification_token, dsvc.host_ip())
+        if auto.get("auto"):
+            logger.info(f"DNS-записи для {dom.domain} созданы автоматически: {'; '.join(auto['steps'])}")
+        elif auto.get("errors"):
+            logger.warning(f"Автонастройка DNS для {dom.domain} не удалась: {auto['reason']}")
+
+        info = _to_info(dom)
+        info.auto = bool(auto.get("auto"))
+        info.auto_detail = "; ".join(auto.get("steps") or []) or auto.get("reason") or None
+        return info
     finally:
         db.close()
 
@@ -189,16 +193,8 @@ def verify_domain(domain_id: int, request: Request, current_user: User = Depends
         # 1) Владение доменом (TXT), 2) маршрутизация (A-запись).
         # Порядок важен: пока владение не доказано, домен в конфиг не попадает,
         # даже если A-запись уже указывает на этот сервер.
-        own_ok, own_detail = dsvc.check_ownership(dom.domain, dom.verification_token)
-        dns_ok, dns_detail = dsvc.check_dns(dom.domain, expected_ip=expected)
-
-        dom.ownership_ok = own_ok
-        dom.dns_ok = dns_ok
-        dom.last_checked = datetime.utcnow()
-        ready = own_ok and dns_ok
-        dom.status = "active" if ready else "pending"
-        dom.last_error = None if ready else (own_detail if not own_ok else dns_detail)
-        db.commit()
+        res = dsvc.verify_domain_row(db, dom, expected)
+        ready, own_ok = res["ready"], res["ownership_ok"]
 
         applied = _apply_config(db) if ready else {
             "applied": False,
@@ -206,8 +202,7 @@ def verify_domain(domain_id: int, request: Request, current_user: User = Depends
         }
         db.refresh(dom)
         return {
-            "ownership_ok": own_ok, "ownership_detail": own_detail,
-            "dns_ok": dns_ok, "detail": dns_detail,
+            **{k: v for k, v in res.items() if k != "ready"},
             "expected_ip": expected,
             "challenge_record": dsvc.challenge_record_name(dom.domain),
             "verification_token": dom.verification_token,

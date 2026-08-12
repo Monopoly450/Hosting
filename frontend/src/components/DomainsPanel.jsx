@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Globe, Plus, Trash2, X, ShieldCheck, RefreshCw, Copy, Check, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Globe, Plus, Trash2, X, ShieldCheck, RefreshCw, Copy, Check, AlertTriangle, ExternalLink, Wand2 } from 'lucide-react';
 import CustomSelect from './CustomSelect';
 
 export default function DomainsPanel() {
@@ -45,6 +45,19 @@ export default function DomainsPanel() {
 
     useEffect(() => { fetchAll(); }, []);
 
+    // Пока хоть один домен не подтверждён, обновляемся сами: записи в DNS
+    // расходятся не мгновенно, а доводит домен до готовности фоновая проверка
+    // в воркере. Без этого пользователь смотрел на «ожидает A-запись» и не
+    // понимал, что делать — хотя делать уже ничего не нужно.
+    const pending = domains.some(d => !(d.dns_ok && d.ownership_ok));
+    useEffect(() => {
+        if (!pending) return;
+        const t = setInterval(fetchAll, 15000);
+        return () => clearInterval(t);
+    }, [pending]);
+
+    const auto = !!status?.dns_automation;
+
     const addDomain = async (e) => {
         e.preventDefault();
         setBusy(true);
@@ -52,8 +65,17 @@ export default function DomainsPanel() {
             const body = { domain: name.trim(), target_type: targetType, target_id: parseInt(target) };
             if (port) body.target_port = parseInt(port);
             const res = await fetch('/api/domains', { method: 'POST', headers: headers(), body: JSON.stringify(body) });
-            if (!res.ok) throw new Error((await res.json()).detail || 'Ошибка');
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Ошибка');
             setShowAdd(false); setName(''); setTarget(''); setPort('');
+            if (data.auto) {
+                alert(`Готово, дальше всё само.\n\n${data.auto_detail}\n\n`
+                    + `DNS-записи разойдутся за минуту-другую, после чего домен подтвердится и `
+                    + `Caddy выпустит сертификат. Страница обновляется сама.`);
+            } else if (data.auto_detail) {
+                alert(`Домен добавлен, но записи в DNS создать не удалось:\n${data.auto_detail}\n\n`
+                    + `Создайте их вручную — они показаны в таблице.`);
+            }
             fetchAll();
         } catch (e) { alert(`Ошибка: ${e.message}`); } finally { setBusy(false); }
     };
@@ -105,8 +127,13 @@ export default function DomainsPanel() {
         // после этого шага, и на это нужно время (а иногда и несколько
         // попыток), поэтому честная формулировка — «DNS подтверждён».
         if (d.dns_ok && d.ownership_ok) return <span className="badge" style={{ background: 'rgba(48,164,108,0.15)', color: 'var(--status-success)', display: 'inline-flex', alignItems: 'center', gap: '4px' }} title="DNS проверен, домен передан в прокси. Сертификат Caddy выпускает следом — обычно 1-2 минуты; если сайт не открывается, смотрите docker logs aegis-caddy"><ShieldCheck size={12} /> DNS подтверждён</span>;
-        const text = !d.ownership_ok ? 'нужна TXT-запись' : 'ожидает A-запись';
-        return <span className="badge" style={{ background: 'rgba(245,166,35,0.15)', color: '#f5a623', display: 'inline-flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={12} /> {text}</span>;
+        // С автонастройкой записи уже созданы — остаётся дождаться, пока их
+        // увидят публичные резолверы. Требовать от пользователя действий в
+        // этот момент было бы враньём: делать ему нечего.
+        const text = auto
+            ? 'ждём распространения DNS'
+            : (!d.ownership_ok ? 'нужна TXT-запись' : 'ожидает A-запись');
+        return <span className="badge" style={{ background: 'rgba(245,166,35,0.15)', color: '#f5a623', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>{auto ? <span className="spinner" style={{ width: 11, height: 11 }} /> : <AlertTriangle size={12} />} {text}</span>;
     };
 
     if (loading) return <div className="panel-container"><div style={{ display: 'flex', justifyContent: 'center', padding: '50px' }}><div className="spinner spinner-lg" /></div></div>;
@@ -128,19 +155,41 @@ export default function DomainsPanel() {
 
             {/* Инструкция по DNS */}
             <div className="glass-card" style={{ marginBottom: '20px' }}>
-                <div className="section-title"><Globe size={16} /> Как подключить домен</div>
-                <p className="text-muted" style={{ fontSize: '0.85rem' }}>
-                    Нужны <b>две записи</b>. TXT подтверждает, что домен принадлежит вам (без неё чужой домен
-                    можно было бы увести на свою ВМ), A — направляет трафик на этот сервер.
-                    После успешной проверки сертификат выпустится автоматически (порты 80 и 443 должны быть открыты снаружи).
-                </p>
-                <div className="copy-field">
-                    <code style={{ fontFamily: 'var(--font-mono)' }}>A  @  →  {status?.host_ip || '—'}</code>
-                    <button className="btn-icon" onClick={() => copy(status?.host_ip || '', 'ip')}>{copied === 'ip' ? <Check size={16} color="var(--status-success)" /> : <Copy size={16} />}</button>
-                </div>
-                <p className="text-muted" style={{ fontSize: '0.78rem', marginTop: '8px' }}>
-                    TXT-запись для подтверждения владения индивидуальна для каждого домена — она показана в таблице ниже.
-                </p>
+                <div className="section-title">{auto ? <Wand2 size={16} /> : <Globe size={16} />} Как подключить домен</div>
+                {auto ? (
+                    <>
+                        <p className="text-muted" style={{ fontSize: '0.85rem' }}>
+                            Просто введите домен — остальное панель сделает сама. У неё есть API-токен
+                            <b> {status.dns_provider_label}</b>, поэтому обе нужные записи (TXT для подтверждения
+                            владения и A на этот сервер) она создаст в вашей зоне без вашего участия, дождётся
+                            их распространения и включит домен в прокси. Сертификат Let's Encrypt выпустится следом.
+                        </p>
+                        <p className="text-muted" style={{ fontSize: '0.78rem', marginTop: '8px' }}>
+                            Домен должен быть в том же аккаунте {status.dns_provider_label}, что и токен —
+                            иначе записи создать не выйдет, и панель покажет их для ручного добавления.
+                        </p>
+                    </>
+                ) : (
+                    <>
+                        <p className="text-muted" style={{ fontSize: '0.85rem' }}>
+                            Нужны <b>две записи</b>. TXT подтверждает, что домен принадлежит вам (без неё чужой домен
+                            можно было бы увести на свою ВМ), A — направляет трафик на этот сервер.
+                            После успешной проверки сертификат выпустится автоматически (порты 80 и 443 должны быть открыты снаружи).
+                        </p>
+                        <div className="copy-field">
+                            <code style={{ fontFamily: 'var(--font-mono)' }}>A  @  →  {status?.host_ip || '—'}</code>
+                            <button className="btn-icon" onClick={() => copy(status?.host_ip || '', 'ip')}>{copied === 'ip' ? <Check size={16} color="var(--status-success)" /> : <Copy size={16} />}</button>
+                        </div>
+                        <p className="text-muted" style={{ fontSize: '0.78rem', marginTop: '8px' }}>
+                            TXT-запись для подтверждения владения индивидуальна для каждого домена — она показана в таблице ниже.
+                        </p>
+                        <p className="text-muted" style={{ fontSize: '0.78rem', marginTop: '8px' }}>
+                            Всё это может делаться само: добавьте в <code>.env</code> API-токен вашего DNS-провайдера
+                            (<code>TIMEWEB_DNS_API_TOKEN</code> или <code>CLOUDFLARE_DNS_API_TOKEN</code>) — или запустите
+                            <code style={{ margin: '0 4px' }}>sudo bash scripts/add-domain.sh</code> на сервере.
+                        </p>
+                    </>
+                )}
 
                 {status?.host_ip_is_private && (
                     <div className="alert alert-danger" style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
@@ -148,18 +197,27 @@ export default function DomainsPanel() {
                         <div style={{ fontSize: '0.84rem' }}>
                             <b>Адрес {status.host_ip} — локальный, из интернета он недоступен.</b>
                             <p style={{ margin: '6px 0 0' }}>
-                                Let's Encrypt проверяет домен, обращаясь к порту 80 извне, поэтому сертификат
-                                на такой адрес выпустить не получится, а неудачные попытки расходуют лимиты.
+                                {auto
+                                    ? <>Сертификат это не ломает: подтверждение идёт через DNS ({status.dns_provider_label}),
+                                        а не через обращение к порту 80 снаружи. Но сам сайт по такому адресу
+                                        откроется только из вашей сети.</>
+                                    : <>Let's Encrypt проверяет домен, обращаясь к порту 80 извне, поэтому сертификат
+                                        на такой адрес выпустить не получится, а неудачные попытки расходуют лимиты.</>}
                             </p>
                             <p style={{ margin: '6px 0 0' }}>
-                                Если у сервера есть «белый» IP за NAT: пропишите его в переменной
+                                <b>Чтобы сайт открывался из интернета</b>, есть два пути:
+                            </p>
+                            <p style={{ margin: '6px 0 0' }}>
+                                1. <b>Cloudflare Tunnel</b> — сервер сам подключается к Cloudflare, порты на роутере
+                                открывать не нужно. Запустите на сервере
+                                <code style={{ margin: '0 4px' }}>sudo bash scripts/add-domain.sh</code>
+                                и введите токен туннеля.
+                            </p>
+                            <p style={{ margin: '6px 0 0' }}>
+                                2. <b>«Белый» IP за NAT</b> — пропишите его в переменной
                                 <code style={{ margin: '0 4px' }}>AEGIS_HOST_IP</code> и настройте на роутере
-                                проброс портов 80 и 443 на этот сервер. Тогда A-запись нужно указывать
+                                проброс портов 80 и 443 на этот сервер. Тогда A-запись должна указывать
                                 на публичный адрес.
-                            </p>
-                            <p style={{ margin: '6px 0 0' }}>
-                                Без публичного адреса домены и автоматический TLS работать не будут —
-                                приложения остаются доступными по IP и порту.
                             </p>
                         </div>
                     </div>
@@ -203,7 +261,7 @@ export default function DomainsPanel() {
                                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{d.target_port}</td>
                                     <td>
                                         {badge(d)}
-                                        {!d.ownership_ok && d.verification_token && (
+                                        {!auto && !d.ownership_ok && d.verification_token && (
                                             <div style={{ marginTop: '6px' }}>
                                                 <div className="text-muted" style={{ fontSize: '0.7rem' }}>TXT {d.challenge_record}</div>
                                                 <div className="copy-field" style={{ marginTop: '2px' }}>

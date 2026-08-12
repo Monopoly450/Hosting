@@ -96,13 +96,14 @@ services:
       - AEGIS_HOST_IP=${AEGIS_HOST_IP:-}
       - REGISTRY_PORT=${REGISTRY_PORT:-5000}
       - ACME_EMAIL=${ACME_EMAIL:-}
-      # Домены служебных сервисов (панель/почта/хранилище) и токен Timeweb
-      # для DNS-01 — см. app/services/domains.py
+      # Домены служебных сервисов (панель/почта/хранилище) и токен
+      # DNS-провайдера для DNS-01 — см. app/services/domains.py
       - PANEL_DOMAIN=${PANEL_DOMAIN:-}
       - MAIL_DOMAIN=${MAIL_DOMAIN:-}
       - STORAGE_DOMAIN=${STORAGE_DOMAIN:-}
       - RABBITMQ_DOMAIN=${RABBITMQ_DOMAIN:-}
       - TIMEWEB_DNS_API_TOKEN=${TIMEWEB_DNS_API_TOKEN:-}
+      - CLOUDFLARE_DNS_API_TOKEN=${CLOUDFLARE_DNS_API_TOKEN:-}
     logging:
       driver: "json-file"
       options:
@@ -155,6 +156,7 @@ services:
       - STORAGE_DOMAIN=${STORAGE_DOMAIN:-}
       - RABBITMQ_DOMAIN=${RABBITMQ_DOMAIN:-}
       - TIMEWEB_DNS_API_TOKEN=${TIMEWEB_DNS_API_TOKEN:-}
+      - CLOUDFLARE_DNS_API_TOKEN=${CLOUDFLARE_DNS_API_TOKEN:-}
     logging:
       driver: "json-file"
       options:
@@ -277,6 +279,38 @@ services:
     depends_on:
       - mailserver
     restart: unless-stopped
+
+  # Публикация панели в интернет без «белого» IP.
+  #
+  # Сервер за NAT недостижим снаружи: домен можно направить только на
+  # локальный адрес, и панель видна лишь из своей же сети (сертификат при
+  # этом выпускается — через DNS-01, см. app/services/domains.py — но толку
+  # от него в интернете нет). Cloudflare Tunnel решает это с другой стороны:
+  # cloudflared сам устанавливает исходящее соединение к Cloudflare, и
+  # Cloudflare принимает запросы к домену на себя. Открывать порты на
+  # роутере не нужно вовсе.
+  #
+  # Публичные адреса задаются в панели Cloudflare Zero Trust (Networks →
+  # Tunnels → Public hostnames); сюда, локально, они указывают на
+  # http://localhost:8081 (панель), :8082 (почта), :9001 (хранилище),
+  # :15672 (очередь) — те же upstream'ы, что у Caddy.
+  #
+  # profiles: контейнер поднимается только когда в .env задан
+  # COMPOSE_PROFILES=cloudflare — иначе docker compose пытался бы запустить
+  # cloudflared с пустым токеном и уводил бы его в бесконечный рестарт.
+  # install.sh выставляет и токен, и профиль сразу.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: aegis-cloudflared
+    profiles: ["cloudflare"]
+    network_mode: host
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN не задан в .env — уберите COMPOSE_PROFILES=cloudflare или задайте токен туннеля}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   postgres_data:

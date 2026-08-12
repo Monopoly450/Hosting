@@ -253,7 +253,8 @@ generate_env_file() {
 
     local postgres_password admin_token aegis_secret_key rabbitmq_user rabbitmq_pass \
           minio_user minio_password mariadb_password storage_class detected_ip host_ip \
-          acme_email registry_port panel_domain mail_domain storage_domain rabbitmq_domain timeweb_token
+          acme_email registry_port panel_domain mail_domain storage_domain rabbitmq_domain \
+          dns_provider timeweb_token cloudflare_token cloudflare_tunnel_token
 
     postgres_password=$(ask_secret "Пароль системной базы данных PostgreSQL")
     admin_token=$(ask_secret "Токен администратора API (это же будет пароль входа в панель под admin)")
@@ -290,10 +291,39 @@ generate_env_file() {
     storage_domain=$(ask_value "Домен для консоли хранилища (MinIO)" "")
     rabbitmq_domain=$(ask_value "Домен для консоли очереди (RabbitMQ)" "")
 
+    # DNS-провайдер спрашиваем только если домен вообще задан: без домена
+    # токен ни на что не влияет.
     timeweb_token=""
+    cloudflare_token=""
+    dns_provider=""
     if [ -n "$panel_domain$mail_domain$storage_domain$rabbitmq_domain" ]; then
-        timeweb_token=$(ask_value "API-токен Timeweb Cloud (Настройки -> API-ключи; можно оставить пустым и дописать в .env позже)" "")
+        dns_provider=$(ask_value "У кого обслуживается DNS этих доменов: timeweb или cloudflare" "timeweb")
+        case "$dns_provider" in
+            [cC]*)
+                dns_provider="cloudflare"
+                cloudflare_token=$(ask_value "API-токен Cloudflare (My Profile -> API Tokens, права Zone:DNS:Edit; можно оставить пустым и дописать в .env позже)" "")
+                ;;
+            *)
+                dns_provider="timeweb"
+                timeweb_token=$(ask_value "API-токен Timeweb Cloud (Настройки -> API-ключи; можно оставить пустым и дописать в .env позже)" "")
+                ;;
+        esac
     fi
+
+    # Cloudflare Tunnel — отдельный вопрос и отдельный токен: он решает не
+    # задачу сертификата, а задачу «сервер за NAT вообще не виден снаружи».
+    if [ "$USE_WHIPTAIL" = true ]; then
+        whiptail --title "$WT_TITLE" --msgbox \
+"Если у сервера нет 'белого' IP, домен всё равно можно открыть из интернета — через Cloudflare Tunnel: сервер сам подключается к Cloudflare, порты на роутере открывать не нужно.\n\nТокен берётся в Cloudflare Zero Trust -> Networks -> Tunnels -> создать туннель -> Docker: длинная строка после '--token'.\n\nПропустите (Enter), если сервер и так доступен снаружи." \
+            15 76
+    else
+        echo
+        echo -e "${CYAN}Если у сервера нет 'белого' IP, домен всё равно можно открыть из${NC}"
+        echo -e "${CYAN}интернета через Cloudflare Tunnel: сервер сам подключается к Cloudflare,${NC}"
+        echo -e "${CYAN}порты на роутере открывать не нужно. Токен: Cloudflare Zero Trust ->${NC}"
+        echo -e "${CYAN}Networks -> Tunnels -> создать туннель -> Docker (строка после --token).${NC}"
+    fi
+    cloudflare_tunnel_token=$(ask_value "Токен Cloudflare Tunnel (Enter — пропустить)" "")
 
     {
         echo "# Сгенерировано install.sh $(date +'%Y-%m-%d %H:%M:%S')"
@@ -352,22 +382,37 @@ generate_env_file() {
         fi
         if [ -n "$timeweb_token" ]; then
             echo "TIMEWEB_DNS_API_TOKEN=${timeweb_token}"
-        elif [ -n "$panel_domain$mail_domain$storage_domain$rabbitmq_domain" ]; then
-            echo "# ВАЖНО: указан домен выше, но токен не введён — впишите его сюда"
-            echo "# (Timeweb Cloud -> Настройки -> API-ключи), иначе сертификаты не выпустятся."
-            echo "# TIMEWEB_DNS_API_TOKEN="
         else
-            echo "# TIMEWEB_DNS_API_TOKEN=  — нужен, только если задан один из доменов выше"
+            echo "# TIMEWEB_DNS_API_TOKEN=  — нужен, только если DNS доменов выше у Timeweb"
+        fi
+        if [ -n "$cloudflare_token" ]; then
+            echo "CLOUDFLARE_DNS_API_TOKEN=${cloudflare_token}"
+        else
+            echo "# CLOUDFLARE_DNS_API_TOKEN=  — нужен, только если DNS доменов выше у Cloudflare"
+        fi
+        if [ -n "$panel_domain$mail_domain$storage_domain$rabbitmq_domain" ] && [ -z "$timeweb_token$cloudflare_token" ]; then
+            echo "# ВАЖНО: домен указан, но токен DNS-провайдера не введён — впишите его в"
+            echo "# строку выше, иначе сертификаты не выпустятся и панель не заведёт DNS-записи сама."
+        fi
+        echo
+        if [ -n "$cloudflare_tunnel_token" ]; then
+            echo "CLOUDFLARE_TUNNEL_TOKEN=${cloudflare_tunnel_token}"
+            # Профиль включает сервис cloudflared в docker-compose.yml.
+            # Без него контейнер туннеля не запускается вовсе.
+            echo "COMPOSE_PROFILES=cloudflare"
+        else
+            echo "# CLOUDFLARE_TUNNEL_TOKEN=  — не задан, публикация через Cloudflare Tunnel выключена"
+            echo "# COMPOSE_PROFILES=cloudflare   — раскомментировать вместе с токеном выше"
         fi
     } > "$env_file"
 
     chmod 600 "$env_file"
     log ".env создан (права 600)."
 
-    if [ -n "$panel_domain$mail_domain$storage_domain$rabbitmq_domain" ] && [ -z "$timeweb_token" ]; then
-        warn "Домен(ы) указаны, но TIMEWEB_DNS_API_TOKEN не введён — сертификаты НЕ выпустятся, пока вы"
-        warn "не допишете в .env строку TIMEWEB_DNS_API_TOKEN=<ваш токен> (Timeweb Cloud -> Настройки ->"
-        warn "API-ключи) и не перезапустите: docker compose up -d --build backend worker"
+    if [ -n "$panel_domain$mail_domain$storage_domain$rabbitmq_domain" ] && [ -z "$timeweb_token$cloudflare_token" ]; then
+        warn "Домен(ы) указаны, но токен DNS-провайдера не введён — сертификаты НЕ выпустятся, пока вы"
+        warn "не допишете в .env строку TIMEWEB_DNS_API_TOKEN=<токен> или CLOUDFLARE_DNS_API_TOKEN=<токен>"
+        warn "и не перезапустите: docker compose up -d --build backend worker"
         warn "До этого сервисы как обычно доступны по IP и портам."
     fi
 }
@@ -747,6 +792,32 @@ chmod 600 "${PROJECT_DIR}/.env" 2>/dev/null || true
 docker compose up -d --build
 log "Панель запущена."
 
+# Ждём, пока бэкенд реально поднимется, а не просто «контейнер создан».
+#
+# Таблицы в PostgreSQL создаёт именно бэкенд, на своём старте (backend/app/
+# main.py, startup_event: create_all + миграции). Пока он этого не сделал,
+# воркер видит пустую базу: на живой установке это выглядело как
+# `relation "domains" does not exist` и `relation "vm_tasks" does not exist`
+# в логах воркера, а домены не поднимались вовсе. Сам воркер теперь ждёт
+# схему (backend/app/core/schema_wait.py), но установка тоже не должна
+# рапортовать «готово» раньше времени — иначе следующий шаг (проверка
+# доменов) идёт по ещё не готовой системе.
+log "Ожидание готовности бэкенда (создаёт таблицы в базе)..."
+BACKEND_READY=false
+for _ in $(seq 1 60); do
+    if curl -sf -o /dev/null "http://127.0.0.1:8000/"; then
+        BACKEND_READY=true
+        break
+    fi
+    sleep 5
+done
+if [ "$BACKEND_READY" = true ]; then
+    log "Бэкенд отвечает, схема базы данных создана."
+else
+    warn "Бэкенд не ответил за 5 минут. Установка продолжится, но проверьте:"
+    warn "  docker compose logs backend --tail=80"
+fi
+
 # Образ Caddy собираем ЗДЕСЬ, а не оставляем на первый тик вотчдога.
 #
 # Контейнер aegis-caddy создаёт вотчдог в воркере, и при первом создании он
@@ -827,7 +898,7 @@ echo
 echo -e "${YELLOW} Важно: AEGIS_SECRET_KEY в .env менять после первого запуска нельзя —"
 echo -e " старые секреты (пароли внешних серверов, БД, ключи S3) перестанут расшифровываться.${NC}"
 if [ -n "$PANEL_DOMAIN$MAIL_DOMAIN$STORAGE_DOMAIN$RABBITMQ_DOMAIN" ]; then
-    if [ -n "$TIMEWEB_DNS_API_TOKEN" ]; then
+    if [ -n "${TIMEWEB_DNS_API_TOKEN}${CLOUDFLARE_DNS_API_TOKEN}" ]; then
         echo
         echo -e " ${GREEN}Домены заданы — сертификаты выпустятся автоматически (обычно 1-2 минуты):${NC}"
         [ -n "$PANEL_DOMAIN" ] && echo -e "   ${GREEN}https://${PANEL_DOMAIN}${NC}"
@@ -836,11 +907,25 @@ if [ -n "$PANEL_DOMAIN$MAIL_DOMAIN$STORAGE_DOMAIN$RABBITMQ_DOMAIN" ]; then
         [ -n "$RABBITMQ_DOMAIN" ] && echo -e "   ${GREEN}https://${RABBITMQ_DOMAIN}${NC}"
     else
         echo
-        echo -e " ${YELLOW}Домен(ы) указаны, но TIMEWEB_DNS_API_TOKEN в .env ещё не задан —"
+        echo -e " ${YELLOW}Домен(ы) указаны, но токен DNS-провайдера в .env ещё не задан —"
         echo -e " сертификаты не выпустятся, пока не допишете токен и не перезапустите:"
-        echo -e "   nano .env   # добавьте TIMEWEB_DNS_API_TOKEN=<токен из Timeweb Cloud -> Настройки -> API-ключи>"
+        echo -e "   nano .env   # TIMEWEB_DNS_API_TOKEN=<токен> или CLOUDFLARE_DNS_API_TOKEN=<токен>"
         echo -e "   docker compose up -d --build backend worker"
         echo -e " До этого сервисы как обычно доступны по IP и портам.${NC}"
     fi
+fi
+if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
+    echo
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^aegis-cloudflared$'; then
+        echo -e " ${GREEN}Cloudflare Tunnel запущен — сервер доступен из интернета без белого IP.${NC}"
+    else
+        echo -e " ${YELLOW}Cloudflare Tunnel настроен, но контейнер не поднялся: docker compose logs cloudflared${NC}"
+    fi
+    echo " Публичные адреса задаются в Cloudflare Zero Trust -> Networks -> Tunnels ->"
+    echo " ваш туннель -> Public hostnames. Локальные адреса сервисов:"
+    echo "   панель      http://localhost:8081"
+    echo "   почта       http://localhost:8082"
+    echo "   хранилище   http://localhost:9001"
+    echo "   очередь     http://localhost:15672"
 fi
 echo -e "${GREEN}==========================================================${NC}"

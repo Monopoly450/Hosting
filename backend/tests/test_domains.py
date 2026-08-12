@@ -869,3 +869,220 @@ def test_databases_are_deliberately_absent_from_the_table():
     Явный тест, чтобы их не добавили «для полноты»."""
     ups = " ".join(u for _, u, _ in d.SYSTEM_SERVICES)
     assert ":5432" not in ups and ":3306" not in ups
+
+
+# ------------- DNS-01 не только у Timeweb: провайдер выбирается токеном ------
+#
+# Сервер за NAT — обычное дело не только у Timeweb, а DNS-01 работает у любого
+# провайдера с API. Раньше имя провайдера было зашито в генератор конфига
+# строкой "dns timeweb", и добавить второго было некуда.
+
+def test_provider_defaults_to_timeweb_for_entries_without_an_explicit_one():
+    """Совместимость: записи, собранные старым кодом (только dns_token),
+    должны по-прежнему давать рабочий блок Timeweb, а не пустое имя плагина."""
+    cfg = d.build_caddyfile([
+        {"domain": "a.example.com", "upstream": "1.2.3.4:80", "dns_token": "tok"},
+    ])
+    assert "dns timeweb tok" in cfg
+
+
+def test_cloudflare_entry_uses_the_cloudflare_plugin():
+    cfg = d.build_caddyfile([
+        {"domain": "a.example.com", "upstream": "1.2.3.4:80",
+         "dns_token": "cf-tok", "dns_provider": "cloudflare"},
+    ])
+    assert "dns cloudflare cf-tok" in cfg
+    assert "dns timeweb" not in cfg
+
+
+def test_dns_provider_prefers_cloudflare_when_both_tokens_are_set(monkeypatch):
+    monkeypatch.setenv("TIMEWEB_DNS_API_TOKEN", "tw")
+    monkeypatch.setenv("CLOUDFLARE_DNS_API_TOKEN", "cf")
+    assert d.dns_provider() == ("cloudflare", "cf")
+
+
+def test_dns_provider_empty_without_tokens(monkeypatch):
+    monkeypatch.delenv("TIMEWEB_DNS_API_TOKEN", raising=False)
+    monkeypatch.delenv("CLOUDFLARE_DNS_API_TOKEN", raising=False)
+    assert d.dns_provider() == ("", "")
+
+
+def test_system_domains_follow_the_cloudflare_token(monkeypatch):
+    for var in ("MAIL_DOMAIN", "STORAGE_DOMAIN", "RABBITMQ_DOMAIN", "TIMEWEB_DNS_API_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("PANEL_DOMAIN", "home.example.com")
+    monkeypatch.setenv("CLOUDFLARE_DNS_API_TOKEN", "cf")
+
+    assert d.panel_entry() == {
+        "domain": "home.example.com",
+        "upstream": d.PANEL_UPSTREAM,
+        "dns_token": "cf",
+        "dns_provider": "cloudflare",
+    }
+
+
+def test_customer_domains_follow_the_cloudflare_token_too(monkeypatch):
+    monkeypatch.delenv("TIMEWEB_DNS_API_TOKEN", raising=False)
+    monkeypatch.delenv("PANEL_DOMAIN", raising=False)
+    monkeypatch.setenv("CLOUDFLARE_DNS_API_TOKEN", "cf")
+    monkeypatch.setattr(d, "is_private_host_ip", lambda *a, **k: True)
+    monkeypatch.setattr(d, "resolve_upstream", lambda db, k8s, dom: ("10.0.0.9:80", None))
+
+    entries = d.build_entries(_DomainOnlyDb([_FakeDomainRow("app.example.com")]), object())
+    assert entries == [{
+        "domain": "app.example.com", "upstream": "10.0.0.9:80",
+        "dns_token": "cf", "dns_provider": "cloudflare",
+    }]
+
+
+def test_caddy_image_is_built_with_every_provider_we_can_select():
+    """Плагин линкуется в бинарник статически: провайдер, которого нет в
+    образе, даст «unknown module» и Caddy не стартует вовсе. Список провайдеров
+    в коде и список плагинов в Dockerfile обязаны совпадать."""
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "aegis-caddy", "Dockerfile"), encoding="utf-8") as f:
+        dockerfile = f.read()
+    for name, _getter in d.DNS_PROVIDERS:
+        assert f"caddy-dns/{name}" in dockerfile, name
+
+
+# ---------- доперепроверка доменов: DNS расходится не мгновенно --------------
+#
+# Записи создаются в момент добавления домена (сами — см. services/dns_api.py,
+# или руками у регистратора), но публичные резолверы видят их через десятки
+# секунд. Проверять прямо в HTTP-обработчике бессмысленно: он почти всегда
+# упрётся в «ещё не видно», и пользователю пришлось бы жать «Проверить»
+# вручную до победного.
+
+class _Row:
+    def __init__(self, domain="app.example.com", status="pending"):
+        self.domain = domain
+        self.status = status
+        self.verification_token = "aegis-verify-abc"
+        self.dns_ok = False
+        self.ownership_ok = False
+        self.last_checked = None
+        self.last_error = None
+
+
+class _CommitDb:
+    def __init__(self, rows=()):
+        self.rows = list(rows)
+        self.commits = 0
+        self.closed = False
+
+    def query(self, model):
+        outer = self
+
+        class Q:
+            def filter(self, *a, **k):
+                return self
+
+            def all(self):
+                return outer.rows
+        return Q()
+
+    def commit(self):
+        self.commits += 1
+
+    def close(self):
+        self.closed = True
+
+
+def test_verify_domain_row_marks_a_good_domain_active(monkeypatch):
+    monkeypatch.setattr(d, "check_ownership", lambda *a: (True, "ок"))
+    monkeypatch.setattr(d, "check_dns", lambda *a, **k: (True, "10.0.0.5"))
+    row, db = _Row(), _CommitDb()
+
+    res = d.verify_domain_row(db, row, "10.0.0.5")
+
+    assert res["ready"] is True
+    assert row.status == "active" and row.dns_ok and row.ownership_ok
+    assert row.last_error is None and db.commits == 1
+
+
+def test_verify_domain_row_reports_the_failing_check_first(monkeypatch):
+    """Пока владение не доказано, показывать «ожидает A-запись» неверно —
+    пользователь пойдёт править не ту запись."""
+    monkeypatch.setattr(d, "check_ownership", lambda *a: (False, "TXT не найдена"))
+    monkeypatch.setattr(d, "check_dns", lambda *a, **k: (True, "10.0.0.5"))
+    row, db = _Row(), _CommitDb()
+
+    d.verify_domain_row(db, row, "10.0.0.5")
+
+    assert row.status == "pending" and row.last_error == "TXT не найдена"
+
+
+def test_autoverify_tick_does_nothing_without_pending_domains(monkeypatch):
+    """Тик обязан быть дешёвым: он крутится каждую минуту на каждом сервере."""
+    db = _CommitDb(rows=[])
+    monkeypatch.setattr("app.db.SessionLocal", lambda: db)
+    applied = []
+    monkeypatch.setattr(d, "apply_config", lambda *a, **k: applied.append(1))
+
+    d.autoverify_tick(object())
+
+    assert applied == [] and db.closed is True
+
+
+def test_autoverify_tick_applies_the_config_once_a_domain_becomes_ready(monkeypatch):
+    monkeypatch.setattr(d, "check_ownership", lambda *a: (True, "ок"))
+    monkeypatch.setattr(d, "check_dns", lambda *a, **k: (True, "10.0.0.5"))
+    monkeypatch.setattr(d, "host_ip", lambda: "10.0.0.5")
+    db = _CommitDb(rows=[_Row()])
+    monkeypatch.setattr("app.db.SessionLocal", lambda: db)
+    applied = []
+    monkeypatch.setattr(d, "apply_config", lambda *a, **k: applied.append(1))
+
+    d.autoverify_tick(object())
+
+    assert applied == [1]
+
+
+def test_autoverify_tick_leaves_the_config_alone_while_dns_is_not_ready(monkeypatch):
+    """Перезагружать Caddy каждую минуту без причины незачем."""
+    monkeypatch.setattr(d, "check_ownership", lambda *a: (False, "TXT не найдена"))
+    monkeypatch.setattr(d, "check_dns", lambda *a, **k: (False, "не резолвится"))
+    monkeypatch.setattr(d, "host_ip", lambda: "10.0.0.5")
+    db = _CommitDb(rows=[_Row()])
+    monkeypatch.setattr("app.db.SessionLocal", lambda: db)
+    applied = []
+    monkeypatch.setattr(d, "apply_config", lambda *a, **k: applied.append(1))
+
+    d.autoverify_tick(object())
+
+    assert applied == []
+
+
+def test_one_broken_domain_does_not_stop_the_others(monkeypatch):
+    """Одна упавшая проверка не должна оставлять остальные домены висеть."""
+    seen = []
+
+    def flaky(domain, token):
+        seen.append(domain)
+        if domain == "bad.example.com":
+            raise RuntimeError("resolver exploded")
+        return True, "ок"
+
+    monkeypatch.setattr(d, "check_ownership", flaky)
+    monkeypatch.setattr(d, "check_dns", lambda *a, **k: (True, "10.0.0.5"))
+    monkeypatch.setattr(d, "host_ip", lambda: "10.0.0.5")
+    db = _CommitDb(rows=[_Row("bad.example.com"), _Row("good.example.com")])
+    monkeypatch.setattr("app.db.SessionLocal", lambda: db)
+    monkeypatch.setattr(d, "apply_config", lambda *a, **k: None)
+
+    d.autoverify_tick(object())
+
+    assert seen == ["bad.example.com", "good.example.com"]
+
+
+def test_worker_runs_the_autoverify_daemon():
+    """Без потока в воркере домен так и остался бы «ожидающим» навсегда."""
+    import os
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "worker.py")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    assert "domains_autoverify_daemon" in src
+    assert "autoverify_tick" in src

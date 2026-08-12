@@ -28,6 +28,9 @@ try:
 
     # Инициализация таблиц (выполняется бэкендом, убираем для избежания взаимных блокировок)
     # Base.metadata.create_all(bind=engine)
+    # ...но тогда воркер обязан дождаться, пока бэкенд их создаст, — см.
+    # core/schema_wait.py и вызов wait_for_schema() в main().
+    from .core.schema_wait import wait_for_schema
 
     RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 
@@ -528,8 +531,32 @@ def caddy_watchdog_daemon():
         time.sleep(60)
 
 
+def domains_autoverify_daemon():
+    """Доводит добавленные домены до рабочего состояния без участия человека.
+
+    DNS-записи создаются в момент добавления домена (сами, если задан токен
+    провайдера, — см. services/dns_api.py), но публичные резолверы видят их
+    не сразу. Без этого демона пользователю пришлось бы возвращаться в панель
+    и жать «Проверить», пока не сойдётся.
+    """
+    logger.info("Starting domains autoverify daemon thread...")
+    from .services.domains import autoverify_tick
+    while True:
+        try:
+            autoverify_tick(k8s)
+        except Exception as e:
+            logger.error(f"Error in domains autoverify daemon loop: {e}")
+        time.sleep(60)
+
+
 def main():
     logger.info("Starting worker...")
+
+    # ДО запуска демонов: каждый из них с первой же секунды читает свою
+    # таблицу, а создаёт таблицы бэкенд, который стартует параллельно. Без
+    # этого ожидания на свежем сервере воркер захлёбывался ошибками
+    # `relation "domains" does not exist` и не поднимал прокси доменов.
+    wait_for_schema(engine)
 
     # Запуск фонового демона для ограничения дисков (cgroups v2)
     throttling_thread = threading.Thread(target=apply_disk_throttling_daemon, daemon=True)
@@ -554,6 +581,10 @@ def main():
     # Вотчдог Caddy: лечит зацикленный на перезапуске контейнер сам
     caddy_thread = threading.Thread(target=caddy_watchdog_daemon, daemon=True)
     caddy_thread.start()
+
+    # Доперепроверка доменов: DNS расходится не мгновенно
+    domains_thread = threading.Thread(target=domains_autoverify_daemon, daemon=True)
+    domains_thread.start()
 
     while True:
         try:

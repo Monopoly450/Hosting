@@ -149,14 +149,19 @@ def test_domains_verify_against_the_same_address_it_shows():
 
     Если подсказка и проверка расходятся, пользователь пропишет A-запись ровно
     так, как ему показали, а верификация всё равно не пройдёт.
-    """
-    path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "app", "api", "domains.py",
-    )
-    with open(path, encoding="utf-8") as f:
-        src = f.read()
 
-    assert "expected = host_for_links(request)" in src
-    assert "check_dns(dom.domain, expected_ip=expected)" in src
-    assert '"expected_ip": expected' in src
+    Проверка идёт по цепочке: API берёт адрес из host_for_links(request) и
+    отдаёт его сервису, а сервис сверяет с ним A-запись. Сама сверка живёт в
+    сервисе, потому что тем же кодом пользуется фоновая доперепроверка
+    доменов в воркере (autoverify_tick), у которой запроса нет вовсе.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, "app", "api", "domains.py"), encoding="utf-8") as f:
+        api_src = f.read()
+    with open(os.path.join(root, "app", "services", "domains.py"), encoding="utf-8") as f:
+        svc_src = f.read()
+
+    assert "expected = host_for_links(request)" in api_src
+    assert "verify_domain_row(db, dom, expected)" in api_src
+    assert '"expected_ip": expected' in api_src
+    assert "check_dns(dom.domain, expected_ip=expected_ip)" in svc_src

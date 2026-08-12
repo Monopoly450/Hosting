@@ -7,7 +7,8 @@
 #   sudo bash scripts/add-domain.sh
 #
 # В .env правит только строки PANEL_DOMAIN, MAIL_DOMAIN, STORAGE_DOMAIN,
-# RABBITMQ_DOMAIN и TIMEWEB_DNS_API_TOKEN — заменяет их (даже если сейчас
+# RABBITMQ_DOMAIN, TIMEWEB_DNS_API_TOKEN, CLOUDFLARE_DNS_API_TOKEN,
+# CLOUDFLARE_TUNNEL_TOKEN и COMPOSE_PROFILES — заменяет их (даже если сейчас
 # закомментированы) или дописывает в конец, если их ещё не было вовсе.
 # Остальной .env (пароли БД, ADMIN_TOKEN, AEGIS_SECRET_KEY и т.д.) не
 # трогается ни при каких условиях — в отличие от install.sh, который на
@@ -74,6 +75,8 @@ current_mail=$(get_env_var MAIL_DOMAIN)
 current_storage=$(get_env_var STORAGE_DOMAIN)
 current_rabbit=$(get_env_var RABBITMQ_DOMAIN)
 current_token=$(get_env_var TIMEWEB_DNS_API_TOKEN)
+current_cf_token=$(get_env_var CLOUDFLARE_DNS_API_TOKEN)
+current_tunnel=$(get_env_var CLOUDFLARE_TUNNEL_TOKEN)
 
 read -rp "Домен для панели управления [${current_panel:-нет}]: " panel_domain
 panel_domain="${panel_domain:-$current_panel}"
@@ -88,25 +91,53 @@ read -rp "Домен для консоли очереди (RabbitMQ) [${current_
 rabbit_domain="${rabbit_domain:-$current_rabbit}"
 
 token="$current_token"
+cf_token="$current_cf_token"
 if [ -n "$panel_domain$mail_domain$storage_domain$rabbit_domain" ]; then
     echo
-    echo -e "${CYAN}Указан хотя бы один домен. Сервер стоит на приватном IP, поэтому обычный"
-    echo -e "сертификат Let's Encrypt не выпустится — нужен API-токен Timeweb Cloud"
-    echo -e "(Настройки -> API-ключи) для подтверждения через DNS.${NC}"
-    if [ -n "$current_token" ]; then
-        read -rp "API-токен Timeweb [уже задан, Enter — оставить как есть]: " input_token
-    else
-        read -rp "API-токен Timeweb: " input_token
-    fi
-    token="${input_token:-$current_token}"
-    if [ -z "$token" ]; then
+    echo -e "${CYAN}Указан хотя бы один домен. Если сервер стоит на приватном IP, обычный"
+    echo -e "сертификат Let's Encrypt не выпустится — нужен API-токен DNS-провайдера"
+    echo -e "для подтверждения через DNS. Этим же токеном панель заводит записи"
+    echo -e "доменов сама, когда вы добавляете домен во вкладке «Домены и TLS».${NC}"
+    read -rp "Провайдер DNS — timeweb или cloudflare [timeweb]: " provider
+    case "${provider:-timeweb}" in
+        [cC]*)
+            if [ -n "$current_cf_token" ]; then
+                read -rp "API-токен Cloudflare [уже задан, Enter — оставить как есть]: " input_token
+            else
+                read -rp "API-токен Cloudflare (My Profile -> API Tokens, права Zone:DNS:Edit): " input_token
+            fi
+            cf_token="${input_token:-$current_cf_token}"
+            ;;
+        *)
+            if [ -n "$current_token" ]; then
+                read -rp "API-токен Timeweb [уже задан, Enter — оставить как есть]: " input_token
+            else
+                read -rp "API-токен Timeweb (Настройки -> API-ключи): " input_token
+            fi
+            token="${input_token:-$current_token}"
+            ;;
+    esac
+    if [ -z "$token$cf_token" ]; then
         warn "Токен не указан — домены запишутся в .env, но сертификаты не выпустятся,"
-        warn "пока не допишете TIMEWEB_DNS_API_TOKEN в .env вручную и не примените снова."
+        warn "пока не допишете TIMEWEB_DNS_API_TOKEN или CLOUDFLARE_DNS_API_TOKEN вручную."
     fi
 fi
 
-if [ -z "$panel_domain$mail_domain$storage_domain$rabbit_domain" ]; then
-    log "Доменов не указано — .env не менялся, всё осталось как есть."
+# Cloudflare Tunnel — отдельная задача: не сертификат, а доступность сервера
+# из интернета, когда белого IP нет вовсе.
+echo
+echo -e "${CYAN}Cloudflare Tunnel открывает этот сервер в интернет без белого IP и без"
+echo -e "проброса портов на роутере. Токен: Cloudflare Zero Trust -> Networks ->"
+echo -e "Tunnels -> ваш туннель -> Docker (длинная строка после --token).${NC}"
+if [ -n "$current_tunnel" ]; then
+    read -rp "Токен Cloudflare Tunnel [уже задан, Enter — оставить как есть]: " input_tunnel
+else
+    read -rp "Токен Cloudflare Tunnel (Enter — пропустить): " input_tunnel
+fi
+tunnel_token="${input_tunnel:-$current_tunnel}"
+
+if [ -z "$panel_domain$mail_domain$storage_domain$rabbit_domain$tunnel_token" ]; then
+    log "Ни доменов, ни токена туннеля — .env не менялся, всё осталось как есть."
     exit 0
 fi
 
@@ -115,6 +146,13 @@ fi
 [ -n "$storage_domain" ] && set_env_var STORAGE_DOMAIN "$storage_domain"
 [ -n "$rabbit_domain" ] && set_env_var RABBITMQ_DOMAIN "$rabbit_domain"
 [ -n "$token" ] && set_env_var TIMEWEB_DNS_API_TOKEN "$token"
+[ -n "$cf_token" ] && set_env_var CLOUDFLARE_DNS_API_TOKEN "$cf_token"
+if [ -n "$tunnel_token" ]; then
+    set_env_var CLOUDFLARE_TUNNEL_TOKEN "$tunnel_token"
+    # Профиль включает сервис cloudflared в docker-compose.yml — без него
+    # контейнер туннеля не запустится, сколько бы токенов ни лежало в .env.
+    set_env_var COMPOSE_PROFILES "cloudflare"
+fi
 chmod 600 "$ENV_FILE"
 log ".env обновлён."
 
@@ -129,6 +167,10 @@ esac
 
 log "Перезапуск backend и worker (подхватят новые переменные из .env)..."
 docker compose up -d backend worker
+if [ -n "$tunnel_token" ]; then
+    log "Запуск Cloudflare Tunnel..."
+    docker compose up -d cloudflared || warn "Не удалось запустить cloudflared: docker compose logs cloudflared"
+fi
 
 log "Ожидание готовности API..."
 ready=false
