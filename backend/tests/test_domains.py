@@ -1149,3 +1149,23 @@ def test_explicit_port_still_wins():
     with open(path, encoding="utf-8") as f:
         src = f.read()
     assert "req.target_port or dsvc.default_target_port(vm)" in src
+
+
+def test_domain_table_does_not_print_raw_resolver_errors():
+    """Под бейджем печатался сырой текст от резолвера — «TXT-запись ... не
+    найдена: The DNS query name does not exist». Это не ошибка пользователя
+    и не его задача: пока запись расходится, такого ответа и надо ожидать.
+    Действий строка не подсказывала, наполовину была на английском и
+    выглядела как поломка на месте, где всё идёт по плану. Текст остался в
+    подсказке бейджа — для диагностики."""
+    import os, re
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    path = os.path.join(root, "frontend", "src", "components", "DomainsPanel.jsx")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+
+    code = re.sub(r"\{/\*.*?\*/\}|/\*.*?\*/|//[^\n]*", "", src, flags=re.S)
+    # Ошибка не должна попадать в тело строки таблицы...
+    assert ">{d.last_error}<" not in code
+    # ...но должна оставаться доступной в подсказке.
+    assert "d.last_error" in code and "title={hint}" in code

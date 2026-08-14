@@ -152,7 +152,10 @@ export default function DomainsPanel() {
         const text = auto
             ? 'ждём распространения DNS'
             : (!d.ownership_ok ? 'нужна TXT-запись' : 'ожидает A-запись');
-        return <span className="badge" style={{ background: 'rgba(245,166,35,0.15)', color: '#f5a623', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>{auto ? <span className="spinner" style={{ width: 11, height: 11 }} /> : <AlertTriangle size={12} />} {text}</span>;
+        const hint = auto
+            ? 'Записи уже созданы панелью. Ждём, пока их увидят публичные резолверы — обычно до минуты.'
+            : (d.last_error || 'Проверка DNS ещё не прошла');
+        return <span className="badge" title={hint} style={{ background: 'rgba(245,166,35,0.15)', color: '#f5a623', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>{auto ? <span className="spinner" style={{ width: 11, height: 11 }} /> : <AlertTriangle size={12} />} {text}</span>;
     };
 
     // Шапка рисуется и во время загрузки. Раньше здесь был ранний return
@@ -296,7 +299,16 @@ export default function DomainsPanel() {
                                                 </div>
                                             </div>
                                         )}
-                                        {d.last_error && <div className="text-muted" style={{ fontSize: '0.72rem', marginTop: '4px' }} title={d.last_error}>{d.last_error}</div>}
+                                        {/* Сырой текст ошибки резолвера под
+                                            бейджем не показываем: «The DNS
+                                            query name does not exist» — это
+                                            не ошибка пользователя и не его
+                                            задача, а нормальное промежуточное
+                                            состояние, пока запись расходится.
+                                            Действий она не подсказывает, а
+                                            выглядит как поломка. Текст
+                                            остался в подсказке самого бейджа
+                                            (title) — для диагностики. */}
                                     </td>
                                     <td>
                                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
