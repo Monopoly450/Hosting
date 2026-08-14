@@ -78,18 +78,24 @@ def test_caddyfile_uses_dns01_when_entry_carries_a_dns_token():
 
 
 def test_caddyfile_dns01_block_avoids_the_propagation_race():
-    """Инцидент на живом сервере: без задержки Let's Encrypt иногда спрашивал
+    """Инцидент на живом сервере: без задержки Let's Encrypt спрашивал
     TXT-запись раньше, чем она реально разошлась у Timeweb (каждая ACME-
     попытка запрашивает новый токен), а проверка НАПРЯМУЮ через авторитетные
-    NS домена подвисала на прямом TCP:53 наружу и падала по таймауту. При
-    нескольких одновременных доменах NS Timeweb не укладывался и в дефолтный
-    двухминутный propagation_timeout — увеличен с запасом."""
+    NS домена подвисала на прямом TCP:53 наружу и падала по таймауту.
+
+    30 секунд оказалось мало: домен n8n получил NXDOMAIN на
+    _acme-challenge три попытки подряд, а соседний уложился за 36 секунд —
+    впритык. Задержка отодвигает только первую проверку, поэтому увеличена
+    с запасом."""
     cfg = d.build_caddyfile([
         {"domain": "home.example.com", "upstream": "127.0.0.1:8081", "dns_token": "tok-123"},
     ])
-    assert "propagation_delay 30s" in cfg
-    assert "propagation_timeout 5m" in cfg
+    assert f"propagation_delay {d.ACME_PROPAGATION_DELAY}" in cfg
+    assert f"propagation_timeout {d.ACME_PROPAGATION_TIMEOUT}" in cfg
     assert "resolvers 1.1.1.1 8.8.8.8" in cfg
+
+    # Задержка должна быть заметно больше тех 30 секунд, на которых обожглись.
+    assert d.ACME_PROPAGATION_DELAY.endswith("m")
 
 
 def test_caddyfile_plain_entry_has_no_dns_block():
@@ -754,7 +760,8 @@ def test_dns_settings_live_inside_the_issuer_block():
     closing = cfg.index("\t\t}", issuer_at)
     inside = cfg[issuer_at:closing]
     for directive in ("dns timeweb tok", "resolvers 1.1.1.1 8.8.8.8",
-                      "propagation_delay 30s", "propagation_timeout 5m"):
+                      f"propagation_delay {d.ACME_PROPAGATION_DELAY}",
+                      f"propagation_timeout {d.ACME_PROPAGATION_TIMEOUT}"):
         assert directive in inside, directive
 
 
@@ -1169,3 +1176,33 @@ def test_domain_table_does_not_print_raw_resolver_errors():
     assert ">{d.last_error}<" not in code
     # ...но должна оставаться доступной в подсказке.
     assert "d.last_error" in code and "title={hint}" in code
+
+
+def test_staging_ca_is_closed_off_not_just_deprioritised():
+    """Одного явного issuer оказалось мало, и это доказано логом живого
+    сервера:
+
+        challenge failed ... ca=acme-v02          (боевой, попытка 1)
+        using ACME account ... acme-staging-v02   (попытки 2 и 3)
+
+    certmagic держит ОТДЕЛЬНЫЙ тестовый CA и уходит на него после неудачи,
+    чтобы не жечь лимиты боевого. На практике это вредит: staging и боевой
+    выпуск идут по одному имени _acme-challenge.<домен> и затирают токены
+    друг друга, а пока длится крюк — у домена нет годного сертификата, и
+    браузер отвечает «не удалось установить защищённое соединение». Ровно
+    это и случилось с n8n.byteburners.ru.
+
+    Лечится тем, что тестовый каталог указывает на боевой: переключаться
+    просто некуда."""
+    cfg = d.build_caddyfile([
+        {"domain": "a.example.com", "upstream": "1.2.3.4:80", "dns_token": "tok"},
+    ])
+    assert f"test_dir {d.LETSENCRYPT_PROD_CA}" in cfg
+    # Ни в каком виде staging в конфиг попадать не должен.
+    assert "acme-staging" not in cfg
+
+    # test_dir — параметр издателя, а не блока tls: снаружи issuer он
+    # относился бы к УЦ по умолчанию и ничего бы не закрыл.
+    issuer_at = cfg.index("issuer acme")
+    closing = cfg.index("\t\t}", issuer_at)
+    assert "test_dir" in cfg[issuer_at:closing]

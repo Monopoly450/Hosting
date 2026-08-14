@@ -31,6 +31,12 @@ CADDYFILE_PATH = "/etc/caddy/Caddyfile"
 # staging после неудачных попыток — см. пояснение в build_caddyfile.
 LETSENCRYPT_PROD_CA = "https://acme-v02.api.letsencrypt.org/directory"
 
+# Сколько ждать перед тем, как просить Let's Encrypt проверить TXT-запись, и
+# сколько всего ждать её распространения. Значения подобраны под NS Timeweb —
+# см. подробный разбор в build_caddyfile.
+ACME_PROPAGATION_DELAY = "2m"
+ACME_PROPAGATION_TIMEOUT = "10m"
+
 # Метка домена: буквы/цифры/дефис, до 63 символов; минимум два уровня.
 DOMAIN_RE = re.compile(
     r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$"
@@ -237,26 +243,41 @@ def build_caddyfile(entries: list, email: str = "") -> str:
             # задержка даёт записи время долистать TTL=600 до края; таймаут
             # увеличен с запасом под медленный NS.
             #
-            # issuer задан ЯВНО и ровно один — это и есть защита от главной
-            # оставшейся поломки. По умолчанию Caddy держит список УЦ (боевой
-            # Let's Encrypt, ZeroSSL) и после нескольких неудач сам уходит на
-            # staging. Дальше он начинает чередовать попытки: staging и боевой
-            # выпуск идут по одному и тому же имени _acme-challenge.<домен>,
-            # каждый пишет туда свой токен и затирает чужой. Итог в логе —
-            # «Incorrect TXT record found»: проверяющий видит токен соседней
-            # попытки. Плюс сертификат от staging браузеры не считают
-            # доверенным, а панель при этом показывает домен активным.
-            # С одним явным issuer метаться некуда.
+            # issuer задан ЯВНО и ровно один: по умолчанию Caddy держит список
+            # УЦ (боевой Let's Encrypt, ZeroSSL) и метался бы между ними.
+            #
+            # test_dir указывает на ТОТ ЖЕ боевой каталог намеренно. Одного
+            # явного issuer оказалось мало — это видно в логе живого сервера:
+            #
+            #   challenge failed ... ca=acme-v02        (боевой, попытка 1)
+            #   using ACME account ... acme-staging-v02 (попытки 2 и 3)
+            #
+            # certmagic держит ОТДЕЛЬНЫЙ тестовый CA и после неудачи уходит
+            # проверять настройку на него, чтобы не жечь лимиты боевого. Идея
+            # разумная, а на практике вредит: staging и боевой выпуск идут по
+            # одному и тому же имени _acme-challenge.<домен>, каждый пишет
+            # туда свой токен и затирает чужой — отсюда «Incorrect TXT record
+            # found». Плюс пока идёт этот крюк, у домена вообще нет годного
+            # сертификата, и браузер отвечает «не удалось установить
+            # защищённое соединение». Когда test_dir равен боевому каталогу,
+            # переключаться некуда: все попытки идут по одному адресу.
             lines.append("\ttls {")
             lines.append(f"\t\tissuer acme {LETSENCRYPT_PROD_CA} {{")
+            lines.append(f"\t\t\ttest_dir {LETSENCRYPT_PROD_CA}")
             if email:
                 # Глобальный `email` относится к УЦ по умолчанию; у явного
                 # issuer свой, иначе аккаунт ACME будет без контакта.
                 lines.append(f"\t\t\temail {email}")
             lines.append(f"\t\t\tdns {e.get('dns_provider') or DEFAULT_DNS_PROVIDER} {e['dns_token']}")
             lines.append("\t\t\tresolvers 1.1.1.1 8.8.8.8")
-            lines.append("\t\t\tpropagation_delay 30s")
-            lines.append("\t\t\tpropagation_timeout 5m")
+            # 2 минуты, а не 30 секунд. NS Timeweb отдают свежую TXT-запись
+            # медленнее: на живом сервере домен, поднятый с задержкой 30s,
+            # получал NXDOMAIN на _acme-challenge три попытки подряд, а
+            # соседний уложился за 36 секунд — то есть впритык, и повезло не
+            # всем. Задержка стоит дешевле: она отодвигает только первую
+            # проверку, а не весь выпуск.
+            lines.append(f"\t\t\tpropagation_delay {ACME_PROPAGATION_DELAY}")
+            lines.append(f"\t\t\tpropagation_timeout {ACME_PROPAGATION_TIMEOUT}")
             lines.append("\t\t}")
             lines.append("\t}")
         lines.append(f"\treverse_proxy {e['upstream']}")
