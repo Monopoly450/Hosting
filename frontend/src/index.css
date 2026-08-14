@@ -754,7 +754,16 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
 }
 
 /* Elevate main area when a slide-over drawer or modal is open to cover sidebar and header */
-.main-area:has(.slide-over-overlay, .modal-overlay, .modal-backdrop) {
+/* Костыль для оверлеев, которые всё ещё рисуются ВНУТРИ .main-area: та
+   создаёт свой контекст наложения (position: relative + z-index), и
+   z-index: 1000 у оверлея внутри неё не может подняться выше соседей —
+   сайдбар оставался неприкрытым и непотускневшим.
+
+   .modal-overlay сюда больше не входит: такие модалки обёрнуты в <Portal>
+   и рисуются прямо в document.body, вне всей оболочки приложения, поэтому
+   поднимать ради них .main-area не нужно. Остальные типы оверлеев на
+   портал ещё не переведены. */
+.main-area:has(.slide-over-overlay, .modal-backdrop) {
   z-index: 1001;
 }
 

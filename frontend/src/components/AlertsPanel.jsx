@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, BellRing, Plus, Trash2, X, Send, Power, Server, HardDrive, Webhook, MessageCircle, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import Portal from './Portal';
 import CustomSelect from './CustomSelect';
 
 const METRICS = {
@@ -233,133 +234,137 @@ export default function AlertsPanel() {
 
             {/* Модалка канала */}
             {showChannel && (
-                <div className="modal-overlay" onClick={() => setShowChannel(false)}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
-                        <div className="modal-header"><h2>Новый канал уведомлений</h2><button className="btn-close" onClick={() => setShowChannel(false)} type="button"><X size={18} /></button></div>
-                        <form onSubmit={createChannel}>
-                            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Название</label>
-                                    <input className="form-control" value={chName} onChange={e => setChName(e.target.value)} placeholder="например: мой Telegram" required autoFocus />
-                                </div>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Тип</label>
-                                    <CustomSelect
-                                        value={chType}
-                                        onChange={e => setChType(e.target.value)}
-                                        options={[
-                                            { value: 'webhook', label: 'Webhook' },
-                                            { value: 'telegram', label: 'Telegram' },
-                                        ]}
-                                    />
-                                </div>
-                                {chType === 'webhook' ? (
+                <Portal>
+                    <div className="modal-overlay" onClick={() => setShowChannel(false)}>
+                        <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+                            <div className="modal-header"><h2>Новый канал уведомлений</h2><button className="btn-close" onClick={() => setShowChannel(false)} type="button"><X size={18} /></button></div>
+                            <form onSubmit={createChannel}>
+                                <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                     <div className="input-group" style={{ marginBottom: 0 }}>
-                                        <label className="input-label">URL</label>
-                                        <input className="form-control" value={chUrl} onChange={e => setChUrl(e.target.value)} placeholder="https://example.com/hook" required />
+                                        <label className="input-label">Название</label>
+                                        <input className="form-control" value={chName} onChange={e => setChName(e.target.value)} placeholder="например: мой Telegram" required autoFocus />
                                     </div>
-                                ) : (
-                                    <>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Тип</label>
+                                        <CustomSelect
+                                            value={chType}
+                                            onChange={e => setChType(e.target.value)}
+                                            options={[
+                                                { value: 'webhook', label: 'Webhook' },
+                                                { value: 'telegram', label: 'Telegram' },
+                                            ]}
+                                        />
+                                    </div>
+                                    {chType === 'webhook' ? (
                                         <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">Bot token</label>
-                                            <input className="form-control" value={chToken} onChange={e => setChToken(e.target.value)} placeholder="123456:ABC-DEF..." required />
+                                            <label className="input-label">URL</label>
+                                            <input className="form-control" value={chUrl} onChange={e => setChUrl(e.target.value)} placeholder="https://example.com/hook" required />
                                         </div>
-                                        <div className="input-group" style={{ marginBottom: 0 }}>
-                                            <label className="input-label">Chat ID</label>
-                                            <input className="form-control" value={chChat} onChange={e => setChChat(e.target.value)} placeholder="напр. 123456789" required />
-                                        </div>
-                                    </>
-                                )}
-                            </div>
-                            <div className="modal-actions">
-                                <button type="button" className="btn btn-secondary" onClick={() => setShowChannel(false)} disabled={busy}>Отмена</button>
-                                <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? <span className="spinner" /> : 'Создать'}</button>
-                            </div>
-                        </form>
+                                    ) : (
+                                        <>
+                                            <div className="input-group" style={{ marginBottom: 0 }}>
+                                                <label className="input-label">Bot token</label>
+                                                <input className="form-control" value={chToken} onChange={e => setChToken(e.target.value)} placeholder="123456:ABC-DEF..." required />
+                                            </div>
+                                            <div className="input-group" style={{ marginBottom: 0 }}>
+                                                <label className="input-label">Chat ID</label>
+                                                <input className="form-control" value={chChat} onChange={e => setChChat(e.target.value)} placeholder="напр. 123456789" required />
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => setShowChannel(false)} disabled={busy}>Отмена</button>
+                                    <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? <span className="spinner" /> : 'Создать'}</button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
-                </div>
+                </Portal>
             )}
 
             {/* Модалка правила */}
             {showRule && (
-                <div className="modal-overlay" onClick={() => setShowRule(false)}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-                        <div className="modal-header"><h2>Новое правило алерта</h2><button className="btn-close" onClick={() => setShowRule(false)} type="button"><X size={18} /></button></div>
-                        <form onSubmit={createRule}>
-                            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Имя правила</label>
-                                    <input className="form-control" value={rName} onChange={e => setRName(e.target.value)} placeholder="например: web-1 упала" required autoFocus />
-                                </div>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Объект</label>
-                                    <CustomSelect
-                                        value={rTargetType}
-                                        onChange={e => setRTargetType(e.target.value)}
-                                        options={[
-                                            { value: 'vm', label: 'Виртуальная машина' },
-                                            ...(isAdmin ? [{ value: 'host', label: 'Хост (сервер целиком)' }] : []),
-                                        ]}
-                                    />
-                                </div>
-                                {rTargetType === 'vm' && (
+                <Portal>
+                    <div className="modal-overlay" onClick={() => setShowRule(false)}>
+                        <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+                            <div className="modal-header"><h2>Новое правило алерта</h2><button className="btn-close" onClick={() => setShowRule(false)} type="button"><X size={18} /></button></div>
+                            <form onSubmit={createRule}>
+                                <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                     <div className="input-group" style={{ marginBottom: 0 }}>
-                                        <label className="input-label">Виртуальная машина</label>
+                                        <label className="input-label">Имя правила</label>
+                                        <input className="form-control" value={rName} onChange={e => setRName(e.target.value)} placeholder="например: web-1 упала" required autoFocus />
+                                    </div>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Объект</label>
                                         <CustomSelect
-                                            value={rTarget}
-                                            onChange={e => setRTarget(e.target.value)}
-                                            placeholder="— выберите ВМ —"
-                                            options={vms.filter(v => v.id).map(v => ({ value: v.id, label: v.name }))}
+                                            value={rTargetType}
+                                            onChange={e => setRTargetType(e.target.value)}
+                                            options={[
+                                                { value: 'vm', label: 'Виртуальная машина' },
+                                                ...(isAdmin ? [{ value: 'host', label: 'Хост (сервер целиком)' }] : []),
+                                            ]}
                                         />
                                     </div>
-                                )}
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Метрика</label>
-                                    <CustomSelect
-                                        value={rMetric}
-                                        onChange={e => setRMetric(e.target.value)}
-                                        options={availableMetrics}
-                                    />
-                                </div>
-                                {rMetric !== 'status' && (
-                                    <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
-                                        <div className="input-group" style={{ marginBottom: 0, width: '110px' }}>
-                                            <label className="input-label">Условие</label>
+                                    {rTargetType === 'vm' && (
+                                        <div className="input-group" style={{ marginBottom: 0 }}>
+                                            <label className="input-label">Виртуальная машина</label>
                                             <CustomSelect
-                                                value={rComparator}
-                                                onChange={e => setRComparator(e.target.value)}
-                                                options={[
-                                                    { value: '>', label: 'больше >' },
-                                                    { value: '<', label: 'меньше <' },
-                                                ]}
+                                                value={rTarget}
+                                                onChange={e => setRTarget(e.target.value)}
+                                                placeholder="— выберите ВМ —"
+                                                options={vms.filter(v => v.id).map(v => ({ value: v.id, label: v.name }))}
                                             />
                                         </div>
-                                        <div className="input-group" style={{ marginBottom: 0, flex: 1 }}>
-                                            <label className="input-label">Порог, %</label>
-                                            <input type="number" className="form-control" value={rThreshold} onChange={e => setRThreshold(e.target.value)} min="0" max="100" />
-                                        </div>
+                                    )}
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Метрика</label>
+                                        <CustomSelect
+                                            value={rMetric}
+                                            onChange={e => setRMetric(e.target.value)}
+                                            options={availableMetrics}
+                                        />
                                     </div>
-                                )}
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Канал уведомления</label>
-                                    <CustomSelect
-                                        value={rChannel}
-                                        onChange={e => setRChannel(e.target.value)}
-                                        placeholder="Без уведомления (только статус)"
-                                        options={[
-                                            { value: '', label: 'Без уведомления (только статус)' },
-                                            ...channels.map(c => ({ value: c.id, label: `${c.name} (${c.type})` })),
-                                        ]}
-                                    />
+                                    {rMetric !== 'status' && (
+                                        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
+                                            <div className="input-group" style={{ marginBottom: 0, width: '110px' }}>
+                                                <label className="input-label">Условие</label>
+                                                <CustomSelect
+                                                    value={rComparator}
+                                                    onChange={e => setRComparator(e.target.value)}
+                                                    options={[
+                                                        { value: '>', label: 'больше >' },
+                                                        { value: '<', label: 'меньше <' },
+                                                    ]}
+                                                />
+                                            </div>
+                                            <div className="input-group" style={{ marginBottom: 0, flex: 1 }}>
+                                                <label className="input-label">Порог, %</label>
+                                                <input type="number" className="form-control" value={rThreshold} onChange={e => setRThreshold(e.target.value)} min="0" max="100" />
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Канал уведомления</label>
+                                        <CustomSelect
+                                            value={rChannel}
+                                            onChange={e => setRChannel(e.target.value)}
+                                            placeholder="Без уведомления (только статус)"
+                                            options={[
+                                                { value: '', label: 'Без уведомления (только статус)' },
+                                                ...channels.map(c => ({ value: c.id, label: `${c.name} (${c.type})` })),
+                                            ]}
+                                        />
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="modal-actions">
-                                <button type="button" className="btn btn-secondary" onClick={() => setShowRule(false)} disabled={busy}>Отмена</button>
-                                <button type="submit" className="btn btn-primary" disabled={busy || !rName.trim() || (rTargetType === 'vm' && !rTarget)}>{busy ? <span className="spinner" /> : 'Создать'}</button>
-                            </div>
-                        </form>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => setShowRule(false)} disabled={busy}>Отмена</button>
+                                    <button type="submit" className="btn btn-primary" disabled={busy || !rName.trim() || (rTargetType === 'vm' && !rTarget)}>{busy ? <span className="spinner" /> : 'Создать'}</button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
-                </div>
+                </Portal>
             )}
         </div>
     );

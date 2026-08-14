@@ -265,3 +265,33 @@ def test_no_styling_classes_that_do_not_exist():
             if re.search(r'className="[^"]*\b%s\b' % re.escape(cls), code):
                 offenders.append(f"{os.path.basename(path)}: {cls}")
     assert not offenders, "класс, которого нет в CSS: " + ", ".join(offenders)
+
+
+def test_modals_render_outside_the_app_shell():
+    """Модалка, отрисованная внутри .main-area, накрыть сайдбар не может:
+    .main-area создаёт свой контекст наложения (position: relative +
+    z-index), и z-index: 1000 у оверлея внутри неё выше соседей не
+    поднимается. На экране это выглядело так — контент затемнён и размыт, а
+    сайдбар остался светлым поверх оверлея, и окно центрировалось не по
+    экрану. Лечится не z-index'ом, а порталом в document.body."""
+    import os, re, glob
+
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    src_dir = os.path.join(root, "frontend", "src")
+
+    offenders = []
+    for path in glob.glob(os.path.join(src_dir, "components", "*.jsx")):
+        with open(path, encoding="utf-8") as f:
+            src = f.read()
+        if 'className="modal-overlay"' not in src:
+            continue
+        if "import Portal" not in src:
+            offenders.append(os.path.basename(path))
+    assert not offenders, "модалка вне <Portal>: " + ", ".join(offenders)
+
+    # Костыль в CSS больше не должен упоминать .modal-overlay — иначе он
+    # маскирует возврат модалки внутрь оболочки.
+    with open(os.path.join(src_dir, "index.css"), encoding="utf-8") as f:
+        css = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+    m = re.search(r"\.main-area:has\(([^)]*)\)", css)
+    assert m and "modal-overlay" not in m.group(1)

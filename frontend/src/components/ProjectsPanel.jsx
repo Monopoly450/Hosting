@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FolderKanban, Plus, Trash2, X, Users, Server, Database, Rocket, UserPlus, Link2, HardDrive } from 'lucide-react';
+import Portal from './Portal';
 import CustomSelect from './CustomSelect';
 
 const ROLE_LABEL = { owner: 'владелец', editor: 'редактор', viewer: 'наблюдатель', admin: 'админ' };
@@ -270,27 +271,29 @@ export default function ProjectsPanel() {
             )}
 
             {showCreate && (
-                <div className="modal-overlay" onClick={() => setShowCreate(false)}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
-                        <div className="modal-header"><h2>Новый проект</h2><button className="btn-close" onClick={() => setShowCreate(false)} type="button"><X size={18} /></button></div>
-                        <form onSubmit={createProject}>
-                            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Название</label>
-                                    <input className="form-control" value={name} onChange={e => setName(e.target.value)} placeholder="например: Курсовая работа" required autoFocus />
+                <Portal>
+                    <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+                        <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+                            <div className="modal-header"><h2>Новый проект</h2><button className="btn-close" onClick={() => setShowCreate(false)} type="button"><X size={18} /></button></div>
+                            <form onSubmit={createProject}>
+                                <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Название</label>
+                                        <input className="form-control" value={name} onChange={e => setName(e.target.value)} placeholder="например: Курсовая работа" required autoFocus />
+                                    </div>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Описание (необязательно)</label>
+                                        <input className="form-control" value={description} onChange={e => setDescription(e.target.value)} />
+                                    </div>
                                 </div>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Описание (необязательно)</label>
-                                    <input className="form-control" value={description} onChange={e => setDescription(e.target.value)} />
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => setShowCreate(false)} disabled={busy}>Отмена</button>
+                                    <button type="submit" className="btn btn-primary" disabled={busy || !name.trim()}>{busy ? <span className="spinner" /> : 'Создать'}</button>
                                 </div>
-                            </div>
-                            <div className="modal-actions">
-                                <button type="button" className="btn btn-secondary" onClick={() => setShowCreate(false)} disabled={busy}>Отмена</button>
-                                <button type="submit" className="btn btn-primary" disabled={busy || !name.trim()}>{busy ? <span className="spinner" /> : 'Создать'}</button>
-                            </div>
-                        </form>
+                            </form>
+                        </div>
                     </div>
-                </div>
+                </Portal>
             )}
         </div>
     );

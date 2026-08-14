@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Key, Plus, Trash2, Copy, Check, X, AlertTriangle, Terminal, Clock } from 'lucide-react';
+import Portal from './Portal';
 
 export default function TokensPanel() {
     const [tokens, setTokens] = useState([]);
@@ -126,30 +127,32 @@ export default function TokensPanel() {
             )}
 
             {showCreate && (
-                <div className="modal-overlay" onClick={() => setShowCreate(false)}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
-                        <div className="modal-header">
-                            <h2>Новый API-токен</h2>
-                            <button className="btn-close" onClick={() => setShowCreate(false)} type="button"><X size={18} /></button>
+                <Portal>
+                    <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+                        <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+                            <div className="modal-header">
+                                <h2>Новый API-токен</h2>
+                                <button className="btn-close" onClick={() => setShowCreate(false)} type="button"><X size={18} /></button>
+                            </div>
+                            <form onSubmit={handleCreate}>
+                                <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Имя токена</label>
+                                        <input className="form-control" placeholder="например: ci-runner, terraform" value={name} onChange={e => setName(e.target.value)} required autoFocus />
+                                    </div>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Clock size={14} /> Срок жизни (дней, необязательно)</label>
+                                        <input type="number" className="form-control" placeholder="без ограничения" value={expires} onChange={e => setExpires(e.target.value)} min="1" max="3650" />
+                                    </div>
+                                </div>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => setShowCreate(false)} disabled={submitting}>Отмена</button>
+                                    <button type="submit" className="btn btn-primary" disabled={submitting || !name.trim()}>{submitting ? <span className="spinner" /> : <><Key size={14} /> Создать</>}</button>
+                                </div>
+                            </form>
                         </div>
-                        <form onSubmit={handleCreate}>
-                            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Имя токена</label>
-                                    <input className="form-control" placeholder="например: ci-runner, terraform" value={name} onChange={e => setName(e.target.value)} required autoFocus />
-                                </div>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Clock size={14} /> Срок жизни (дней, необязательно)</label>
-                                    <input type="number" className="form-control" placeholder="без ограничения" value={expires} onChange={e => setExpires(e.target.value)} min="1" max="3650" />
-                                </div>
-                            </div>
-                            <div className="modal-actions">
-                                <button type="button" className="btn btn-secondary" onClick={() => setShowCreate(false)} disabled={submitting}>Отмена</button>
-                                <button type="submit" className="btn btn-primary" disabled={submitting || !name.trim()}>{submitting ? <span className="spinner" /> : <><Key size={14} /> Создать</>}</button>
-                            </div>
-                        </form>
                     </div>
-                </div>
+                </Portal>
             )}
         </div>
     );

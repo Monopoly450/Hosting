@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Globe, Plus, Trash2, X, ShieldCheck, RefreshCw, Copy, Check, AlertTriangle, ExternalLink, Wand2 } from 'lucide-react';
+import Portal from './Portal';
 import CustomSelect from './CustomSelect';
 
 export default function DomainsPanel() {
@@ -313,62 +314,64 @@ export default function DomainsPanel() {
             )}
 
             {showAdd && (
-                <div className="modal-overlay" onClick={() => setShowAdd(false)}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '460px' }}>
-                        <div className="modal-header"><h2>Добавить домен</h2><button className="btn-close" onClick={() => setShowAdd(false)} type="button"><X size={18} /></button></div>
-                        <form onSubmit={addDomain}>
-                            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Домен</label>
-                                    <input className="form-control" value={name} onChange={e => setName(e.target.value)} placeholder="app.example.com" required autoFocus />
-                                </div>
-                                {/* Один список вместо «тип» + «объект»: тип
-                                    однозначно следует из выбранной цели. */}
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Куда направить</label>
-                                    <CustomSelect
-                                        value={target}
-                                        onChange={e => setTarget(e.target.value)}
-                                        placeholder="— выберите —"
-                                        options={[
-                                            ...deployments.map(x => ({
-                                                value: `deployment:${x.id}`,
-                                                label: `Приложение: ${x.name} (порт ${x.app_port})`,
-                                            })),
-                                            ...vms.filter(v => v.id).map(x => ({
-                                                value: `vm:${x.id}`,
-                                                label: `ВМ: ${x.name}${x.app_int_port ? ` (порт ${x.app_int_port})` : ''}`,
-                                            })),
-                                        ]}
-                                    />
-                                </div>
-                                {/* Порт убран из основной формы: бэкенд берёт
-                                    его у шаблона ВМ (Grafana 3000, Portainer
-                                    9000) или у деплоя. Раньше для ВМ он был
-                                    обязателен, и надо было помнить его
-                                    наизусть. */}
-                                {showPort ? (
+                <Portal>
+                    <div className="modal-overlay" onClick={() => setShowAdd(false)}>
+                        <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '460px' }}>
+                            <div className="modal-header"><h2>Добавить домен</h2><button className="btn-close" onClick={() => setShowAdd(false)} type="button"><X size={18} /></button></div>
+                            <form onSubmit={addDomain}>
+                                <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                     <div className="input-group" style={{ marginBottom: 0 }}>
-                                        <label className="input-label">Внутренний порт</label>
-                                        <input type="number" className="form-control" value={port}
-                                               onChange={e => setPort(e.target.value)}
-                                               placeholder="например 8080" min="1" max="65535" autoFocus />
+                                        <label className="input-label">Домен</label>
+                                        <input className="form-control" value={name} onChange={e => setName(e.target.value)} placeholder="app.example.com" required autoFocus />
                                     </div>
-                                ) : (
-                                    <button type="button" className="btn-link" onClick={() => setShowPort(true)}
-                                            style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer',
-                                                     color: 'var(--accent-primary)', fontSize: '0.78rem', textAlign: 'left' }}>
-                                        Указать порт вручную
-                                    </button>
-                                )}
-                            </div>
-                            <div className="modal-actions">
-                                <button type="button" className="btn btn-secondary" onClick={() => setShowAdd(false)} disabled={busy}>Отмена</button>
-                                <button type="submit" className="btn btn-primary" disabled={busy || !name.trim() || !target}>{busy ? <span className="spinner" /> : 'Добавить'}</button>
-                            </div>
-                        </form>
+                                    {/* Один список вместо «тип» + «объект»: тип
+                                        однозначно следует из выбранной цели. */}
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Куда направить</label>
+                                        <CustomSelect
+                                            value={target}
+                                            onChange={e => setTarget(e.target.value)}
+                                            placeholder="— выберите —"
+                                            options={[
+                                                ...deployments.map(x => ({
+                                                    value: `deployment:${x.id}`,
+                                                    label: `Приложение: ${x.name} (порт ${x.app_port})`,
+                                                })),
+                                                ...vms.filter(v => v.id).map(x => ({
+                                                    value: `vm:${x.id}`,
+                                                    label: `ВМ: ${x.name}${x.app_int_port ? ` (порт ${x.app_int_port})` : ''}`,
+                                                })),
+                                            ]}
+                                        />
+                                    </div>
+                                    {/* Порт убран из основной формы: бэкенд берёт
+                                        его у шаблона ВМ (Grafana 3000, Portainer
+                                        9000) или у деплоя. Раньше для ВМ он был
+                                        обязателен, и надо было помнить его
+                                        наизусть. */}
+                                    {showPort ? (
+                                        <div className="input-group" style={{ marginBottom: 0 }}>
+                                            <label className="input-label">Внутренний порт</label>
+                                            <input type="number" className="form-control" value={port}
+                                                   onChange={e => setPort(e.target.value)}
+                                                   placeholder="например 8080" min="1" max="65535" autoFocus />
+                                        </div>
+                                    ) : (
+                                        <button type="button" className="btn-link" onClick={() => setShowPort(true)}
+                                                style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer',
+                                                         color: 'var(--accent-primary)', fontSize: '0.78rem', textAlign: 'left' }}>
+                                            Указать порт вручную
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => setShowAdd(false)} disabled={busy}>Отмена</button>
+                                    <button type="submit" className="btn btn-primary" disabled={busy || !name.trim() || !target}>{busy ? <span className="spinner" /> : 'Добавить'}</button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
-                </div>
+                </Portal>
             )}
         </div>
     );

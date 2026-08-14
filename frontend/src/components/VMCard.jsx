@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Play, Square, RotateCw, Monitor, Cpu, HardDrive, Network, Trash2, Copy, X } from 'lucide-react';
+import Portal from './Portal';
 
 const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
   const [metrics, setMetrics] = useState(null);
@@ -314,40 +315,42 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
       </div>
 
       {showClone && (
-        <div className="modal-overlay" onClick={(e) => { e.stopPropagation(); setShowClone(false); }}>
-          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
-            <div className="modal-header">
-              <h2>Клонировать «{vm.name}»</h2>
-              <button className="btn-close" onClick={() => setShowClone(false)} type="button"><X size={18} /></button>
-            </div>
-            <form onSubmit={handleClone}>
-              <div style={{ padding: '24px' }}>
-                <div className="input-group" style={{ marginBottom: 0 }}>
-                  <label className="input-label">Имя новой ВМ</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    placeholder="например: web-server-copy"
-                    value={cloneName}
-                    onChange={e => setCloneName(e.target.value)}
-                    autoFocus
-                    required
-                  />
-                  <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '6px' }}>
-                    Будет создана полная копия диска и настроек. Ресурсы (CPU, RAM, диск) — как у исходной ВМ.
-                    Для надёжного клонирования исходную ВМ лучше сначала выключить.
-                  </span>
+        <Portal>
+            <div className="modal-overlay" onClick={(e) => { e.stopPropagation(); setShowClone(false); }}>
+              <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+                <div className="modal-header">
+                  <h2>Клонировать «{vm.name}»</h2>
+                  <button className="btn-close" onClick={() => setShowClone(false)} type="button"><X size={18} /></button>
                 </div>
+                <form onSubmit={handleClone}>
+                  <div style={{ padding: '24px' }}>
+                    <div className="input-group" style={{ marginBottom: 0 }}>
+                      <label className="input-label">Имя новой ВМ</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="например: web-server-copy"
+                        value={cloneName}
+                        onChange={e => setCloneName(e.target.value)}
+                        autoFocus
+                        required
+                      />
+                      <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '6px' }}>
+                        Будет создана полная копия диска и настроек. Ресурсы (CPU, RAM, диск) — как у исходной ВМ.
+                        Для надёжного клонирования исходную ВМ лучше сначала выключить.
+                      </span>
+                    </div>
+                  </div>
+                  <div className="modal-actions">
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowClone(false)} disabled={cloning}>Отмена</button>
+                    <button type="submit" className="btn btn-primary" disabled={cloning || !cloneName.trim()}>
+                      {cloning ? <span className="spinner" /> : <><Copy size={14} /> Клонировать</>}
+                    </button>
+                  </div>
+                </form>
               </div>
-              <div className="modal-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowClone(false)} disabled={cloning}>Отмена</button>
-                <button type="submit" className="btn btn-primary" disabled={cloning || !cloneName.trim()}>
-                  {cloning ? <span className="spinner" /> : <><Copy size={14} /> Клонировать</>}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            </div>
+        </Portal>
       )}
     </div>
   );

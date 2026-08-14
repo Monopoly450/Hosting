@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Store, X, Rocket, Check, Copy, AlertTriangle } from 'lucide-react';
+import Portal from './Portal';
 
 export default function MarketplacePanel() {
     const [catalog, setCatalog] = useState([]);
@@ -149,55 +150,57 @@ export default function MarketplacePanel() {
             )}
 
             {selected && (
-                <div className="modal-overlay" onClick={() => setSelected(null)}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '460px' }}>
-                        <div className="modal-header">
-                            <h2>Установить {selected.name}</h2>
-                            <button className="btn-close" onClick={() => setSelected(null)} type="button"><X size={18} /></button>
+                <Portal>
+                    <div className="modal-overlay" onClick={() => setSelected(null)}>
+                        <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '460px' }}>
+                            <div className="modal-header">
+                                <h2>Установить {selected.name}</h2>
+                                <button className="btn-close" onClick={() => setSelected(null)} type="button"><X size={18} /></button>
+                            </div>
+                            <form onSubmit={doDeploy}>
+                                <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    {selected.note && (
+                                        <div className="alert" style={{ background: 'rgba(245,166,35,0.12)', border: '1px solid rgba(245,166,35,0.4)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                                            <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px', color: '#f5a623' }} />
+                                            <span style={{ fontSize: '0.84rem' }}>{selected.note}</span>
+                                        </div>
+                                    )}
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Имя (домен ВМ)</label>
+                                        <input className="form-control" value={name} onChange={e => setName(e.target.value)} pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?" required autoFocus />
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '12px' }}>
+                                        <div className="input-group" style={{ marginBottom: 0, flex: 1 }}>
+                                            <label className="input-label">CPU</label>
+                                            <input type="number" className="form-control" value={cpu} min="1" max="16" onChange={e => setCpu(parseInt(e.target.value))} />
+                                        </div>
+                                        <div className="input-group" style={{ marginBottom: 0, flex: 1 }}>
+                                            <label className="input-label">RAM, ГБ</label>
+                                            <input type="number" className="form-control" value={ram} min="1" max="64" onChange={e => setRam(parseInt(e.target.value))} />
+                                        </div>
+                                        <div className="input-group" style={{ marginBottom: 0, flex: 1 }}>
+                                            <label className="input-label">Диск, ГБ</label>
+                                            <input type="number" className="form-control" value={disk} min="10" max="500" onChange={e => setDisk(parseInt(e.target.value))} />
+                                        </div>
+                                    </div>
+                                    {selected.env.filter(e => !e.secret).map(e => (
+                                        <div className="input-group" key={e.key} style={{ marginBottom: 0 }}>
+                                            <label className="input-label">{e.label}</label>
+                                            <input className="form-control" value={envVals[e.key] || ''} onChange={ev => setEnvVals({ ...envVals, [e.key]: ev.target.value })} />
+                                        </div>
+                                    ))}
+                                    {selected.env.some(e => e.secret) && (
+                                        <p className="text-muted" style={{ fontSize: '0.76rem', margin: 0 }}>Секретные значения (пароли/токены) будут сгенерированы автоматически и показаны один раз.</p>
+                                    )}
+                                </div>
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => setSelected(null)} disabled={busy}>Отмена</button>
+                                    <button type="submit" className="btn btn-primary" disabled={busy || !name.trim()}>{busy ? <span className="spinner" /> : <><Rocket size={14} /> Установить</>}</button>
+                                </div>
+                            </form>
                         </div>
-                        <form onSubmit={doDeploy}>
-                            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                {selected.note && (
-                                    <div className="alert" style={{ background: 'rgba(245,166,35,0.12)', border: '1px solid rgba(245,166,35,0.4)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                                        <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px', color: '#f5a623' }} />
-                                        <span style={{ fontSize: '0.84rem' }}>{selected.note}</span>
-                                    </div>
-                                )}
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Имя (домен ВМ)</label>
-                                    <input className="form-control" value={name} onChange={e => setName(e.target.value)} pattern="[a-z0-9]([-a-z0-9]*[a-z0-9])?" required autoFocus />
-                                </div>
-                                <div style={{ display: 'flex', gap: '12px' }}>
-                                    <div className="input-group" style={{ marginBottom: 0, flex: 1 }}>
-                                        <label className="input-label">CPU</label>
-                                        <input type="number" className="form-control" value={cpu} min="1" max="16" onChange={e => setCpu(parseInt(e.target.value))} />
-                                    </div>
-                                    <div className="input-group" style={{ marginBottom: 0, flex: 1 }}>
-                                        <label className="input-label">RAM, ГБ</label>
-                                        <input type="number" className="form-control" value={ram} min="1" max="64" onChange={e => setRam(parseInt(e.target.value))} />
-                                    </div>
-                                    <div className="input-group" style={{ marginBottom: 0, flex: 1 }}>
-                                        <label className="input-label">Диск, ГБ</label>
-                                        <input type="number" className="form-control" value={disk} min="10" max="500" onChange={e => setDisk(parseInt(e.target.value))} />
-                                    </div>
-                                </div>
-                                {selected.env.filter(e => !e.secret).map(e => (
-                                    <div className="input-group" key={e.key} style={{ marginBottom: 0 }}>
-                                        <label className="input-label">{e.label}</label>
-                                        <input className="form-control" value={envVals[e.key] || ''} onChange={ev => setEnvVals({ ...envVals, [e.key]: ev.target.value })} />
-                                    </div>
-                                ))}
-                                {selected.env.some(e => e.secret) && (
-                                    <p className="text-muted" style={{ fontSize: '0.76rem', margin: 0 }}>Секретные значения (пароли/токены) будут сгенерированы автоматически и показаны один раз.</p>
-                                )}
-                            </div>
-                            <div className="modal-actions">
-                                <button type="button" className="btn btn-secondary" onClick={() => setSelected(null)} disabled={busy}>Отмена</button>
-                                <button type="submit" className="btn btn-primary" disabled={busy || !name.trim()}>{busy ? <span className="spinner" /> : <><Rocket size={14} /> Установить</>}</button>
-                            </div>
-                        </form>
                     </div>
-                </div>
+                </Portal>
             )}
         </div>
     );

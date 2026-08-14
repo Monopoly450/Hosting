@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CalendarClock, Plus, Trash2, X, Play, Server, Database, Clock, CheckCircle2, AlertTriangle, Power } from 'lucide-react';
+import Portal from './Portal';
 import CustomSelect from './CustomSelect';
 
 const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -190,80 +191,82 @@ export default function BackupsPanel() {
             )}
 
             {showCreate && (
-                <div className="modal-overlay" onClick={() => setShowCreate(false)}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-                        <div className="modal-header">
-                            <h2>Новое расписание бэкапов</h2>
-                            <button className="btn-close" onClick={() => setShowCreate(false)} type="button"><X size={18} /></button>
-                        </div>
-                        <form onSubmit={handleCreate}>
-                            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Имя расписания</label>
-                                    <input className="form-control" placeholder="например: ночной бэкап web-1" value={name} onChange={e => setName(e.target.value)} required autoFocus />
-                                </div>
+                <Portal>
+                    <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+                        <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+                            <div className="modal-header">
+                                <h2>Новое расписание бэкапов</h2>
+                                <button className="btn-close" onClick={() => setShowCreate(false)} type="button"><X size={18} /></button>
+                            </div>
+                            <form onSubmit={handleCreate}>
+                                <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Имя расписания</label>
+                                        <input className="form-control" placeholder="например: ночной бэкап web-1" value={name} onChange={e => setName(e.target.value)} required autoFocus />
+                                    </div>
 
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Что бэкапить</label>
-                                    <CustomSelect
-                                        value={target}
-                                        onChange={e => setTarget(e.target.value)}
-                                        placeholder="— выберите объект —"
-                                        options={[
-                                            ...vms.filter(v => v.id).map(v => ({ value: `vm:${v.id}`, label: `🖥 ${v.name}` })),
-                                            ...databases.map(d => ({ value: `database:${d.id}`, label: `🗄 ${d.db_name}` })),
-                                        ]}
-                                    />
-                                </div>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Что бэкапить</label>
+                                        <CustomSelect
+                                            value={target}
+                                            onChange={e => setTarget(e.target.value)}
+                                            placeholder="— выберите объект —"
+                                            options={[
+                                                ...vms.filter(v => v.id).map(v => ({ value: `vm:${v.id}`, label: `🖥 ${v.name}` })),
+                                                ...databases.map(d => ({ value: `database:${d.id}`, label: `🗄 ${d.db_name}` })),
+                                            ]}
+                                        />
+                                    </div>
 
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Частота</label>
-                                    <CustomSelect
-                                        value={frequency}
-                                        onChange={e => setFrequency(e.target.value)}
-                                        options={[
-                                            { value: 'hourly', label: 'Каждый час' },
-                                            { value: 'daily', label: 'Ежедневно' },
-                                            { value: 'weekly', label: 'Еженедельно' },
-                                        ]}
-                                    />
-                                </div>
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Частота</label>
+                                        <CustomSelect
+                                            value={frequency}
+                                            onChange={e => setFrequency(e.target.value)}
+                                            options={[
+                                                { value: 'hourly', label: 'Каждый час' },
+                                                { value: 'daily', label: 'Ежедневно' },
+                                                { value: 'weekly', label: 'Еженедельно' },
+                                            ]}
+                                        />
+                                    </div>
 
-                                <div style={{ display: 'flex', gap: '12px' }}>
-                                    {frequency === 'weekly' && (
-                                        <div className="input-group" style={{ marginBottom: 0, flex: 1 }}>
-                                            <label className="input-label">День недели</label>
-                                            <CustomSelect
-                                                value={weekday}
-                                                onChange={e => setWeekday(e.target.value)}
-                                                options={WEEKDAYS.map((d, i) => ({ value: i, label: d }))}
-                                            />
-                                        </div>
-                                    )}
-                                    {frequency !== 'hourly' && (
+                                    <div style={{ display: 'flex', gap: '12px' }}>
+                                        {frequency === 'weekly' && (
+                                            <div className="input-group" style={{ marginBottom: 0, flex: 1 }}>
+                                                <label className="input-label">День недели</label>
+                                                <CustomSelect
+                                                    value={weekday}
+                                                    onChange={e => setWeekday(e.target.value)}
+                                                    options={WEEKDAYS.map((d, i) => ({ value: i, label: d }))}
+                                                />
+                                            </div>
+                                        )}
+                                        {frequency !== 'hourly' && (
+                                            <div className="input-group" style={{ marginBottom: 0, width: '90px' }}>
+                                                <label className="input-label"><Clock size={14} /> Час</label>
+                                                <input type="number" className="form-control" value={hour} onChange={e => setHour(e.target.value)} min="0" max="23" />
+                                            </div>
+                                        )}
                                         <div className="input-group" style={{ marginBottom: 0, width: '90px' }}>
-                                            <label className="input-label"><Clock size={14} /> Час</label>
-                                            <input type="number" className="form-control" value={hour} onChange={e => setHour(e.target.value)} min="0" max="23" />
+                                            <label className="input-label">Минута</label>
+                                            <input type="number" className="form-control" value={minute} onChange={e => setMinute(e.target.value)} min="0" max="59" />
                                         </div>
-                                    )}
-                                    <div className="input-group" style={{ marginBottom: 0, width: '90px' }}>
-                                        <label className="input-label">Минута</label>
-                                        <input type="number" className="form-control" value={minute} onChange={e => setMinute(e.target.value)} min="0" max="59" />
+                                    </div>
+
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Хранить последних копий (ротация)</label>
+                                        <input type="number" className="form-control" value={retention} onChange={e => setRetention(e.target.value)} min="1" max="365" />
                                     </div>
                                 </div>
-
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Хранить последних копий (ротация)</label>
-                                    <input type="number" className="form-control" value={retention} onChange={e => setRetention(e.target.value)} min="1" max="365" />
+                                <div className="modal-actions">
+                                    <button type="button" className="btn btn-secondary" onClick={() => setShowCreate(false)} disabled={submitting}>Отмена</button>
+                                    <button type="submit" className="btn btn-primary" disabled={submitting || !name.trim() || !target}>{submitting ? <span className="spinner" /> : <><CalendarClock size={14} /> Создать</>}</button>
                                 </div>
-                            </div>
-                            <div className="modal-actions">
-                                <button type="button" className="btn btn-secondary" onClick={() => setShowCreate(false)} disabled={submitting}>Отмена</button>
-                                <button type="submit" className="btn btn-primary" disabled={submitting || !name.trim() || !target}>{submitting ? <span className="spinner" /> : <><CalendarClock size={14} /> Создать</>}</button>
-                            </div>
-                        </form>
+                            </form>
+                        </div>
                     </div>
-                </div>
+                </Portal>
             )}
         </div>
     );

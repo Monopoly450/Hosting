@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { X, RefreshCw, Cpu, HardDrive, ShieldAlert, Terminal, Activity, Layers, ListFilter, Play, Square, RotateCw, Monitor, Settings, Trash2, Copy, Check, Eye, EyeOff, AlertTriangle, Key, Shield, Network, Send } from 'lucide-react';
+import Portal from './Portal';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import VncConsole from './VncConsole';
 import SshTerminal from './SshTerminal';
@@ -550,41 +551,43 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
 
       {showMigrateModal && (
-        <div className="modal-overlay" onClick={() => setShowMigrateModal(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-            <div className="modal-header">
-              <h2>Миграция ВМ на Внешний сервер</h2>
-              <button className="btn-icon" onClick={() => setShowMigrateModal(false)}><X size={20} /></button>
-            </div>
-            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ background: 'var(--status-warning-bg)', color: 'var(--status-warning)', padding: '16px', borderRadius: 'var(--radius-md)', fontSize: '0.9rem' }}>
-                <AlertTriangle size={18} style={{ marginBottom: '8px' }} />
-                <p style={{ margin: 0 }}>ВМ будет выключена, а её диск отправлен по SSH на выбранный внешний сервер. После миграции она продолжит работу там, а локальная копия будет удалена.</p>
+        <Portal>
+            <div className="modal-overlay" onClick={() => setShowMigrateModal(false)}>
+              <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+                <div className="modal-header">
+                  <h2>Миграция ВМ на Внешний сервер</h2>
+                  <button className="btn-icon" onClick={() => setShowMigrateModal(false)}><X size={20} /></button>
+                </div>
+                <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ background: 'var(--status-warning-bg)', color: 'var(--status-warning)', padding: '16px', borderRadius: 'var(--radius-md)', fontSize: '0.9rem' }}>
+                    <AlertTriangle size={18} style={{ marginBottom: '8px' }} />
+                    <p style={{ margin: 0 }}>ВМ будет выключена, а её диск отправлен по SSH на выбранный внешний сервер. После миграции она продолжит работу там, а локальная копия будет удалена.</p>
+                  </div>
+                  
+                  <div className="input-group">
+                    <label className="input-label">Выберите внешний сервер (Target)</label>
+                    <CustomSelect 
+                      value={selectedTargetServer} 
+                      onChange={e => setSelectedTargetServer(e.target.value)}
+                      disabled={migrating}
+                      placeholder="Выберите внешний сервер"
+                      options={externalServers.map(s => ({
+                        value: s.id,
+                        label: `${s.name} (${s.ip})`
+                      }))}
+                    />
+                  </div>
+                  
+                </div>
+                <div className="modal-actions">
+                  <button className="btn btn-secondary" onClick={() => setShowMigrateModal(false)} disabled={migrating}>Отмена</button>
+                  <button className="btn btn-primary" onClick={handleMigrate} disabled={migrating || externalServers.length === 0}>
+                    {migrating ? <span className="spinner" /> : <><Send size={16} /> Начать миграцию</>}
+                  </button>
+                </div>
               </div>
-              
-              <div className="input-group">
-                <label className="input-label">Выберите внешний сервер (Target)</label>
-                <CustomSelect 
-                  value={selectedTargetServer} 
-                  onChange={e => setSelectedTargetServer(e.target.value)}
-                  disabled={migrating}
-                  placeholder="Выберите внешний сервер"
-                  options={externalServers.map(s => ({
-                    value: s.id,
-                    label: `${s.name} (${s.ip})`
-                  }))}
-                />
-              </div>
-              
             </div>
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={() => setShowMigrateModal(false)} disabled={migrating}>Отмена</button>
-              <button className="btn btn-primary" onClick={handleMigrate} disabled={migrating || externalServers.length === 0}>
-                {migrating ? <span className="spinner" /> : <><Send size={16} /> Начать миграцию</>}
-              </button>
-            </div>
-          </div>
-        </div>
+        </Portal>
       )}
 
       {activeTab === 'overview' && (

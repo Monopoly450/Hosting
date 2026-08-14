@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ScrollText, RefreshCw, Search, User, Globe, AlertTriangle, CheckCircle2, ShieldCheck, X } from 'lucide-react';
+import Portal from './Portal';
 
 export default function AuditPanel() {
     const [rows, setRows] = useState([]);
@@ -112,60 +113,62 @@ export default function AuditPanel() {
             )}
 
             {selectedRow && (
-                <div className="modal-overlay" onClick={() => setSelectedRow(null)}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-                        <div className="modal-header">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <ScrollText size={20} style={{ color: 'var(--accent)' }} />
-                                <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Информация о действии</h2>
+                <Portal>
+                    <div className="modal-overlay" onClick={() => setSelectedRow(null)}>
+                        <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+                            <div className="modal-header">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <ScrollText size={20} style={{ color: 'var(--accent)' }} />
+                                    <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Информация о действии</h2>
+                                </div>
+                                <button className="btn-icon" onClick={() => setSelectedRow(null)}><X size={20} /></button>
                             </div>
-                            <button className="btn-icon" onClick={() => setSelectedRow(null)}><X size={20} /></button>
-                        </div>
-                        <div style={{ padding: '0 24px 20px 24px' }}>
-                            <div className="glass-card" style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', display: 'flex', flexDirection: 'column', gap: '14px', border: '1px solid var(--border-color)' }}>
-                                <div>
-                                    <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Действие</span>
-                                    <span style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-heading)' }}>{selectedRow.action}</span>
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                            <div style={{ padding: '0 24px 20px 24px' }}>
+                                <div className="glass-card" style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', display: 'flex', flexDirection: 'column', gap: '14px', border: '1px solid var(--border-color)' }}>
                                     <div>
-                                        <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Пользователь</span>
-                                        <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '5px' }}><User size={14} /> {selectedRow.username}</span>
+                                        <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Действие</span>
+                                        <span style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-heading)' }}>{selectedRow.action}</span>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                                        <div>
+                                            <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Пользователь</span>
+                                            <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '5px' }}><User size={14} /> {selectedRow.username}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>IP-адрес</span>
+                                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}><Globe size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> {selectedRow.ip}</span>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                                        <div>
+                                            <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Метод запроса</span>
+                                            <span className="badge" style={{ textTransform: 'uppercase', padding: '4px 8px', fontSize: '0.75rem', fontWeight: 700, background: 'var(--border-color)', color: 'var(--text-secondary)' }}>{selectedRow.method}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Код ответа</span>
+                                            {selectedRow.success ? (
+                                                <span className="badge badge-success" style={{ display: 'inline-flex', padding: '4px 8px' }}><CheckCircle2 size={12} /> {selectedRow.status_code} (OK)</span>
+                                            ) : (
+                                                <span className="badge badge-danger" style={{ display: 'inline-flex', padding: '4px 8px' }}><AlertTriangle size={12} /> {selectedRow.status_code} (Ошибка)</span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div>
-                                        <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>IP-адрес</span>
-                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}><Globe size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> {selectedRow.ip}</span>
-                                    </div>
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                                    <div>
-                                        <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Метод запроса</span>
-                                        <span className="badge" style={{ textTransform: 'uppercase', padding: '4px 8px', fontSize: '0.75rem', fontWeight: 700, background: 'var(--border-color)', color: 'var(--text-secondary)' }}>{selectedRow.method}</span>
+                                        <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>API Путь</span>
+                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', wordBreak: 'break-all', display: 'block', padding: '8px', background: 'rgba(0,0,0,0.15)', borderRadius: '6px' }}>{selectedRow.path}</span>
                                     </div>
                                     <div>
-                                        <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Код ответа</span>
-                                        {selectedRow.success ? (
-                                            <span className="badge badge-success" style={{ display: 'inline-flex', padding: '4px 8px' }}><CheckCircle2 size={12} /> {selectedRow.status_code} (OK)</span>
-                                        ) : (
-                                            <span className="badge badge-danger" style={{ display: 'inline-flex', padding: '4px 8px' }}><AlertTriangle size={12} /> {selectedRow.status_code} (Ошибка)</span>
-                                        )}
+                                        <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Время события</span>
+                                        <span style={{ fontSize: '0.85rem' }}>{fmt(selectedRow.timestamp)}</span>
                                     </div>
-                                </div>
-                                <div>
-                                    <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>API Путь</span>
-                                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', wordBreak: 'break-all', display: 'block', padding: '8px', background: 'rgba(0,0,0,0.15)', borderRadius: '6px' }}>{selectedRow.path}</span>
-                                </div>
-                                <div>
-                                    <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Время события</span>
-                                    <span style={{ fontSize: '0.85rem' }}>{fmt(selectedRow.timestamp)}</span>
                                 </div>
                             </div>
-                        </div>
-                        <div className="modal-actions">
-                            <button type="button" className="btn btn-secondary" onClick={() => setSelectedRow(null)}>Закрыть</button>
+                            <div className="modal-actions">
+                                <button type="button" className="btn btn-secondary" onClick={() => setSelectedRow(null)}>Закрыть</button>
+                            </div>
                         </div>
                     </div>
-                </div>
+                </Portal>
             )}
         </div>
     );

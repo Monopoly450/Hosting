@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layers, Plus, Server, Activity, ArrowRight, X, Trash, Info, ChevronDown, ChevronUp, HardDrive, Cpu, Package, Key } from 'lucide-react';
+import Portal from './Portal';
 import CustomSelect from './CustomSelect';
 
 const OS_VERSIONS = {
@@ -879,31 +880,33 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
       )}
 
       {showAttach && (
-        <div className="modal-overlay" onClick={() => setShowAttach(null)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Добавить ВМ в кластер</h2>
-              <button className="btn-icon" onClick={() => setShowAttach(null)}><X size={20} /></button>
+        <Portal>
+            <div className="modal-overlay" onClick={() => setShowAttach(null)}>
+              <div className="modal-content" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h2>Добавить ВМ в кластер</h2>
+                  <button className="btn-icon" onClick={() => setShowAttach(null)}><X size={20} /></button>
+                </div>
+                <form onSubmit={handleAttachVMs}>
+                  <div className="input-group" style={{ padding: '0 24px' }}>
+                    <label className="input-label">Выберите ВМ (зажмите Ctrl/Cmd для выбора нескольких)</label>
+                    <select name="vm_names" multiple className="form-control" style={{ height: '180px', marginTop: '8px' }} required>
+                      {vms.filter(v => !clusters.some(c => c.vms.some(cv => cv.name === v.name))).map(vm => (
+                        <option key={vm.name} value={vm.name}>{vm.name} ({getVmStatusLabel(vm.status)})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ padding: '16px 24px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                    * При добавлении ВМ в кластер, она будет перезагружена для подключения нового приватного сетевого интерфейса (Multus).
+                  </div>
+                  <div className="modal-actions">
+                    <button type="button" className="btn" onClick={() => setShowAttach(null)}>Отмена</button>
+                    <button type="submit" className="btn btn-primary">Объединить</button>
+                  </div>
+                </form>
+              </div>
             </div>
-            <form onSubmit={handleAttachVMs}>
-              <div className="input-group" style={{ padding: '0 24px' }}>
-                <label className="input-label">Выберите ВМ (зажмите Ctrl/Cmd для выбора нескольких)</label>
-                <select name="vm_names" multiple className="form-control" style={{ height: '180px', marginTop: '8px' }} required>
-                  {vms.filter(v => !clusters.some(c => c.vms.some(cv => cv.name === v.name))).map(vm => (
-                    <option key={vm.name} value={vm.name}>{vm.name} ({getVmStatusLabel(vm.status)})</option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ padding: '16px 24px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                * При добавлении ВМ в кластер, она будет перезагружена для подключения нового приватного сетевого интерфейса (Multus).
-              </div>
-              <div className="modal-actions">
-                <button type="button" className="btn" onClick={() => setShowAttach(null)}>Отмена</button>
-                <button type="submit" className="btn btn-primary">Объединить</button>
-              </div>
-            </form>
-          </div>
-        </div>
+        </Portal>
       )}
     </div>
   );
