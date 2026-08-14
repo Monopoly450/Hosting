@@ -111,3 +111,33 @@ def test_remember_me_only_changes_the_session_lifetime():
     assert REMEMBER_ME_SECONDS > DEFAULT_SESSION_SECONDS
     # Не бесконечно: токен лежит в localStorage, отозвать его поштучно нечем.
     assert REMEMBER_ME_SECONDS <= 3600 * 24 * 31
+
+
+def test_panels_keep_their_header_while_loading():
+    """Раньше пять панелей во время загрузки делали ранний return с одним
+    спиннером — шапки не было вовсе, а когда данные приходили, она
+    появлялась и весь контент прыгал вниз. Пользователь видел это как
+    «панель разного размера на разных вкладках»."""
+    import os, re, glob
+
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    bad = []
+    for path in glob.glob(os.path.join(root, "frontend", "src", "components", "*.jsx")):
+        with open(path, encoding="utf-8") as f:
+            src = f.read()
+        for m in re.finditer(r"if \(loading\) return.*?;", src, re.S):
+            block = m.group(0)
+            # Ранний выход допустим — но шапку он обязан отрисовать.
+            if "{header}" not in block:
+                bad.append(f"{os.path.basename(path)}: {block[:80]}")
+    assert not bad, "ранний return без шапки:\n" + "\n".join(bad)
+
+
+def test_loading_area_has_one_shared_height():
+    """У каждой панели был свой отступ вокруг спиннера (50px, 60px,
+    page-loading) — высота области загрузки отличалась от вкладки к вкладке."""
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "frontend", "src", "index.css"), encoding="utf-8") as f:
+        css = f.read()
+    assert ".panel-loading" in css

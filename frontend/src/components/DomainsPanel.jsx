@@ -154,19 +154,27 @@ export default function DomainsPanel() {
         return <span className="badge" style={{ background: 'rgba(245,166,35,0.15)', color: '#f5a623', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>{auto ? <span className="spinner" style={{ width: 11, height: 11 }} /> : <AlertTriangle size={12} />} {text}</span>;
     };
 
-    if (loading) return <div className="panel-container"><div style={{ display: 'flex', justifyContent: 'center', padding: '50px' }}><div className="spinner spinner-lg" /></div></div>;
+    // Шапка рисуется и во время загрузки. Раньше здесь был ранний return
+    // с одним спиннером: пока данные ехали, шапки не было вовсе, а потом
+    // она появлялась и весь контент прыгал вниз. Со стороны это выглядело
+    // как «панель разного размера на разных вкладках».
+    const header = (
+        <div className="panel-header">
+            <div>
+                <p className="panel-subtitle">Привяжите свой домен — сертификат Let's Encrypt выпустится автоматически</p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+                {isAdmin && <button className="btn btn-secondary btn-sm" onClick={reapply} disabled={busy || loading}><RefreshCw size={14} /> Переприменить</button>}
+                <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(true)} disabled={loading}><Plus size={14} /> Добавить домен</button>
+            </div>
+        </div>
+    );
+
+    if (loading) return <div className="panel-container">{header}<div className="panel-loading"><div className="spinner spinner-lg" /></div></div>;
 
     return (
         <div className="panel-container">
-            <div className="panel-header">
-                <div>
-                    <p className="panel-subtitle">Привяжите свой домен — сертификат Let's Encrypt выпустится автоматически</p>
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                    {isAdmin && <button className="btn btn-secondary btn-sm" onClick={reapply} disabled={busy}><RefreshCw size={14} /> Переприменить</button>}
-                    <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(true)}><Plus size={14} /> Добавить домен</button>
-                </div>
-            </div>
+            {header}
 
             {error && <div className="alert alert-danger">{error}</div>}
 

@@ -82,16 +82,23 @@ export default function RegistryPanel() {
 
     const copy = (val, key) => { navigator.clipboard.writeText(val); setCopied(key); setTimeout(() => setCopied(''), 1500); };
 
-    if (loading) return <div className="panel-container"><div style={{ display: 'flex', justifyContent: 'center', padding: '50px' }}><div className="spinner spinner-lg" /></div></div>;
+    // Шапка рисуется и во время загрузки — иначе она появляется только
+    // после прихода данных, и контент прыгает вниз. Со стороны это
+    // выглядело как «панель разного размера на разных вкладках».
+    const header = (
+        <div className="panel-header">
+            <div>
+                <p className="panel-subtitle">Приватный Docker-реестр для ваших образов</p>
+            </div>
+            {status?.running && <button className="btn btn-secondary btn-sm" onClick={loadRepos}><RefreshCw size={14} /> Обновить</button>}
+        </div>
+    );
+
+    if (loading) return <div className="panel-container">{header}<div className="panel-loading"><div className="spinner spinner-lg" /></div></div>;
 
     return (
         <div className="panel-container">
-            <div className="panel-header">
-                <div>
-                    <p className="panel-subtitle">Приватный Docker-реестр для ваших образов</p>
-                </div>
-                {status?.running && <button className="btn btn-secondary btn-sm" onClick={loadRepos}><RefreshCw size={14} /> Обновить</button>}
-            </div>
+            {header}
 
             {error && <div className="alert alert-danger">{error}</div>}
 

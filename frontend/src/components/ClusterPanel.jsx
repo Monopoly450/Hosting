@@ -367,20 +367,30 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
     return <span className="status-badge status-stopped">Ошибка</span>;
   };
 
-  if (loading) return <div className="page-loading"><span className="spinner" /></div>;
+  // Шапка на общих классах, а не на inline-стилях: своя вёрстка здесь
+  // отличалась отступами от всех прочих вкладок, да ещё и повторяла
+  // заголовок, который уже показывает верхняя панель. И рисуется она в том
+  // числе во время загрузки — иначе контент прыгает вниз, когда данные
+  // приходят.
+  const header = (
+    <div className="panel-header">
+      <div>
+        <p className="panel-subtitle">Управляйте изолированными L2 группами виртуальных машин</p>
+      </div>
+      <button className="btn btn-primary" onClick={() => setShowCreate(true)} disabled={loading}>
+        <Plus size={16} />
+        Создать Кластер
+      </button>
+    </div>
+  );
+
+  if (loading) return (
+    <div className="panel-container">{header}<div className="panel-loading"><span className="spinner spinner-lg" /></div></div>
+  );
 
   return (
-    <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px', alignItems: 'center' }}>
-        <div>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-heading)', margin: 0 }}>Кластеры и Изолированные Сети</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '4px 0 0 0' }}>Управляйте изолированными L2 группами виртуальных машин</p>
-        </div>
-        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
-          <Plus size={16} />
-          Создать Кластер
-        </button>
-      </div>
+    <div className="panel-container" style={{ animation: 'fadeIn 0.3s ease-out' }}>
+      {header}
 
       <div className="grid-responsive">
         {clusters.map(cluster => (

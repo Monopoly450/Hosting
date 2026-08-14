@@ -129,16 +129,23 @@ export default function ProjectsPanel() {
 
     const canManage = (p) => p.my_role === 'owner' || p.my_role === 'admin';
 
-    if (loading) return <div className="panel-container"><div style={{ display: 'flex', justifyContent: 'center', padding: '50px' }}><div className="spinner spinner-lg" /></div></div>;
+    // Шапка рисуется и во время загрузки — иначе она появляется только
+    // после прихода данных, и контент прыгает вниз. Со стороны это
+    // выглядело как «панель разного размера на разных вкладках».
+    const header = (
+        <div className="panel-header">
+            <div>
+                <p className="panel-subtitle">Объединяйте ресурсы в проекты и давайте коллегам доступ по ролям</p>
+            </div>
+            <button className="btn btn-primary" onClick={() => setShowCreate(true)} disabled={loading}><Plus size={16} /> Новый проект</button>
+        </div>
+    );
+
+    if (loading) return <div className="panel-container">{header}<div className="panel-loading"><div className="spinner spinner-lg" /></div></div>;
 
     return (
         <div className="panel-container">
-            <div className="panel-header">
-                <div>
-                    <p className="panel-subtitle">Объединяйте ресурсы в проекты и давайте коллегам доступ по ролям</p>
-                </div>
-                <button className="btn btn-primary" onClick={() => setShowCreate(true)}><Plus size={16} /> Новый проект</button>
-            </div>
+            {header}
 
             {error && <div className="alert alert-danger">{error}</div>}
 

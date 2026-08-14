@@ -39,7 +39,23 @@ export default function KubernetesPanel() {
         setTimeout(() => setCopied(c => (c === key ? null : c)), 1400);
     };
 
-    if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: '60px' }}><div className="spinner spinner-lg" /></div>;
+    // Шапка рисуется и во время загрузки — иначе она появляется только
+    // после прихода данных, и контент прыгает вниз. Версии в подзаголовке
+    // до загрузки просто пустые.
+    const header = (
+        <div className="panel-header">
+            <div>
+                <p className="panel-subtitle">
+                    {data?.k8s_version} · KubeVirt {data?.kubevirt_version} · CDI {data?.cdi_version}
+                </p>
+            </div>
+            <button className="btn btn-secondary" onClick={fetchAll} disabled={loading}><RefreshCw size={15} /> Обновить</button>
+        </div>
+    );
+
+    if (loading) return (
+        <div className="panel-container">{header}<div className="panel-loading"><div className="spinner spinner-lg" /></div></div>
+    );
 
     const c = data?.counts || {};
     const tabs = [
@@ -70,14 +86,7 @@ export default function KubernetesPanel() {
 
     return (
         <div className="panel-container">
-            <div className="panel-header">
-                <div>
-                    <p className="panel-subtitle">
-                        {data?.k8s_version} · KubeVirt {data?.kubevirt_version} · CDI {data?.cdi_version}
-                    </p>
-                </div>
-                <button className="btn btn-secondary" onClick={fetchAll}><RefreshCw size={15} /> Обновить</button>
-            </div>
+            {header}
 
             {error && <div className="alert alert-danger">{error}</div>}
 
