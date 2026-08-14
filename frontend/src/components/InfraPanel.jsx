@@ -128,7 +128,7 @@ const InfraPanel = () => {
       
       <div>
         <h2 className="section-title" style={{ margin: 0 }}>
-          <TerminalIcon size={22} color="var(--accent-primary)" />
+          <TerminalIcon size={20} color="var(--accent-primary)" />
           Инфраструктура и Логи
         </h2>
         <p className="text-muted" style={{ margin: '4px 0 0', fontSize: '0.9rem' }}>Хостовый уровень (KubeVirt + Docker)</p>

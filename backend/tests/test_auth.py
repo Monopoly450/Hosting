@@ -189,3 +189,43 @@ def test_top_header_cannot_be_squeezed_by_page_content():
     for m in re.finditer(r"\.top-header \{[^}]*\}", code):
         assert not re.search(r"(?<!-)\bheight:\s*\d", m.group(0)), \
             f"height вместо min-height вернёт сжатие: {m.group(0)}"
+
+
+def test_icon_sizes_stay_on_one_scale():
+    """Размеров иконок было девятнадцать — от 10 до 48, причём для ОДНОЙ роли
+    использовались разные: пустые состояния вкладок рисовались размерами 32,
+    36, 38, 40, 44 и 48. Отсюда «в одних вкладках иконки маленькие, в других
+    большие». Шкала описана в frontend/src/iconSizes.js."""
+    import os, re, glob
+
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    src_dir = os.path.join(root, "frontend", "src")
+
+    allowed = {12, 14, 16, 18, 20, 24, 32, 44}
+    # Логотипы — фирменный знак, а не иконка интерфейса.
+    logo_marks = {26, 38}
+
+    offenders = {}
+    files = glob.glob(os.path.join(src_dir, "components", "*.jsx")) + [os.path.join(src_dir, "App.jsx")]
+    for path in files:
+        with open(path, encoding="utf-8") as f:
+            for lineno, line in enumerate(f, 1):
+                for m in re.finditer(r"size=\{(\d+)\}", line):
+                    n = int(m.group(1))
+                    if n in allowed:
+                        continue
+                    if n in logo_marks and ("logo" in line or "Layers" in line):
+                        continue
+                    offenders[f"{os.path.basename(path)}:{lineno}"] = n
+
+    assert not offenders, (
+        "иконки вне шкалы (см. frontend/src/iconSizes.js): "
+        + ", ".join(f"{k}={v}" for k, v in sorted(offenders.items()))
+    )
+
+
+def test_icon_scale_is_documented():
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    path = os.path.join(root, "frontend", "src", "iconSizes.js")
+    assert os.path.exists(path), "шкала размеров иконок должна быть описана в одном месте"

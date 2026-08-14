@@ -167,11 +167,11 @@ export default function ProjectsPanel() {
                             </div>
                             {p.description && <p className="text-muted" style={{ fontSize: '0.8rem', margin: 0 }}>{p.description}</p>}
                             <div style={{ display: 'flex', gap: '12px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Users size={13} /> {p.members_count}</span>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Server size={13} /> {p.resources.vm}</span>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Database size={13} /> {p.resources.database}</span>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Rocket size={13} /> {p.resources.deployment}</span>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }} title="Бакеты S3"><HardDrive size={13} /> {p.resources.bucket ?? 0}</span>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Users size={14} /> {p.members_count}</span>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Server size={14} /> {p.resources.vm}</span>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Database size={14} /> {p.resources.database}</span>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Rocket size={14} /> {p.resources.deployment}</span>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }} title="Бакеты S3"><HardDrive size={14} /> {p.resources.bucket ?? 0}</span>
                             </div>
                             <div className="text-muted" style={{ fontSize: '0.74rem' }}>владелец: {p.owner_username}</div>
                         </div>
@@ -185,7 +185,7 @@ export default function ProjectsPanel() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
                         <div className="section-title" style={{ margin: 0 }}><FolderKanban size={16} /> {selected.name}</div>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                            {canManage(selected) && <button className="btn btn-danger btn-sm" onClick={() => removeProject(selected.id)}><Trash2 size={13} /> Удалить проект</button>}
+                            {canManage(selected) && <button className="btn btn-danger btn-sm" onClick={() => removeProject(selected.id)}><Trash2 size={14} /> Удалить проект</button>}
                             <button className="btn-icon" onClick={() => setSelected(null)}><X size={16} /></button>
                         </div>
                     </div>
@@ -193,7 +193,7 @@ export default function ProjectsPanel() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
                         {/* Участники */}
                         <div>
-                            <div className="section-title" style={{ fontSize: '0.9rem' }}><Users size={15} /> Участники</div>
+                            <div className="section-title" style={{ fontSize: '0.9rem' }}><Users size={14} /> Участники</div>
                             {members.length === 0 ? <p className="text-muted" style={{ fontSize: '0.8rem' }}>Нет участников</p> : (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '12px' }}>
                                     {members.map(m => (
@@ -201,7 +201,7 @@ export default function ProjectsPanel() {
                                             <span style={{ fontWeight: 600 }}>{m.username}</span>
                                             <span className="badge" title={ROLE_HINT[m.role]}>{ROLE_LABEL[m.role] || m.role}</span>
                                             {canManage(selected) && m.role !== 'owner' && (
-                                                <button className="btn-icon" style={{ marginLeft: 'auto' }} title="Исключить" onClick={() => removeMember(m.user_id)}><Trash2 size={13} style={{ color: '#e5484d' }} /></button>
+                                                <button className="btn-icon" style={{ marginLeft: 'auto' }} title="Исключить" onClick={() => removeMember(m.user_id)}><Trash2 size={14} style={{ color: '#e5484d' }} /></button>
                                             )}
                                         </div>
                                     ))}
@@ -232,7 +232,7 @@ export default function ProjectsPanel() {
 
                         {/* Ресурсы */}
                         <div>
-                            <div className="section-title" style={{ fontSize: '0.9rem' }}><Link2 size={15} /> Добавить ресурс в проект</div>
+                            <div className="section-title" style={{ fontSize: '0.9rem' }}><Link2 size={14} /> Добавить ресурс в проект</div>
                             <p className="text-muted" style={{ fontSize: '0.78rem' }}>
                                 Ресурс станет виден участникам проекта. Наблюдатели смогут только смотреть, редакторы — управлять.
                             </p>

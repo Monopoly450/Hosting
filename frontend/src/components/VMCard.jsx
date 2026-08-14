@@ -342,7 +342,7 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
               <div className="modal-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowClone(false)} disabled={cloning}>Отмена</button>
                 <button type="submit" className="btn btn-primary" disabled={cloning || !cloneName.trim()}>
-                  {cloning ? <span className="spinner" /> : <><Copy size={15} /> Клонировать</>}
+                  {cloning ? <span className="spinner" /> : <><Copy size={14} /> Клонировать</>}
                 </button>
               </div>
             </form>

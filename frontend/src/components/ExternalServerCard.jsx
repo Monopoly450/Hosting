@@ -53,7 +53,7 @@ const ExternalServerCard = ({ server, onClick, onDeleteSuccess }) => {
             <span className="vm-template" style={{ fontFamily: 'var(--font-mono)' }}>IP: {server.host}:{server.port}</span>
             {server.use_bastion && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', fontWeight: 600, color: 'var(--accent-primary)', background: 'var(--accent-primary-light)', padding: '2px 8px', borderRadius: 'var(--radius-pill)', width: 'fit-content', marginTop: '2px' }}>
-                <Network size={11} /> через бастион {server.bastion_host}
+                <Network size={12} /> через бастион {server.bastion_host}
               </span>
             )}
           </div>
@@ -93,7 +93,7 @@ const ExternalServerCard = ({ server, onClick, onDeleteSuccess }) => {
 
       <div className="vm-card-actions" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Terminal size={10} /> Кликните для мониторинга
+          <Terminal size={12} /> Кликните для мониторинга
         </span>
         <button 
           className="btn btn-danger btn-sm btn-icon-only"

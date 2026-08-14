@@ -172,13 +172,13 @@ export default function BackupsPanel() {
                                     <td>
                                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                                             <button className="btn-icon" title={s.enabled ? 'Выключить' : 'Включить'} onClick={() => toggleEnabled(s)}>
-                                                <Power size={15} style={{ color: s.enabled ? 'var(--status-success)' : 'var(--text-muted)' }} />
+                                                <Power size={14} style={{ color: s.enabled ? 'var(--status-success)' : 'var(--text-muted)' }} />
                                             </button>
                                             <button className="btn-icon" title="Запустить сейчас" disabled={runningId === s.id} onClick={() => handleRunNow(s.id)}>
-                                                {runningId === s.id ? <span className="spinner" /> : <Play size={15} />}
+                                                {runningId === s.id ? <span className="spinner" /> : <Play size={14} />}
                                             </button>
                                             <button className="btn-icon" title="Удалить" onClick={() => handleDelete(s.id)}>
-                                                <Trash2 size={15} style={{ color: 'var(--status-danger, #e5484d)' }} />
+                                                <Trash2 size={14} style={{ color: 'var(--status-danger, #e5484d)' }} />
                                             </button>
                                         </div>
                                     </td>
@@ -242,7 +242,7 @@ export default function BackupsPanel() {
                                     )}
                                     {frequency !== 'hourly' && (
                                         <div className="input-group" style={{ marginBottom: 0, width: '90px' }}>
-                                            <label className="input-label"><Clock size={13} /> Час</label>
+                                            <label className="input-label"><Clock size={14} /> Час</label>
                                             <input type="number" className="form-control" value={hour} onChange={e => setHour(e.target.value)} min="0" max="23" />
                                         </div>
                                     )}
@@ -259,7 +259,7 @@ export default function BackupsPanel() {
                             </div>
                             <div className="modal-actions">
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowCreate(false)} disabled={submitting}>Отмена</button>
-                                <button type="submit" className="btn btn-primary" disabled={submitting || !name.trim() || !target}>{submitting ? <span className="spinner" /> : <><CalendarClock size={15} /> Создать</>}</button>
+                                <button type="submit" className="btn btn-primary" disabled={submitting || !name.trim() || !target}>{submitting ? <span className="spinner" /> : <><CalendarClock size={14} /> Создать</>}</button>
                             </div>
                         </form>
                     </div>

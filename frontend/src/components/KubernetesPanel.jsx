@@ -49,7 +49,7 @@ export default function KubernetesPanel() {
                     {data?.k8s_version} · KubeVirt {data?.kubevirt_version} · CDI {data?.cdi_version}
                 </p>
             </div>
-            <button className="btn btn-secondary" onClick={fetchAll} disabled={loading}><RefreshCw size={15} /> Обновить</button>
+            <button className="btn btn-secondary" onClick={fetchAll} disabled={loading}><RefreshCw size={14} /> Обновить</button>
         </div>
     );
 
@@ -70,7 +70,7 @@ export default function KubernetesPanel() {
 
     const StatCard = ({ icon: Icon, label, value, sub }) => (
         <div className="glass-card" style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <div className="connect-tile-icon" style={{ width: '46px', height: '46px', flexShrink: 0 }}><Icon size={22} /></div>
+            <div className="connect-tile-icon" style={{ width: '46px', height: '46px', flexShrink: 0 }}><Icon size={20} /></div>
             <div>
                 <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-heading)', lineHeight: 1.1 }}>{value}</div>
                 <div className="text-muted" style={{ fontSize: '0.8rem' }}>{label}</div>
@@ -233,7 +233,7 @@ export default function KubernetesPanel() {
 function Row({ icon: Icon, k, v, mono }) {
     return (
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-            <span className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon size={13} /> {k}</span>
+            <span className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Icon size={14} /> {k}</span>
             <span style={{ fontFamily: mono ? 'var(--font-mono)' : 'inherit', color: 'var(--text-primary)', fontWeight: 500, textAlign: 'right', wordBreak: 'break-all' }}>{v}</span>
         </div>
     );

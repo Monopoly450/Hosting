@@ -305,7 +305,7 @@ export default function S3Panel() {
 
                 <div className="glass-card accent-top" style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap' }}>
                     <div className="connect-tile-icon" style={{ width: '54px', height: '54px', flexShrink: 0 }}>
-                        <HardDrive size={26} />
+                        <HardDrive size={24} />
                     </div>
                     <div style={{ flex: 1, minWidth: '200px' }}>
                         <h2 className="panel-title" style={{ fontSize: '1.5rem' }}>{b.bucket_name}</h2>
@@ -378,7 +378,7 @@ export default function S3Panel() {
                 >
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
                         <div className="connect-tile-icon" style={{ width: '48px', height: '48px' }}>
-                            {uploadingFile ? <span className="spinner" style={{ borderColor: 'rgba(255,255,255,0.4)', borderTopColor: '#fff' }} /> : <Upload size={22} />}
+                            {uploadingFile ? <span className="spinner" style={{ borderColor: 'rgba(255,255,255,0.4)', borderTopColor: '#fff' }} /> : <Upload size={20} />}
                         </div>
                         <div style={{ fontWeight: 600, color: 'var(--text-heading)' }}>
                             {uploadingFile ? 'Загрузка...' : 'Перетащите файл сюда'}
@@ -413,10 +413,10 @@ export default function S3Panel() {
                                         </div>
                                         <div style={{ display: 'flex', gap: '4px' }}>
                                             <button className="btn-icon" onClick={() => handleDownloadFile(file.name)} title="Скачать">
-                                                <Download size={15} />
+                                                <Download size={14} />
                                             </button>
                                             <button className="btn-icon" onClick={() => handleDeleteFile(file.name)} title="Удалить" style={{ color: 'var(--status-danger)' }}>
-                                                <Trash2 size={15} />
+                                                <Trash2 size={14} />
                                             </button>
                                         </div>
                                     </div>

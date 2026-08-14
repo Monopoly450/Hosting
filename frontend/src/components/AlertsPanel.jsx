@@ -199,7 +199,7 @@ export default function AlertsPanel() {
                         </div>
                         {rules.length === 0 ? (
                             <div style={{ textAlign: 'center', padding: '30px 20px' }}>
-                                <Bell size={38} style={{ color: 'var(--text-muted)', marginBottom: '10px' }} />
+                                <Bell size={44} style={{ color: 'var(--text-muted)', marginBottom: '10px' }} />
                                 <p className="text-muted">Правил пока нет. Например: «ВМ упала» или «CPU хоста &gt; 90%».</p>
                             </div>
                         ) : (
@@ -213,11 +213,11 @@ export default function AlertsPanel() {
                                                 <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>{r.target_type === 'host' ? <HardDrive size={14} /> : <Server size={14} />}{r.target_name}</span></td>
                                                 <td style={{ fontSize: '0.82rem' }}>{condText(r)}</td>
                                                 <td>{stateBadge(r)}</td>
-                                                <td style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{r.last_error ? <span title={r.last_error} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)' }}><AlertTriangle size={13} /> нет данных</span> : (r.last_value != null ? (r.metric === 'status' ? (r.last_value >= 1 ? 'Running' : 'down') : `${r.last_value}%`) : '—')}</td>
+                                                <td style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{r.last_error ? <span title={r.last_error} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)' }}><AlertTriangle size={14} /> нет данных</span> : (r.last_value != null ? (r.metric === 'status' ? (r.last_value >= 1 ? 'Running' : 'down') : `${r.last_value}%`) : '—')}</td>
                                                 <td style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{channels.find(c => c.id === r.channel_id)?.name || '—'}</td>
                                                 <td>
                                                     <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                                                        <button className="btn-icon" title={r.enabled ? 'Выключить' : 'Включить'} onClick={() => toggleRule(r)}><Power size={15} style={{ color: r.enabled ? 'var(--status-success)' : 'var(--text-muted)' }} /></button>
+                                                        <button className="btn-icon" title={r.enabled ? 'Выключить' : 'Включить'} onClick={() => toggleRule(r)}><Power size={14} style={{ color: r.enabled ? 'var(--status-success)' : 'var(--text-muted)' }} /></button>
                                                         <button className="btn-icon" title="Удалить" onClick={() => deleteRule(r.id)}><Trash2 size={14} style={{ color: '#e5484d' }} /></button>
                                                     </div>
                                                 </td>

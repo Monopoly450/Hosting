@@ -105,7 +105,7 @@ export default function MarketplacePanel() {
             )}
 
             {loading ? (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '50px' }}><div className="spinner spinner-lg" /></div>
+                <div className="panel-loading"><div className="spinner spinner-lg" /></div>
             ) : (
                 <>
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '18px' }}>
@@ -125,22 +125,22 @@ export default function MarketplacePanel() {
                             <div key={app.id} className="glass-card app-card"
                                  style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
-                                    <div style={{ fontWeight: 700, color: 'var(--text-heading)', fontSize: '1.05rem', lineHeight: 1.3 }}>{app.name}</div>
-                                    <span className="badge" style={{ fontSize: '0.7rem', flexShrink: 0 }}>{app.category}</span>
+                                    <div style={{ fontWeight: 700, color: 'var(--text-heading)', fontSize: '1.1rem', lineHeight: 1.3 }}>{app.name}</div>
+                                    <span className="badge" style={{ fontSize: '0.72rem', flexShrink: 0 }}>{app.category}</span>
                                 </div>
                                 {/* min-height у описания: без него карточки с
                                     коротким текстом становятся ниже соседних,
                                     и ряд кнопок «Установить» идёт ступеньками. */}
-                                <p className="text-muted" style={{ fontSize: '0.85rem', flex: 1, margin: 0,
-                                                                   lineHeight: 1.5, minHeight: '2.55em' }}>{app.description}</p>
+                                <p className="text-muted" style={{ fontSize: '0.9rem', flex: 1, margin: 0,
+                                                                   lineHeight: 1.55, minHeight: '2.8em' }}>{app.description}</p>
                                 {app.requires_https && (
-                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', fontSize: '0.75rem', color: '#f5a623' }}>
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', fontSize: '0.8rem', color: '#f5a623' }}>
                                         <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '1px' }} />
                                         <span>Нужен HTTPS — по IP не откроется</span>
                                     </div>
                                 )}
                                 <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => openInstall(app)}>
-                                    <Rocket size={15} /> Установить
+                                    <Rocket size={14} /> Установить
                                 </button>
                             </div>
                         ))}
@@ -193,7 +193,7 @@ export default function MarketplacePanel() {
                             </div>
                             <div className="modal-actions">
                                 <button type="button" className="btn btn-secondary" onClick={() => setSelected(null)} disabled={busy}>Отмена</button>
-                                <button type="submit" className="btn btn-primary" disabled={busy || !name.trim()}>{busy ? <span className="spinner" /> : <><Rocket size={15} /> Установить</>}</button>
+                                <button type="submit" className="btn btn-primary" disabled={busy || !name.trim()}>{busy ? <span className="spinner" /> : <><Rocket size={14} /> Установить</>}</button>
                             </div>
                         </form>
                     </div>

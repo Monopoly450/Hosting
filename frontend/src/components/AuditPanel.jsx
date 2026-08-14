@@ -57,7 +57,7 @@ export default function AuditPanel() {
                 <div>
                     <p className="panel-subtitle">Кто, когда и с какого IP выполнял действия в системе</p>
                 </div>
-                <button className="btn btn-secondary" onClick={fetchAll}><RefreshCw size={15} /> Обновить</button>
+                <button className="btn btn-secondary" onClick={fetchAll}><RefreshCw size={14} /> Обновить</button>
             </div>
 
             {error && <div className="alert alert-danger">{error}</div>}
@@ -71,14 +71,14 @@ export default function AuditPanel() {
 
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px', alignItems: 'center' }}>
                 <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
-                    <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                    <Search size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                     <input className="form-control" style={{ paddingLeft: '36px' }} placeholder="Поиск по действию (напр. «удаление», «вход»)"
                         value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && fetchAll()} />
                 </div>
                 <button className={`btn ${onlyFailed ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setOnlyFailed(v => !v)}>
-                    <AlertTriangle size={15} /> Только отказы
+                    <AlertTriangle size={14} /> Только отказы
                 </button>
-                <button className="btn btn-secondary" onClick={fetchAll}><Search size={15} /> Найти</button>
+                <button className="btn btn-secondary" onClick={fetchAll}><Search size={14} /> Найти</button>
             </div>
 
             {loading ? (
@@ -91,7 +91,7 @@ export default function AuditPanel() {
                             {rows.map(r => (
                                 <tr key={r.id} onClick={() => setSelectedRow(r)} style={{ cursor: 'pointer' }}>
                                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmt(r.timestamp)}</td>
-                                    <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}><User size={13} /> {r.username}</span></td>
+                                    <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}><User size={14} /> {r.username}</span></td>
                                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{r.ip}</td>
                                     <td>{r.action}</td>
                                     <td>
@@ -130,11 +130,11 @@ export default function AuditPanel() {
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                                     <div>
                                         <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>Пользователь</span>
-                                        <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '5px' }}><User size={13} /> {selectedRow.username}</span>
+                                        <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '5px' }}><User size={14} /> {selectedRow.username}</span>
                                     </div>
                                     <div>
                                         <span className="text-muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '3px' }}>IP-адрес</span>
-                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}><Globe size={13} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> {selectedRow.ip}</span>
+                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}><Globe size={14} style={{ verticalAlign: 'middle', marginRight: '4px' }} /> {selectedRow.ip}</span>
                                     </div>
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>

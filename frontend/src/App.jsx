@@ -481,7 +481,7 @@ const App = () => {
             <div className="input-group" style={{ marginBottom: 0 }}>
               <label className="input-label">Имя пользователя</label>
               <div style={{ position: 'relative' }}>
-                <Users size={17} style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                <Users size={16} style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
                 <input
                   type="text"
                   className="form-control"
@@ -504,7 +504,7 @@ const App = () => {
             <div className="input-group" style={{ marginBottom: 0 }}>
               <label className="input-label">Пароль или ключ доступа</label>
               <div style={{ position: 'relative' }}>
-                <Key size={17} style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                <Key size={16} style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
                 <input
                   type="password"
                   className="form-control"
@@ -523,7 +523,7 @@ const App = () => {
               <div className="input-group" style={{ marginBottom: 0 }}>
                 <label className="input-label">Код двухфакторной аутентификации</label>
                 <div style={{ position: 'relative' }}>
-                  <ShieldCheck size={17} style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                  <ShieldCheck size={16} style={{ position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
                   <input
                     type="text"
                     inputMode="numeric"
@@ -942,7 +942,7 @@ const App = () => {
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}><div className="spinner"></div></div>
               ) : (vms.length === 0 && externalServers.length === 0) ? (
                 <div className="glass-card" style={{ textAlign: 'center', padding: '64px 20px' }}>
-                  <Server size={48} color="var(--text-muted)" style={{ marginBottom: '16px' }} />
+                  <Server size={44} color="var(--text-muted)" style={{ marginBottom: '16px' }} />
                   <h3 className="section-title" style={{ justifyContent: 'center' }}>Нет серверов и инстансов</h3>
                   <p className="text-muted">Разверните новую виртуальную машину или подключите внешний Linux-сервер.</p>
                 </div>
@@ -1468,7 +1468,7 @@ const TwoFactorModal = ({ onClose }) => {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontFamily: 'var(--font-mono)', fontSize: '0.95rem' }}>
                 {backupCodes.map(c => <div key={c} style={{ padding: '8px 10px', background: 'var(--bg-surface-hover)', borderRadius: 'var(--radius-md)', textAlign: 'center', letterSpacing: '0.08em' }}>{c}</div>)}
               </div>
-              <button className="btn btn-secondary" onClick={() => navigator.clipboard.writeText(backupCodes.join('\n'))}><Key size={15} /> Скопировать все</button>
+              <button className="btn btn-secondary" onClick={() => navigator.clipboard.writeText(backupCodes.join('\n'))}><Key size={14} /> Скопировать все</button>
               <button className="btn btn-primary" onClick={onClose}>Я сохранил коды</button>
             </>
 
@@ -1519,7 +1519,7 @@ const TwoFactorModal = ({ onClose }) => {
           ) : (
             <>
               <p className="text-muted" style={{ fontSize: '0.9rem' }}>Двухфакторная аутентификация добавляет второй шаг при входе: помимо пароля потребуется одноразовый код из приложения-аутентификатора.</p>
-              <button className="btn btn-primary" onClick={startSetup} disabled={busy}>{busy ? <span className="spinner" /> : <><ShieldCheck size={15} /> Настроить 2FA</>}</button>
+              <button className="btn btn-primary" onClick={startSetup} disabled={busy}>{busy ? <span className="spinner" /> : <><ShieldCheck size={14} /> Настроить 2FA</>}</button>
             </>
           )}
         </div>

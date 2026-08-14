@@ -243,13 +243,13 @@ const VncConsole = ({ name, username, password, onClose, isInline = false }) => 
               )}
               {status === 'disconnected' && (
                 <>
-                  <AlertCircle size={48} color="var(--text-secondary)" />
+                  <AlertCircle size={44} color="var(--text-secondary)" />
                   <p>Консоль отключена.</p>
                 </>
               )}
               {status === 'error' && (
                 <>
-                  <AlertCircle size={48} color="var(--danger)" />
+                  <AlertCircle size={44} color="var(--danger)" />
                   <p style={{ color: 'var(--danger)', fontWeight: 600 }}>Ошибка подключения к консоли</p>
                   <p style={{ fontSize: '0.9rem', opacity: 0.8 }}>{errorMsg || 'Убедитесь, что виртуалка запущена и KVM включен.'}</p>
                 </>

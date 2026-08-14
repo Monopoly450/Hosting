@@ -173,7 +173,7 @@ const SshTerminal = ({ name, isInline = false }) => {
       
       {status === 'error' && (
         <div style={{ position: 'absolute', inset: 0, background: 'rgba(11, 15, 25, 0.98)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#f87171', zIndex: 10, padding: '24px', textAlign: 'center' }}>
-          <AlertCircle size={36} style={{ marginBottom: '16px' }} />
+          <AlertCircle size={44} style={{ marginBottom: '16px' }} />
           <span style={{ fontWeight: 600, fontSize: '1.1rem', marginBottom: '8px', color: '#fca5a5' }}>Ошибка сессии терминала</span>
           <span style={{ fontSize: '0.9rem', color: '#94a3b8', marginBottom: '20px', maxWidth: '400px' }}>{errorMsg}</span>
           <button className="btn btn-secondary" onClick={handleReconnect} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', borderRadius: 'var(--radius-sm)' }}>

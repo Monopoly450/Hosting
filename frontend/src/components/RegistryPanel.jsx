@@ -112,7 +112,7 @@ export default function RegistryPanel() {
                     <Boxes size={44} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
                     <h3 className="section-title" style={{ justifyContent: 'center' }}>Реестр не запущен</h3>
                     <p className="text-muted" style={{ marginBottom: '16px' }}>Запустите приватный реестр, чтобы пушить и хранить свои Docker-образы.</p>
-                    <button className="btn btn-primary" onClick={provision} disabled={busy}>{busy ? <span className="spinner" /> : <><Play size={15} /> Запустить реестр</>}</button>
+                    <button className="btn btn-primary" onClick={provision} disabled={busy}>{busy ? <span className="spinner" /> : <><Play size={14} /> Запустить реестр</>}</button>
                 </div>
             ) : (
                 <>
@@ -120,7 +120,7 @@ export default function RegistryPanel() {
                     <div className="glass-card" style={{ marginBottom: '20px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                             <div className="section-title" style={{ margin: 0 }}><Terminal size={16} /> Как загружать образы</div>
-                            <button className="btn btn-danger btn-sm" onClick={stop} disabled={busy}><Square size={13} /> Остановить</button>
+                            <button className="btn btn-danger btn-sm" onClick={stop} disabled={busy}><Square size={14} /> Остановить</button>
                         </div>
                         <p className="text-muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
                             Адрес ниже — для команд <code>docker login</code> и <code>docker push</code>.
@@ -171,7 +171,7 @@ export default function RegistryPanel() {
                                                     expanded[r.name].map(t => (
                                                         <div key={t} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                             <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{r.name}:{t}</code>
-                                                            <button className="btn-icon" title="Удалить" style={{ marginLeft: 'auto' }} onClick={() => deleteTag(r.name, t)}><Trash2 size={13} style={{ color: '#e5484d' }} /></button>
+                                                            <button className="btn-icon" title="Удалить" style={{ marginLeft: 'auto' }} onClick={() => deleteTag(r.name, t)}><Trash2 size={14} style={{ color: '#e5484d' }} /></button>
                                                         </div>
                                                     ))}
                                             </div>

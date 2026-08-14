@@ -484,7 +484,7 @@ export default function DatabasesPanel() {
 
                 <div className="glass-card accent-top" style={{ marginBottom: '22px', display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap' }}>
                     <div className="connect-tile-icon" style={{ width: '54px', height: '54px', flexShrink: 0 }}>
-                        <Database size={26} />
+                        <Database size={24} />
                     </div>
                     <div style={{ flex: 1, minWidth: '200px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>

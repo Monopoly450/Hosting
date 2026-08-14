@@ -300,7 +300,7 @@ export default function DomainsPanel() {
                                     <td>
                                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                                             <button className="btn btn-secondary btn-sm" onClick={() => verify(d.id)} disabled={verifying === d.id}>
-                                                {verifying === d.id ? <span className="spinner" /> : <><ShieldCheck size={13} /> Проверить</>}
+                                                {verifying === d.id ? <span className="spinner" /> : <><ShieldCheck size={14} /> Проверить</>}
                                             </button>
                                             <button className="btn-icon" title="Удалить" onClick={() => remove(d.id)}><Trash2 size={14} style={{ color: '#e5484d' }} /></button>
                                         </div>

@@ -147,10 +147,10 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                 </div>
                 <div style={{ display: 'flex', gap: '15px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Calendar size={10} /> {formatTime(b.created_at)}
+                    <Calendar size={12} /> {formatTime(b.created_at)}
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <HardDrive size={10} /> {b.size}
+                    <HardDrive size={12} /> {b.size}
                   </span>
                 </div>
                 {/* Если бэкап клонируется, показываем прогресс */}
@@ -181,7 +181,7 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                   disabled={actionLoading !== null}
                   style={{ padding: '6px' }}
                 >
-                  <Trash2 size={10} />
+                  <Trash2 size={12} />
                 </button>
               </div>
             </div>

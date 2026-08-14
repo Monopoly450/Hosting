@@ -140,7 +140,7 @@ const HostStats = ({ onMetricsLoaded }) => {
   if (error && !metrics) {
     return (
       <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: '40px' }}>
-        <Activity size={40} color="var(--status-danger)" />
+        <Activity size={44} color="var(--status-danger)" />
         <h3 className="section-title" style={{ margin: 0, color: 'var(--status-danger)' }}>Сбой подключения</h3>
         <p className="text-muted">Не удалось загрузить метрики хоста. Сервер недоступен.</p>
         <button className="btn btn-secondary" onClick={fetchMetrics}>

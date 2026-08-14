@@ -57,7 +57,7 @@ const DockerPanel = () => {
   if (error && containers.length === 0) {
     return (
       <div className="glass-card" style={{ textAlign: 'center', padding: '60px', color: 'var(--status-danger)' }}>
-        <AlertTriangle size={48} style={{ marginBottom: '15px' }} />
+        <AlertTriangle size={44} style={{ marginBottom: '15px' }} />
         <h3 className="section-title" style={{ justifyContent: 'center', color: 'var(--status-danger)' }}>Служба Docker недоступна</h3>
         <p className="text-muted" style={{ maxWidth: '400px', margin: '10px auto' }}>
           Убедитесь, что Docker запущен на хосте и сокет примонтирован.
@@ -75,7 +75,7 @@ const DockerPanel = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h2 className="section-title" style={{ margin: 0 }}>
-            <Layers size={22} color="var(--accent-primary)" />
+            <Layers size={20} color="var(--accent-primary)" />
             Управление Docker-контейнерами
           </h2>
           <p className="text-muted" style={{ margin: '4px 0 0', fontSize: '0.9rem' }}>Хостовый уровень кластера</p>

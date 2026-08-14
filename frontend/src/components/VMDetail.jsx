@@ -429,7 +429,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   if (error && !vm) {
     return (
       <div className="glass-card" style={{ textAlign: 'center', padding: '40px' }}>
-        <ShieldAlert size={48} color="var(--status-danger)" />
+        <ShieldAlert size={44} color="var(--status-danger)" />
         <h3 className="section-title" style={{ justifyContent: 'center', marginTop: '16px' }}>Ошибка загрузки ВМ</h3>
         <p className="text-muted">{error}</p>
       </div>

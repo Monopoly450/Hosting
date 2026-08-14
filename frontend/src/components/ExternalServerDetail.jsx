@@ -126,7 +126,7 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
     return (
       <div className="console-modal-backdrop">
         <div className="console-container" style={{ maxWidth: '500px', padding: '40px', textAlign: 'center', color: 'var(--danger)' }}>
-          <ShieldAlert size={48} style={{ margin: '0 auto 15px' }} />
+          <ShieldAlert size={44} style={{ margin: '0 auto 15px' }} />
           <h3>Не удалось связаться с сервером</h3>
           <p style={{ margin: '10px 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>{error}</p>
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '20px' }}>

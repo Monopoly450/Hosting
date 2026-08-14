@@ -90,7 +90,7 @@ export default function TokensPanel() {
                         </button>
                     </div>
                     <div style={{ marginTop: '14px' }}>
-                        <div className="text-muted" style={{ fontSize: '0.78rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}><Terminal size={13} /> Использование в CLI:</div>
+                        <div className="text-muted" style={{ fontSize: '0.78rem', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}><Terminal size={14} /> Использование в CLI:</div>
                         <pre style={{ background: 'var(--bg-surface-hover)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '12px', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', margin: 0, overflowX: 'auto' }}>{`aegis configure --url ${window.location.origin.replace(/:\d+$/, ':8000')} --token ${newToken.token}`}</pre>
                     </div>
                     <button className="btn btn-secondary" style={{ marginTop: '14px' }} onClick={() => setNewToken(null)}>Я сохранил токен</button>
@@ -117,7 +117,7 @@ export default function TokensPanel() {
                                     <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{fmt(t.created_at)}</td>
                                     <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t.last_used ? fmt(t.last_used) : 'ни разу'}</td>
                                     <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t.expires_at ? fmt(t.expires_at) : 'без срока'}</td>
-                                    <td><button className="btn btn-danger btn-sm" onClick={() => handleRevoke(t.id)}><Trash2 size={13} /> Отозвать</button></td>
+                                    <td><button className="btn btn-danger btn-sm" onClick={() => handleRevoke(t.id)}><Trash2 size={14} /> Отозвать</button></td>
                                 </tr>
                             ))}
                         </tbody>
@@ -145,7 +145,7 @@ export default function TokensPanel() {
                             </div>
                             <div className="modal-actions">
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowCreate(false)} disabled={submitting}>Отмена</button>
-                                <button type="submit" className="btn btn-primary" disabled={submitting || !name.trim()}>{submitting ? <span className="spinner" /> : <><Key size={15} /> Создать</>}</button>
+                                <button type="submit" className="btn btn-primary" disabled={submitting || !name.trim()}>{submitting ? <span className="spinner" /> : <><Key size={14} /> Создать</>}</button>
                             </div>
                         </form>
                     </div>

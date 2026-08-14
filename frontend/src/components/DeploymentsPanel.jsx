@@ -247,10 +247,10 @@ export default function DeploymentsPanel() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.82rem' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
                                     {isMarketplace(d) ? (
-                                        <><Package size={13} /> <span>{marketplaceAppId(d)}</span></>
+                                        <><Package size={14} /> <span>{marketplaceAppId(d)}</span></>
                                     ) : (
                                         <>
-                                            <Github size={13} />
+                                            <Github size={14} />
                                             <a href={d.repo_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)', textDecoration: 'none', wordBreak: 'break-all' }}>
                                                 {d.repo_url.replace('https://', '')}
                                             </a>
@@ -259,8 +259,8 @@ export default function DeploymentsPanel() {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
                                     {isMarketplace(d)
-                                        ? <><Network size={13} /> порт {d.app_port}</>
-                                        : <><GitBranch size={13} /> {d.branch} · порт {d.app_port}</>}
+                                        ? <><Network size={14} /> порт {d.app_port}</>
+                                        : <><GitBranch size={14} /> {d.branch} · порт {d.app_port}</>}
                                 </div>
                             </div>
 
@@ -278,7 +278,7 @@ export default function DeploymentsPanel() {
                                     <Terminal size={14} /> Управление
                                 </button>
                                 <button className="btn btn-danger btn-sm" onClick={() => handleDelete(d.id)} style={{ marginLeft: 'auto' }}>
-                                    <Trash2 size={13} />
+                                    <Trash2 size={14} />
                                 </button>
                             </div>
                         </div>
@@ -492,7 +492,7 @@ export default function DeploymentsPanel() {
                                                 Система подключится к ВМ деплоя по SSH, выполнит команду <code>git pull</code> из вашей ветки, скачает свежие коммиты и перезапустит контейнеры или системную службу приложения. Удобно для обновления бота или сайта при отправке изменений в GitHub.
                                             </p>
                                             <button className="btn btn-primary" onClick={() => handleRedeploy(selectedDep.id)} disabled={redeploying} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <RefreshCw size={15} className={redeploying ? 'spinner' : ''} />
+                                                <RefreshCw size={14} className={redeploying ? 'spinner' : ''} />
                                                 {redeploying ? 'Переразвертывание...' : 'Переразвернуть из GitHub'}
                                             </button>
                                         </div>
@@ -504,7 +504,7 @@ export default function DeploymentsPanel() {
                                             Удаление деплоя полностью сотрет эту виртуальную машину со всеми локальными данными, базами данных и файлами вашего бота/приложения. Отменить это действие невозможно.
                                         </p>
                                         <button className="btn btn-danger" onClick={() => handleDelete(selectedDep.id)} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <Trash2 size={15} />
+                                            <Trash2 size={14} />
                                             Удалить деплой и ВМ
                                         </button>
                                     </div>
@@ -576,7 +576,7 @@ export default function DeploymentsPanel() {
                             <div className="slide-over-actions">
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowCreate(false)} disabled={submitting}>Отмена</button>
                                 <button type="submit" className="btn btn-primary" disabled={submitting}>
-                                    {submitting ? <span className="spinner" /> : <><Rocket size={15} /> Развернуть</>}
+                                    {submitting ? <span className="spinner" /> : <><Rocket size={14} /> Развернуть</>}
                                 </button>
                             </div>
                         </form>
