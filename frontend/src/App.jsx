@@ -900,16 +900,32 @@ const App = () => {
             </div>
           ) : activeTab === 'dashboard' ? (
             /* Dashboard View */
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-              <HostStats />
+            <div className="panel-container">
+              {/* Строки описания у дашборда не было вовсе, и контент начинался
+                  сразу под верхней панелью — единственная вкладка с таким
+                  ритмом. */}
+              <div className="panel-header">
+                <div>
+                  <p className="panel-subtitle">Нагрузка сервера и состояние кластера в реальном времени</p>
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                <HostStats />
+              </div>
             </div>
           ) : activeTab === 'clusters' ? (
             <ClusterPanel vms={vms} onRefreshVms={fetchVMs} />
           ) : activeTab === 'vms' ? (
             /* Combined Servers List */
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="text-muted">Всего серверов и инстансов: <strong>{vms.length + externalServers.length}</strong></span>
+            <div className="panel-container">
+              {/* Общий .panel-header вместо своего inline-ряда: у этой вкладки
+                  отступ задавался gap: 24px родителя, у остальных —
+                  margin-bottom: 16px самого заголовка, и высота шапки
+                  отличалась. */}
+              <div className="panel-header">
+                <div>
+                  <p className="panel-subtitle">Всего серверов и инстансов: <strong>{vms.length + externalServers.length}</strong></p>
+                </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
                   <button className="btn btn-secondary" onClick={() => setShowConnectModal(true)}>
                     <Link2 size={16}/> Внешний сервер

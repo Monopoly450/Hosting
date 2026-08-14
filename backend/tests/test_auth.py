@@ -141,3 +141,23 @@ def test_loading_area_has_one_shared_height():
     with open(os.path.join(root, "frontend", "src", "index.css"), encoding="utf-8") as f:
         css = f.read()
     assert ".panel-loading" in css
+
+
+def test_every_tab_uses_the_shared_header_layout():
+    """Дашборд не имел строки описания вовсе, а «Серверы и Инстансы» держали
+    свой inline-ряд с отступом от gap родителя вместо margin-bottom общего
+    класса. Из-за этого контент на разных вкладках начинался на разной
+    высоте — при том что верхняя панель везде одна и та же."""
+    import os, re
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "frontend", "src", "App.jsx"), encoding="utf-8") as f:
+        src = f.read()
+
+    for marker in ("/* Dashboard View */", "/* Combined Servers List */"):
+        start = src.index(marker)
+        block = src[start:start + 1200]
+        assert 'className="panel-header"' in block, f"{marker}: своя вёрстка вместо общей"
+
+    # Своя разметка «заголовок вкладки» с inline-стилями не должна вернуться:
+    # именно она разъезжалась по отступам с остальными панелями.
+    assert "fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-heading)'" not in src
