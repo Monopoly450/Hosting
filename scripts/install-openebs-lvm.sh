@@ -127,8 +127,32 @@ parameters:
   volgroup: "vg-aegis"
 EOF
 
+# 4. Класс снимков томов.
+#
+# Без него снимки ВМ не работают, причём МОЛЧА: install.sh ставит CRD
+# VolumeSnapshot и snapshot-controller и включает у KubeVirt feature gate
+# Snapshot, поэтому объект VirtualMachineSnapshot создаётся успешно и
+# панель показывает его как «создаётся». Но создать за ним настоящий
+# VolumeSnapshot не из чего — класса нет ни одного, — и снимок навсегда
+# остаётся в Pending с readyToUse=false. Снаружи это выглядит как «снимки
+# не создаются».
+log "Создание VolumeSnapshotClass 'openebs-lvm-snapshot'..."
+cat <<EOF | kubectl apply -f -
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: openebs-lvm-snapshot
+  annotations:
+    # Класс по умолчанию: KubeVirt не указывает класс явно при снятии
+    # снимка ВМ и полагается на дефолтный.
+    snapshot.storage.kubernetes.io/is-default-class: "true"
+driver: local.csi.openebs.io
+deletionPolicy: Delete
+EOF
+
 log "=========================================================="
 log "Установка завершена! Блочное хранилище 'openebs-lvm' готово."
+log "Снимки виртуальных машин также готовы к работе."
 log "Теперь диски будут создаваться как сырые блочные устройства"
 log "и монтироваться к виртуальным машинам «на лету»."
 log "=========================================================="

@@ -75,6 +75,21 @@ def create_snapshot(vm_name: str, req: SnapshotCreateRequest, client: K8sClient 
     finally:
         db.close()
 
+    # Без класса снимков томов снимок не получится физически, и провал этот
+    # МОЛЧАЛИВЫЙ: объект VirtualMachineSnapshot создастся, панель покажет
+    # «создаётся», а readyToUse не станет true никогда — KubeVirt не из чего
+    # сделать настоящий VolumeSnapshot. Именно так это и выглядело: «снимки
+    # не создаются». Отказываем сразу и объясняем, что делать.
+    if not client.volume_snapshot_classes():
+        raise HTTPException(
+            status_code=400,
+            detail="Снимки недоступны: в кластере нет ни одного VolumeSnapshotClass. "
+                   "Хранилище по умолчанию (local-path) снимки не поддерживает — "
+                   "это не CSI-драйвер. Установите блочное хранилище LVM: "
+                   "sudo bash scripts/install-openebs-lvm.sh, затем создавайте "
+                   "диски ВМ на классе openebs-lvm."
+        )
+
     try:
         client.create_vm_snapshot(vm_name, full_snapshot_name)
         return SnapshotResponse(

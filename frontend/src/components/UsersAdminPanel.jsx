@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, Pencil, Trash2 } from 'lucide-react';
 import CustomSelect from './CustomSelect';
 
 export default function UsersAdminPanel({ apiToken, apiUrl }) {
@@ -156,7 +156,7 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
         <div className="panel-container">
             <div className="panel-header">
                 <div>
-                    <p className="panel-subtitle">Регистрация студентов, мониторинг квот и баланса</p>
+                    <p className="panel-subtitle">Регистрация студентов и настройка квот</p>
                 </div>
                 <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
                     + Создать пользователя
@@ -177,7 +177,6 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
                                 <th>ID</th>
                                 <th>Имя пользователя</th>
                                 <th>Роль</th>
-                                <th>Баланс (₽)</th>
                                 <th>Лимит CPU</th>
                                 <th>Лимит RAM (МБ)</th>
                                 <th>Лимит ВМ</th>
@@ -191,36 +190,44 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
                                     <td>{u.id}</td>
                                     <td style={{ fontWeight: 'bold' }}>{u.username}</td>
                                     <td>
-                                        <span className={`status-badge ${u.role === 'admin' ? 'status-active' : 'status-pending'}`} style={{ textTransform: 'capitalize' }}>
+                                        <span className={`badge ${u.role === 'admin' ? 'badge-success' : 'badge-warning'}`}>
                                             {u.role === 'admin' ? 'Админ' : 'Студент'}
                                         </span>
                                     </td>
-                                    <td>{u.balance.toFixed(2)} ₽</td>
                                     <td>{u.max_vcpus} Cores</td>
                                     <td>{u.max_ram_mb} MB</td>
                                     <td>{u.max_vms} VMs</td>
                                     <td>{u.max_storage_gb} GB</td>
-                                    <td>
-                                        <button 
-                                            className="btn btn-secondary btn-sm" 
-                                            onClick={() => handleStartEdit(u)}
-                                            style={{ padding: '4px 8px', fontSize: '12px', marginRight: '8px' }}
-                                        >
-                                            Редактировать
-                                        </button>
-                                        <button 
-                                            className="btn btn-danger btn-sm" 
-                                            onClick={() => handleDeleteUser(u.id)}
-                                            style={{ padding: '4px 8px', fontSize: '12px' }}
-                                        >
-                                            Удалить
-                                        </button>
+                                    {/* Иконки, а не подписи: две кнопки с
+                                        текстом не помещались в колонку и
+                                        переносились одна под другую —
+                                        выглядело как наложение. nowrap
+                                        держит их в одной строке при любой
+                                        ширине таблицы. */}
+                                    <td style={{ whiteSpace: 'nowrap' }}>
+                                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                            <button
+                                                className="btn btn-secondary btn-icon"
+                                                onClick={() => handleStartEdit(u)}
+                                                title="Редактировать лимиты"
+                                            >
+                                                <Pencil size={14} />
+                                            </button>
+                                            <button
+                                                className="btn btn-secondary btn-icon"
+                                                onClick={() => handleDeleteUser(u.id)}
+                                                title="Удалить пользователя"
+                                                style={{ color: '#ef4444', borderColor: '#fee2e2' }}
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
                             {users.length === 0 && (
                                 <tr>
-                                    <td colSpan="9" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
+                                    <td colSpan="8" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
                                         Нет зарегистрированных пользователей
                                     </td>
                                 </tr>

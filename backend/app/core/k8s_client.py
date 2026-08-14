@@ -513,12 +513,28 @@ class K8sClient:
             pvc_list = self.core_api.list_namespaced_persistent_volume_claim(namespace)
             orig_pvc_name = None
             orig_pvc = None
+
+            # Диск ВМ называется ровно "{имя}-disk" (см. generate_linux_manifest).
+            # Ищем его по точному имени, а не по префиксу: startswith(name)
+            # цеплял чужой диск, если имя одной ВМ — начало имени другой
+            # («web» и «web2»). Бэкап при этом успешно создавался, только
+            # копировал не ту машину, и заметить это можно было лишь при
+            # восстановлении.
+            expected = f"{name}-disk"
             for pvc in pvc_list.items:
-                if pvc.metadata.name.startswith(name) and "-backup-" not in pvc.metadata.name:
-                    orig_pvc_name = pvc.metadata.name
-                    orig_pvc = pvc
+                if pvc.metadata.name == expected:
+                    orig_pvc_name, orig_pvc = pvc.metadata.name, pvc
                     break
-                    
+
+            if not orig_pvc_name:
+                # Запасной путь для дисков, созданных до этого правила.
+                for pvc in pvc_list.items:
+                    pvc_name = pvc.metadata.name
+                    if pvc_name.startswith(f"{name}-") and "-backup-" not in pvc_name:
+                        orig_pvc_name, orig_pvc = pvc_name, pvc
+                        break
+
+
             if not orig_pvc_name:
                 raise Exception(f"Оригинальный PVC диска для VM {name} не найден")
                 
@@ -1300,6 +1316,25 @@ class K8sClient:
                     "ready_to_use": item.get("status", {}).get("readyToUse", False)
                 })
         return filtered
+
+    def volume_snapshot_classes(self):
+        """Классы снимков томов, установленные в кластере.
+
+        Снимок ВМ физически невозможен, если их нет ни одного: KubeVirt
+        создаёт под VirtualMachineSnapshot настоящий VolumeSnapshot, а тот
+        требует класса и CSI-драйвера, умеющего снимки. Дефолтный
+        local-path — не CSI-драйвер и снимки не умеет вовсе.
+
+        Пустой список возвращается и когда CRD не установлены (404) — для
+        вызывающей стороны это одно и то же: снимать нечем.
+        """
+        try:
+            res = self.custom_api.list_cluster_custom_object(
+                "snapshot.storage.k8s.io", "v1", "volumesnapshotclasses")
+            return [i.get("metadata", {}).get("name") for i in res.get("items", [])]
+        except Exception as e:
+            logger.warning(f"Не удалось получить список VolumeSnapshotClass: {e}")
+            return []
 
     def delete_vm_snapshot(self, snapshot_name: str, namespace: str = "default"):
         """Удаляет снимок виртуальной машины"""

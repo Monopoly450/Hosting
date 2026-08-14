@@ -55,3 +55,56 @@ def test_always_strictly_in_future():
 def test_backup_timestamp_parsing():
     assert _backup_timestamp("web-1-backup-1752849000") == 1752849000
     assert _backup_timestamp("garbage") == 0
+
+
+# ---------- снимки: без класса снимков томов они не работают вовсе ----------
+#
+# Живой случай: снимки «не создаются». На деле объект VirtualMachineSnapshot
+# создавался успешно и панель показывала «создаётся», но readyToUse не
+# становился true никогда — KubeVirt нечем сделать настоящий VolumeSnapshot.
+# install.sh ставит CRD и snapshot-controller и включает feature gate
+# Snapshot, а VolumeSnapshotClass не создавал никто. Плюс хранилище по
+# умолчанию (local-path) — вообще не CSI-драйвер и снимки не умеет.
+
+def test_snapshot_creation_refuses_without_a_volume_snapshot_class():
+    """Отказ сразу и с объяснением лучше объекта, который навсегда зависнет
+    в Pending: пользователь иначе ждёт снимок, которого не будет."""
+    import os
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "app", "api", "snapshots.py")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+
+    assert "volume_snapshot_classes()" in src
+    # Сообщение обязано называть причину и путь решения, а не просто «ошибка».
+    assert "local-path" in src and "install-openebs-lvm.sh" in src
+
+
+def test_lvm_installer_creates_the_snapshot_class():
+    """LVM-драйвер снимки умеет, но без класса они всё равно не заработают."""
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "scripts", "install-openebs-lvm.sh"), encoding="utf-8") as f:
+        sh = f.read()
+
+    assert "kind: VolumeSnapshotClass" in sh
+    assert "driver: local.csi.openebs.io" in sh
+    # KubeVirt не указывает класс явно — берётся дефолтный.
+    assert "is-default-class" in sh
+
+
+def test_backup_picks_the_exact_disk_of_the_vm():
+    """startswith(name) цеплял диск чужой ВМ, если имя одной — начало имени
+    другой («web» и «web2»): бэкап создавался, но копировал не ту машину."""
+    import os
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "app", "core", "k8s_client.py")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+
+    block = src[src.index("def create_vm_backup"):]
+    block = block[:block.index("def list_vm_backups")]
+    assert 'expected = f"{name}-disk"' in block
+    assert "pvc.metadata.name == expected" in block
