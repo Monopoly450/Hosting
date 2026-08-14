@@ -130,7 +130,6 @@ export default function MailPanel() {
         <div className="panel-container">
             <div className="panel-header">
                 <div>
-                    <h2 className="panel-title">Почтовый хостинг (docker-mailserver)</h2>
                     <p className="panel-subtitle">
                         {mailDomain
                             ? <>Домен почты: <strong style={{ fontFamily: 'var(--font-mono)' }}>{mailDomain}</strong> — ящики создаются на нём</>

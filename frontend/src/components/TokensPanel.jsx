@@ -69,7 +69,6 @@ export default function TokensPanel() {
         <div className="panel-container">
             <div className="panel-header">
                 <div>
-                    <h2 className="panel-title">API-токены</h2>
                     <p className="panel-subtitle">Для доступа к API из CLI, скриптов и Terraform без пароля</p>
                 </div>
                 <button className="btn btn-primary" onClick={() => setShowCreate(true)}><Plus size={16} /> Новый токен</button>

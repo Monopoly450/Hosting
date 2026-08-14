@@ -55,7 +55,6 @@ export default function AuditPanel() {
         <div className="panel-container">
             <div className="panel-header">
                 <div>
-                    <h2 className="panel-title">Логи аудита</h2>
                     <p className="panel-subtitle">Кто, когда и с какого IP выполнял действия в системе</p>
                 </div>
                 <button className="btn btn-secondary" onClick={fetchAll}><RefreshCw size={15} /> Обновить</button>

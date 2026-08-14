@@ -14,6 +14,14 @@ from app.core.auth import hash_password, verify_password, create_access_token, g
 # Простая защита от брутфорса: лимит на 5 неудачных попыток входа за 5 минут
 _login_failures = defaultdict(list)
 
+# Сколько живёт сессия. Сутки — прежнее (и единственное) поведение; «запомнить
+# меня» продлевает до 30 дней, чтобы не логиниться каждый день на своей
+# машине. Больше месяца не делаем: токен лежит в localStorage, отозвать его
+# по отдельности нечем — сменить придётся AEGIS_SECRET_KEY, а это разлогинит
+# сразу всех.
+DEFAULT_SESSION_SECONDS = 3600 * 24
+REMEMBER_ME_SECONDS = 3600 * 24 * 30
+
 logger = logging.getLogger("app.api.auth")
 
 router = APIRouter()
@@ -24,6 +32,7 @@ class LoginRequest(BaseModel):
     username: str = Field(..., description="Имя пользователя")
     password: str = Field(..., description="Пароль")
     otp: Optional[str] = Field(None, description="Код 2FA или резервный код (если включена 2FA)")
+    remember: bool = Field(False, description="Не разлогинивать через сутки (30 дней)")
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -124,7 +133,11 @@ async def login(req: LoginRequest, request: Request, db: AsyncSession = Depends(
     if client_ip in _login_failures:
         del _login_failures[client_ip]
 
-    token = create_access_token({"sub": username})
+    # «Запомнить меня» — это срок жизни токена, и только он. Обычная сессия
+    # живёт сутки (см. create_access_token), с галочкой — 30 дней; хранится
+    # токен в localStorage в обоих случаях.
+    token = create_access_token({"sub": username},
+                                expires_delta=REMEMBER_ME_SECONDS if req.remember else DEFAULT_SESSION_SECONDS)
     return {
         "access_token": token,
         "token_type": "bearer",

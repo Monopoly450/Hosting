@@ -44,3 +44,40 @@ def test_tampered_token_rejected():
     # Мусор вместо токена
     assert decode_access_token("garbage") is None
     assert decode_access_token("a.b.c") is None
+
+
+# ----- «не представился» и «не админ» — это РАЗНЫЕ коды ответа --------------
+#
+# Живой баг: студент открывал вкладку «Кластеры», та запрашивала
+# /api/host/metrics (роутер закрыт verify_admin_token), получала 401 — а
+# перехватчик fetch в панели считает 401 протухшей сессией: стирал токен и
+# перезагружал страницу. Вместо кластеров человек видел форму входа.
+
+def test_admin_guard_separates_401_from_403():
+    """401 — токена нет или он не наш; 403 — токен валиден, но роль не та."""
+    import os
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "app", "core", "auth.py")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+
+    guard = src[src.index("async def verify_admin_token"):]
+    guard = guard[:guard.index("API_TOKEN_PREFIX")]
+    assert "HTTP_403_FORBIDDEN" in guard, "аутентифицированный неадмин обязан получать 403"
+    assert "HTTP_401_UNAUTHORIZED" in guard, "анонимный запрос обязан получать 401"
+    # 403 — только для того, кто успешно опознан.
+    assert "if authenticated:" in guard
+
+
+def test_frontend_logs_out_only_on_401():
+    """Обратная сторона: перехватчик обязан реагировать именно на 401.
+    Начни он выкидывать и на 403 — фикс выше стал бы бессмысленным."""
+    import os, re
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "frontend", "src", "main.jsx")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    assert "response.status === 401" in src
+    assert "403" not in src

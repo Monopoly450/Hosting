@@ -88,6 +88,9 @@ const App = () => {
   const [usernameInput, setUsernameInput] = useState('admin');
   const [passwordInput, setPasswordInput] = useState('');
   const [otpInput, setOtpInput] = useState('');
+  // Галочку помним между заходами: тот, кто её однажды поставил на своей
+  // машине, ставить её каждый раз заново не хочет.
+  const [rememberMe, setRememberMe] = useState(localStorage.getItem('aegis_remember') === '1');
   const [requires2fa, setRequires2fa] = useState(false);
   const [userRole, setUserRole] = useState(localStorage.getItem('aegis_role') || 'student');
   const [username, setUsername] = useState(localStorage.getItem('aegis_username') || '');
@@ -121,11 +124,20 @@ const App = () => {
     localStorage.setItem('aegis_theme', theme);
   }, [theme]);
 
+  // Вкладки только для администратора. Скрыть кнопку в сайдбаре мало:
+  // вкладка может остаться выбранной с прошлой сессии или после понижения
+  // роли, и тогда пользователь упирался бы в пустой экран.
+  const ADMIN_ONLY_TABS = ['balancer'];
+
   const navigateToTab = (tab) => {
-    setActiveTab(tab);
+    setActiveTab(ADMIN_ONLY_TABS.includes(tab) && userRole !== 'admin' ? 'vms' : tab);
     setSelectedVMDetailName(null);
     setSidebarOpen(false);
   };
+
+  useEffect(() => {
+    if (ADMIN_ONLY_TABS.includes(activeTab) && userRole !== 'admin') setActiveTab('vms');
+  }, [activeTab, userRole]);
 
   // VM Creation Form
   const [name, setName] = useState('');
@@ -359,7 +371,7 @@ const App = () => {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: usernameVal, password: passwordVal, otp: otpInput.trim() || undefined }),
+        body: JSON.stringify({ username: usernameVal, password: passwordVal, otp: otpInput.trim() || undefined, remember: rememberMe }),
         _skipAuthRedirect: true
       });
 
@@ -368,6 +380,7 @@ const App = () => {
         localStorage.setItem('aegis_admin_token', data.access_token);
         localStorage.setItem('aegis_role', data.role);
         localStorage.setItem('aegis_username', data.username);
+        localStorage.setItem('aegis_remember', rememberMe ? '1' : '0');
         setAuthenticated(true);
         window.location.reload();
       } else {
@@ -518,6 +531,17 @@ const App = () => {
               </div>
             )}
 
+            {/* Срок жизни токена: сутки против 30 дней (см. auth.py,
+                REMEMBER_ME_SECONDS). Хранится он в localStorage в обоих
+                случаях, поэтому галочка меняет именно то, как скоро сессия
+                протухнет сама. */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
+                            fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+              <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)}
+                     style={{ width: '15px', height: '15px', accentColor: 'var(--accent-primary)', cursor: 'pointer' }} />
+              Запомнить меня на 30 дней
+            </label>
+
             <button type="submit" className="btn btn-primary" disabled={formLoading} style={{ width: '100%', padding: '13px', fontSize: '1rem', marginTop: '10px' }}>
               {formLoading ? <span className="spinner" /> : (requires2fa ? 'Подтвердить код' : 'Войти в панель')}
             </button>
@@ -577,13 +601,18 @@ const App = () => {
             Кластеры
           </button>
 
-          <button 
-            className={`nav-item ${activeTab === 'balancer' && !selectedVMDetailName ? 'active' : ''}`}
-            onClick={() => navigateToTab('balancer')}
-          >
-            <Shuffle size={18} />
-            Балансировщик
-          </button>
+          {/* Балансировщик — инструмент администратора: он раздаёт порты
+              хостового nginx на весь сервер, а не ресурсы одного пользователя.
+              Студенту он не нужен и всё равно упрётся в проверку прав. */}
+          {userRole === 'admin' && (
+            <button
+              className={`nav-item ${activeTab === 'balancer' && !selectedVMDetailName ? 'active' : ''}`}
+              onClick={() => navigateToTab('balancer')}
+            >
+              <Shuffle size={18} />
+              Балансировщик
+            </button>
+          )}
 
 
 

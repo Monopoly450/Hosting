@@ -127,7 +127,6 @@ export default function BackupsPanel() {
         <div className="panel-container">
             <div className="panel-header">
                 <div>
-                    <h2 className="panel-title">Запланированные бэкапы</h2>
                     <p className="panel-subtitle">Автоматические резервные копии ВМ и баз данных по расписанию (время в UTC)</p>
                 </div>
                 <button className="btn btn-primary" onClick={() => setShowCreate(true)}><Plus size={16} /> Новое расписание</button>

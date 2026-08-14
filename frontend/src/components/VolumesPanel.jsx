@@ -153,7 +153,6 @@ export default function VolumesPanel() {
         <div className="panel-container">
             <div className="panel-header">
                 <div>
-                    <h2 className="panel-title">Сетевые диски (Persistent Volumes)</h2>
                     <p className="panel-subtitle">Динамическое создание и горячее подключение (hotplug) дисков к ВМ</p>
                 </div>
                 <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>

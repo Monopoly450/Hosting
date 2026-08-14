@@ -149,7 +149,6 @@ export default function AlertsPanel() {
         <div className="panel-container">
             <div className="panel-header">
                 <div>
-                    <h2 className="panel-title">Алерты и уведомления</h2>
                     <p className="panel-subtitle">Оповещения о падении ВМ и превышении нагрузки — в Telegram или на webhook</p>
                 </div>
             </div>

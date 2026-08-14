@@ -68,7 +68,6 @@ export default function MarketplacePanel() {
                 название и описание разъехались бы по разным краям строки. */}
             <div className="panel-header">
                 <div>
-                    <h2 className="panel-title">Маркетплейс приложений</h2>
                     <p className="panel-subtitle">Популярные приложения в один клик — каждое разворачивается в отдельной ВМ</p>
                 </div>
             </div>
@@ -115,26 +114,34 @@ export default function MarketplacePanel() {
                         ))}
                     </div>
 
-                    {/* grid-cols-4 (260px), а не размер плиток серверов: записей
-                        в каталоге стало почти двадцать, и на широких карточках
-                        короткие описания оставляли много пустоты. Смайликов у
-                        названий тоже нет — иконка из каталога плохо ложится в
-                        строку с заголовком и бейджем категории. */}
-                    <div className="grid-cols-4">
+                    {/* grid-cols-3 — тот же размер плиток, что у серверов,
+                        кластеров и проектов: маркетплейс был единственным
+                        местом с мелкой сеткой в 260px и выбивался из
+                        интерфейса. Смайликов у названий по-прежнему нет —
+                        иконка из каталога плохо ложится в строку с
+                        заголовком и бейджем категории. */}
+                    <div className="grid-cols-3">
                         {visible.map(app => (
-                            <div key={app.id} className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '18px' }}>
-                                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '8px' }}>
-                                    <div style={{ fontWeight: 700, color: 'var(--text-heading)', fontSize: '0.95rem' }}>{app.name}</div>
-                                    <span className="badge" style={{ fontSize: '0.68rem', flexShrink: 0 }}>{app.category}</span>
+                            <div key={app.id} className="glass-card app-card"
+                                 style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+                                    <div style={{ fontWeight: 700, color: 'var(--text-heading)', fontSize: '1.05rem', lineHeight: 1.3 }}>{app.name}</div>
+                                    <span className="badge" style={{ fontSize: '0.7rem', flexShrink: 0 }}>{app.category}</span>
                                 </div>
-                                <p className="text-muted" style={{ fontSize: '0.8rem', flex: 1, margin: 0, lineHeight: 1.4 }}>{app.description}</p>
+                                {/* min-height у описания: без него карточки с
+                                    коротким текстом становятся ниже соседних,
+                                    и ряд кнопок «Установить» идёт ступеньками. */}
+                                <p className="text-muted" style={{ fontSize: '0.85rem', flex: 1, margin: 0,
+                                                                   lineHeight: 1.5, minHeight: '2.55em' }}>{app.description}</p>
                                 {app.requires_https && (
-                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', fontSize: '0.72rem', color: '#f5a623' }}>
-                                        <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: '1px' }} />
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', fontSize: '0.75rem', color: '#f5a623' }}>
+                                        <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '1px' }} />
                                         <span>Нужен HTTPS — по IP не откроется</span>
                                     </div>
                                 )}
-                                <button className="btn btn-primary btn-sm" onClick={() => openInstall(app)}><Rocket size={14} /> Установить</button>
+                                <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => openInstall(app)}>
+                                    <Rocket size={15} /> Установить
+                                </button>
                             </div>
                         ))}
                     </div>

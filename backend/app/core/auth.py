@@ -95,26 +95,44 @@ async def verify_admin_token(
     credentials: HTTPAuthorizationCredentials = Depends(security_bearer),
     db: AsyncSession = Depends(get_db)
 ):
+    # Отличаем «не представился» от «представился, но не админ»: код ответа у
+    # этих случаев обязан быть разным. Веб-панель на 401 считает сессию
+    # протухшей — стирает токен и перезагружает страницу (см. перехватчик
+    # fetch в frontend/src/main.jsx). Пока сюда отвечали 401 в обоих случаях,
+    # любое обращение НЕадмина к admin-эндпоинту выкидывало его на страницу
+    # входа. Живой случай: студент открывал вкладку «Кластеры», та запрашивала
+    # /api/host/metrics — и вместо кластеров он получал форму логина.
+    authenticated = False
+
     # 1. Проверяем прямой X-Admin-Token (для старых клиентов и оркестратора)
     if x_admin_token and secure_eq(x_admin_token, ADMIN_TOKEN):
         return x_admin_token
 
-    # 2. Персональный API-токен админа (aeg_...)
+    # 2. Персональный API-токен (aeg_...)
     for cand in (credentials.credentials if credentials else None, x_admin_token):
         api_user = await resolve_api_token(cand, db)
-        if api_user and api_user.role == "admin":
-            return cand
+        if api_user:
+            if api_user.role == "admin":
+                return cand
+            authenticated = True
 
-    # 3. Проверяем JWT Bearer токен (для вошедшего в веб-панель админа)
+    # 3. Проверяем JWT Bearer токен (для вошедшего в веб-панель)
     if credentials:
         payload = decode_access_token(credentials.credentials)
         if payload and "sub" in payload:
             username = payload["sub"]
             res = await db.execute(select(User).filter_by(username=username))
             user = res.scalars().first()
-            if user and user.role == "admin":
-                return credentials.credentials
+            if user:
+                if user.role == "admin":
+                    return credentials.credentials
+                authenticated = True
 
+    if authenticated:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Требуются права администратора",
+        )
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Неверный или отсутствующий токен доступа",

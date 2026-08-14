@@ -911,7 +911,6 @@ export default function DatabasesPanel() {
         <div className="panel-container">
             <div className="panel-header">
                 <div>
-                    <h2 className="panel-title">Управляемые базы данных</h2>
                     <p className="panel-subtitle">Изолированные БД PostgreSQL и MySQL для ваших проектов</p>
                 </div>
                 <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>

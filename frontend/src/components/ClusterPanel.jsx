@@ -190,14 +190,22 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
       .then(r => (r.ok ? r.json() : null))
       .then(setOsCatalog)
       .catch(() => setOsCatalog(null));
-    fetch('/api/host/metrics')
-      .then(r => (r.ok ? r.json() : null))
-      .then(m => setHostFree(m ? {
-        cpu: m.cpu?.available_cores,
-        ram: m.memory?.available_gb,
-        disk: m.disk?.available_gb,
-      } : null))
-      .catch(() => setHostFree(null));
+    // Только админу: /api/host/* закрыт verify_admin_token, и студент
+    // получал оттуда 401. Глобальный перехватчик в main.jsx считает 401
+    // протухшей сессией — стирал токен и перезагружал страницу, то есть
+    // выкидывал студента на вход при простом открытии вкладки «Кластеры».
+    // Сами цифры свободных ресурсов хоста студенту и не нужны: это про
+    // железо сервера, а его ограничивает квота.
+    if (localStorage.getItem('aegis_role') === 'admin') {
+      fetch('/api/host/metrics')
+        .then(r => (r.ok ? r.json() : null))
+        .then(m => setHostFree(m ? {
+          cpu: m.cpu?.available_cores,
+          ram: m.memory?.available_gb,
+          disk: m.disk?.available_gb,
+        } : null))
+        .catch(() => setHostFree(null));
+    }
   }, []);
 
   // Сумма запрошенного кластером и чего именно не хватает.

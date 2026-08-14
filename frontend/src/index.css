@@ -303,6 +303,19 @@ body {
   border-color: var(--border-hover);
 }
 
+/* Карточка приложения маркетплейса. Плитки там теперь такого же размера,
+   как у серверов и проектов, и им идёт лёгкая реакция на наведение —
+   раньше карточка была статичной, хотя целиком ведёт к одному действию.
+   Тени тут намеренно нет: во всей теме --shadow-* равны none, дизайн
+   плоский, и одна карточка с тенью выбивалась бы из него. */
+.app-card {
+  transition: transform var(--transition-normal), border-color var(--transition-normal);
+}
+.app-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-hover);
+}
+
 /* Gradient hairline on top of feature cards */
 .glass-card.accent-top::after {
   content: '';

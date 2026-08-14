@@ -72,7 +72,6 @@ export default function KubernetesPanel() {
         <div className="panel-container">
             <div className="panel-header">
                 <div>
-                    <h2 className="panel-title">Kubernetes кластер</h2>
                     <p className="panel-subtitle">
                         {data?.k8s_version} · KubeVirt {data?.kubevirt_version} · CDI {data?.cdi_version}
                     </p>

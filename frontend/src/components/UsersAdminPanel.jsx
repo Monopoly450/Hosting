@@ -156,7 +156,6 @@ export default function UsersAdminPanel({ apiToken, apiUrl }) {
         <div className="panel-container">
             <div className="panel-header">
                 <div>
-                    <h2 className="panel-title">Управление пользователями</h2>
                     <p className="panel-subtitle">Регистрация студентов, мониторинг квот и баланса</p>
                 </div>
                 <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>

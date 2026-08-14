@@ -135,7 +135,6 @@ export default function ProjectsPanel() {
         <div className="panel-container">
             <div className="panel-header">
                 <div>
-                    <h2 className="panel-title">Проекты и доступы</h2>
                     <p className="panel-subtitle">Объединяйте ресурсы в проекты и давайте коллегам доступ по ролям</p>
                 </div>
                 <button className="btn btn-primary" onClick={() => setShowCreate(true)}><Plus size={16} /> Новый проект</button>

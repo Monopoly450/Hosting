@@ -440,7 +440,6 @@ export default function S3Panel() {
         <div className="panel-container">
             <div className="panel-header">
                 <div>
-                    <h2 className="panel-title">S3 Объектное хранилище (MinIO)</h2>
                     <p className="panel-subtitle">Создание бакетов и управление ключами доступа (API S3)</p>
                 </div>
                 <div style={{ display: 'flex', gap: '10px' }}>

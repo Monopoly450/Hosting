@@ -88,7 +88,6 @@ export default function RegistryPanel() {
         <div className="panel-container">
             <div className="panel-header">
                 <div>
-                    <h2 className="panel-title">Контейнерный реестр</h2>
                     <p className="panel-subtitle">Приватный Docker-реестр для ваших образов</p>
                 </div>
                 {status?.running && <button className="btn btn-secondary btn-sm" onClick={loadRepos}><RefreshCw size={14} /> Обновить</button>}
