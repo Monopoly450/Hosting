@@ -1,8 +1,17 @@
 import React, { useState } from 'react';
-import { Terminal, Trash2, ShieldCheck, ShieldAlert, Network } from 'lucide-react';
+import { Globe, Terminal, Trash2, ShieldCheck, ShieldAlert, Network } from 'lucide-react';
 
+/**
+ * Карточка внешнего сервера. Свёрстана как VMCard и стоит с ней в одной
+ * сетке, поэтому и выглядеть должна так же: раньше она пользовалась старыми
+ * классами (card vm-card, status-badge) и переменными-псевдонимами
+ * (--bg-card, --success, --danger), держала эмодзи вместо иконки, а данные
+ * доступа заворачивала в серый блок моноширинным шрифтом — рядом с обычными
+ * карточками ВМ это выбивалось из общего вида.
+ */
 const ExternalServerCard = ({ server, onClick, onDeleteSuccess }) => {
   const [deleting, setDeleting] = useState(false);
+  const online = server.status === 'Online';
 
   const handleDelete = async (e) => {
     e.stopPropagation(); // Предотвращаем открытие деталей при клике на удаление
@@ -23,90 +32,63 @@ const ExternalServerCard = ({ server, onClick, onDeleteSuccess }) => {
   };
 
   return (
-    <div 
-      className="card vm-card" 
+    <div
+      className="glass-card interactive"
       onClick={onClick}
-      style={{
-        cursor: 'pointer',
-        minHeight: '180px',
-        justifyContent: 'space-between',
-        border: server.status === 'Online' ? '1px solid rgba(16, 185, 129, 0.15)' : '1px solid rgba(239, 68, 68, 0.15)',
-        background: 'var(--bg-card)',
-        transition: 'all 0.2s ease'
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = server.status === 'Online' ? 'var(--success)' : 'var(--danger)';
-        e.currentTarget.style.transform = 'translateY(-2px)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = server.status === 'Online' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)';
-        e.currentTarget.style.transform = 'translateY(0)';
-      }}
+      style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', padding: '20px' }}
     >
-      <div>
-        <div className="vm-card-header">
-          <div className="vm-title-group">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '1.2rem' }}>🌐</span>
-              <span className="vm-name">{server.name}</span>
-            </div>
-            <span className="vm-template" style={{ fontFamily: 'var(--font-mono)' }}>IP: {server.host}:{server.port}</span>
-            {server.use_bastion && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', fontWeight: 600, color: 'var(--accent-primary)', background: 'var(--accent-primary-light)', padding: '2px 8px', borderRadius: 'var(--radius-pill)', width: 'fit-content', marginTop: '2px' }}>
-                <Network size={12} /> через бастион {server.bastion_host}
-              </span>
-            )}
-          </div>
-          <span className={`status-badge ${server.status === 'Online' ? 'running' : 'stopped'}`}>
-            <span className="status-dot"></span>
-            {server.status === 'Online' ? 'В сети' : 'Не в сети'}
-          </span>
-        </div>
-
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '6px',
-          fontSize: '0.8rem',
-          color: 'var(--text-secondary)',
-          fontFamily: 'var(--font-mono)',
-          padding: '8px 12px',
-          background: 'rgba(0, 0, 0, 0.15)',
-          borderRadius: 'var(--radius-md)'
-        }}>
-          <div>Пользователь: <strong style={{ color: 'var(--primary)' }}>{server.username}</strong></div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', marginTop: '4px' }}>
-            {server.status === 'Online' ? (
-              <>
-                <ShieldCheck size={12} color="var(--success)" />
-                <span style={{ color: 'var(--success)' }}>Доступ по SSH подтвержден</span>
-              </>
-            ) : (
-              <>
-                <ShieldAlert size={12} color="var(--danger)" />
-                <span style={{ color: 'var(--danger)' }}>Ошибка авторизации или хост оффлайн</span>
-              </>
-            )}
+      {/* Шапка: иконка, имя, статус — та же раскладка, что у карточки ВМ */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <Globe size={24} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 600, color: 'var(--text-heading)', fontSize: '1.05rem', marginBottom: '2px' }}>{server.name}</div>
+            <div className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase' }}>Внешний сервер</div>
           </div>
         </div>
+        <span className={`badge ${online ? 'badge-success' : 'badge-danger'}`}>
+          <span className="status-dot"></span>
+          {online ? 'В сети' : 'Не в сети'}
+        </span>
       </div>
 
-      <div className="vm-card-actions" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
-        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Terminal size={12} /> Кликните для мониторинга
-        </span>
-        <button 
-          className="btn btn-danger btn-sm btn-icon-only"
+      {/* Реквизиты подключения — строками «подпись / значение», как IP у ВМ */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px', fontSize: '0.8rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+          <span className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Network size={12} /> Адрес</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-heading)' }}>{server.host}:{server.port}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+          <span className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Terminal size={12} /> Пользователь</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-heading)' }}>{server.username}</span>
+        </div>
+        {server.use_bastion && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+            <span className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Network size={12} /> Бастион</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-heading)' }}>{server.bastion_host}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Состояние доступа. Цветом и иконкой, без серой плашки: она была
+          единственным таким блоком во всём интерфейсе. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem',
+                    color: online ? 'var(--status-success)' : 'var(--status-danger)' }}>
+        {online ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
+        <span>{online ? 'Доступ по SSH подтверждён' : 'Ошибка авторизации или хост оффлайн'}</span>
+      </div>
+
+      <div style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span className="text-muted" style={{ fontSize: '0.75rem' }}>Открыть мониторинг ➔</span>
+        <button
+          className="btn btn-secondary btn-icon"
           onClick={handleDelete}
           disabled={deleting}
           title="Отключить сервер"
-          style={{ marginLeft: 'auto', padding: '6px' }}
+          style={{ color: '#ef4444', borderColor: '#fee2e2' }}
         >
-          {deleting ? (
-            <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px', borderColor: 'var(--danger)' }} />
-          ) : (
-            <Trash2 size={12} />
-          )}
+          {deleting ? <span className="spinner" /> : <Trash2 size={14} />}
         </button>
       </div>
     </div>

@@ -156,8 +156,11 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                 {/* Если бэкап клонируется, показываем прогресс */}
                 {b.status !== 'Succeeded' && b.progress !== 'N/A' && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                    <div className="progress-bar-bg" style={{ height: '3px', width: '80px' }}>
-                      <div className="progress-bar-fill primary" style={{ width: b.progress }} />
+                    {/* .progress-bar-bg/.progress-bar-fill в CSS нет —
+                        полоса прогресса не рисовалась вовсе. Классы
+                        дизайн-системы: .progress-track/.progress-fill. */}
+                    <div className="progress-track" style={{ height: '3px', width: '80px' }}>
+                      <div className="progress-fill primary" style={{ width: b.progress }} />
                     </div>
                     <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 600 }}>{b.progress}</span>
                   </div>

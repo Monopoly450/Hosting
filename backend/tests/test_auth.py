@@ -229,3 +229,39 @@ def test_icon_scale_is_documented():
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     path = os.path.join(root, "frontend", "src", "iconSizes.js")
     assert os.path.exists(path), "шкала размеров иконок должна быть описана в одном месте"
+
+
+def test_no_styling_classes_that_do_not_exist():
+    """Мониторинг внешнего сервера рисовал шкалы CPU/RAM/диска классами
+    .progress-bar-bg и .progress-bar-fill, а подписи — .stat-item,
+    .stat-label-container и .stat-value. Ни одного из них в index.css нет,
+    поэтому шкалы не отрисовывались вообще: оставался голый текст, и экран
+    выглядел незакончённым. Ошибка молчаливая — несуществующий класс просто
+    ничего не делает."""
+    import os, re, glob
+
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    src_dir = os.path.join(root, "frontend", "src")
+    with open(os.path.join(src_dir, "index.css"), encoding="utf-8") as f:
+        css = f.read()
+
+    # Классы, которыми пользуются экраны и которых не должно не быть.
+    watched = [
+        "progress-track", "progress-fill", "stat-box", "stat-box-title",
+        "stat-box-value", "glass-card", "badge", "form-control", "panel-loading",
+    ]
+    for cls in watched:
+        assert re.search(r"\.%s(?![\w-])" % re.escape(cls), css), f"нет .{cls} в index.css"
+
+    # А эти — заведомо мёртвые: их не должно остаться в разметке.
+    banned = ["progress-bar-bg", "progress-bar-fill", "stat-item",
+              "stat-label-container", "stat-value", "form-input"]
+    offenders = []
+    for path in glob.glob(os.path.join(src_dir, "components", "*.jsx")) + [os.path.join(src_dir, "App.jsx")]:
+        with open(path, encoding="utf-8") as f:
+            src = f.read()
+        code = re.sub(r"/\*.*?\*/|\{/\*.*?\*/\}", "", src, flags=re.S)
+        for cls in banned:
+            if re.search(r'className="[^"]*\b%s\b' % re.escape(cls), code):
+                offenders.append(f"{os.path.basename(path)}: {cls}")
+    assert not offenders, "класс, которого нет в CSS: " + ", ".join(offenders)

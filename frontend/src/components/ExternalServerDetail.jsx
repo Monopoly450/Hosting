@@ -168,86 +168,57 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
           
           {/* Верхняя панель: Метаданные */}
-          <div style={{
+          {/* Метаданные: подпись сверху, значение снизу. Раньше «ОС: Ubuntu»
+              шло одной строкой, и длинное значение («up 1 week, 2 hours, 35
+              minutes») переносилось, ломая сетку по высоте. */}
+          <div className="glass-card" style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '15px',
-            padding: '16px',
-            background: 'rgba(255, 255, 255, 0.02)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-md)',
-            fontSize: '0.85rem'
+            gap: '18px',
+            padding: '18px',
           }}>
-            <div>ОС: <strong style={{ color: 'var(--text-primary)' }}>{data.os_name}</strong></div>
-            <div>Ядро: <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{data.kernel}</strong></div>
-            <div>Время работы: <strong style={{ color: 'var(--text-primary)' }}>{data.uptime}</strong></div>
-            <div>SSH: <strong style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>{data.username}@{data.host}:{data.port}</strong></div>
-            {data.use_bastion && (
-              <div>Бастион: <strong style={{ color: 'var(--primary)', fontFamily: 'var(--font-mono)' }}>{data.bastion_host}</strong> <span style={{ color: 'var(--text-muted)' }}>(jump host)</span></div>
-            )}
+            {[
+              ['ОС', data.os_name, false],
+              ['Ядро', data.kernel, true],
+              ['Время работы', data.uptime, false],
+              ['SSH', `${data.username}@${data.host}:${data.port}`, true],
+              ...(data.use_bastion ? [['Бастион (jump host)', data.bastion_host, true]] : []),
+            ].map(([label, value, mono]) => (
+              <div key={label}>
+                <div className="stat-box-title">{label}</div>
+                <div style={{
+                  fontWeight: 600, color: 'var(--text-heading)', fontSize: '0.9rem', marginTop: '4px',
+                  fontFamily: mono ? 'var(--font-mono)' : 'inherit', wordBreak: 'break-word',
+                }}>{value}</div>
+              </div>
+            ))}
           </div>
 
-          {/* Средняя панель: Ресурсы (Диаграммы/Шкалы) */}
+          {/* Ресурсы. Раньше эти карточки пользовались классами .card,
+              .stat-item, .stat-label-container, .stat-value и
+              .progress-bar-bg/.progress-bar-fill — ни одного из них в
+              index.css нет, поэтому шкалы прогресса не отрисовывались вообще,
+              оставался голый текст. Теперь те же .stat-box и
+              .progress-track/.progress-fill, что на дашборде. */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
-            
-            {/* CPU */}
-            <div className="card" style={{ padding: '20px' }}>
-              <div className="stat-item">
-                <div className="stat-label-container">
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
-                    <Cpu size={16} color="var(--primary)" /> CPU Нагрузка
-                  </span>
-                  <span className="stat-value">{data.cpu.usage_percent}% ({data.cpu.cores} Cores)</span>
-                </div>
-                <div className="progress-bar-bg" style={{ height: '8px', marginTop: '10px' }}>
-                  <div 
-                    className={`progress-bar-fill ${getProgressColor(data.cpu.usage_percent)}`}
-                    style={{ width: `${data.cpu.usage_percent}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* RAM */}
-            <div className="card" style={{ padding: '20px' }}>
-              <div className="stat-item">
-                <div className="stat-label-container">
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
-                    <HardDrive size={16} color="var(--success)" /> Оперативная память
-                  </span>
-                  <span className="stat-value">
-                    {data.memory.used_mb} / {data.memory.total_mb} MB ({data.memory.usage_percent}%)
-                  </span>
-                </div>
-                <div className="progress-bar-bg" style={{ height: '8px', marginTop: '10px' }}>
-                  <div 
-                    className={`progress-bar-fill ${getProgressColor(data.memory.usage_percent)}`}
-                    style={{ width: `${data.memory.usage_percent}%` }}
-                  />
+            {[
+              { icon: Cpu, label: 'CPU Нагрузка', pct: data.cpu.usage_percent,
+                value: `${data.cpu.usage_percent}% (${data.cpu.cores} Cores)` },
+              { icon: HardDrive, label: 'Оперативная память', pct: data.memory.usage_percent,
+                value: `${data.memory.used_mb} / ${data.memory.total_mb} MB (${data.memory.usage_percent}%)` },
+              { icon: HardDrive, label: 'Системный накопитель (/)', pct: data.disk.usage_percent,
+                value: `${data.disk.used_gb} / ${data.disk.total_gb} GB (${data.disk.usage_percent}%)` },
+            ].map(({ icon: Icon, label, pct, value }) => (
+              <div key={label} className="stat-box">
+                <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Icon size={14} /> {label}
+                </span>
+                <span className="stat-box-value" style={{ fontSize: '1.25rem' }}>{value}</span>
+                <div className="progress-track">
+                  <div className={`progress-fill ${getProgressColor(pct)}`} style={{ width: `${pct}%` }} />
                 </div>
               </div>
-            </div>
-
-            {/* Disk */}
-            <div className="card" style={{ padding: '20px' }}>
-              <div className="stat-item">
-                <div className="stat-label-container">
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
-                    <HardDrive size={16} color="var(--warning)" /> Системный накопитель (/)
-                  </span>
-                  <span className="stat-value">
-                    {data.disk.used_gb} / {data.disk.total_gb} GB ({data.disk.usage_percent}%)
-                  </span>
-                </div>
-                <div className="progress-bar-bg" style={{ height: '8px', marginTop: '10px' }}>
-                  <div 
-                    className={`progress-bar-fill ${getProgressColor(data.disk.usage_percent)}`}
-                    style={{ width: `${data.disk.usage_percent}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-
+            ))}
           </div>
 
           {/* Нижняя панель: Переключаемые списки (Процессы, Сервисы, Docker) */}
@@ -476,7 +447,9 @@ const ExternalServerDetail = ({ serverId, onClose }) => {
                   </div>
                   <input 
                     type="text"
-                    className="form-input"
+                    /* .form-input в CSS нет — поле оставалось без стилей.
+                       Во всём интерфейсе класс называется .form-control. */
+                    className="form-control"
                     placeholder="Введите bash команду..."
                     value={command}
                     onChange={(e) => setCommand(e.target.value)}
