@@ -733,6 +733,29 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                 условием показа. */}
             {vm.http_port && vm.os_type !== 'proxmox' && (
               <div style={{ marginTop: '8px' }}>
+                {/* Сервис шаблона на своём порту — ПЕРВЫМ и отдельным блоком.
+                    У Grafana (3000) и Portainer (9000) на 80 и 443 не слушает
+                    никто, поэтому обе ссылки ниже честно писали «пока не
+                    отвечает», а единственный рабочий адрес не показывался
+                    вообще нигде — выглядело это как «шаблон не работает». */}
+                {vm.app_port && (
+                  <div style={{ marginBottom: '14px' }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                      Веб-интерфейс приложения (порт {vm.app_int_port} внутри ВМ):
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={`http://${window.location.hostname}:${vm.app_port}`} />
+                      <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`http://${window.location.hostname}:${vm.app_port}`, 'extApp')}>
+                        {copiedField === 'extApp' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                    {vm.app_available !== undefined && (
+                      <div style={{ fontSize: '0.72rem', marginTop: '4px', color: vm.app_available ? 'var(--status-success)' : 'var(--text-secondary)' }}>
+                        {vm.app_available ? '● отвечает' : '○ пока не отвечает — приложение ещё разворачивается'}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Доступ к веб-серверу (HTTP/HTTPS):</div>
                 {[
                   { proto: 'http', port: vm.http_port, up: vm.http_available, field: 'extHttp' },

@@ -177,13 +177,41 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
   // с ОС — предлагал, например, LAMP на Alpine, где его нет.
   const [osCatalog, setOsCatalog] = useState(null);
 
+  // Свободные ресурсы хоста. Бэкенд отказывает в создании кластера, который
+  // не влезает (ensure_host_capacity), но узнать об этом можно было только
+  // после отправки формы — заполнив её целиком. Показываем заранее: кластер
+  // просит СУММУ ресурсов всех своих ВМ, и по отдельности каждая проходит, а
+  // вместе не влезают, что совсем не очевидно на глаз.
+  const [hostFree, setHostFree] = useState(null);
+
   useEffect(() => {
     fetchClusters();
     fetch('/api/vms/os-catalog')
       .then(r => (r.ok ? r.json() : null))
       .then(setOsCatalog)
       .catch(() => setOsCatalog(null));
+    fetch('/api/host/metrics')
+      .then(r => (r.ok ? r.json() : null))
+      .then(m => setHostFree(m ? {
+        cpu: m.cpu?.available_cores,
+        ram: m.memory?.available_gb,
+        disk: m.disk?.available_gb,
+      } : null))
+      .catch(() => setHostFree(null));
   }, []);
+
+  // Сумма запрошенного кластером и чего именно не хватает.
+  const requested = clusterVms.reduce((acc, vm) => ({
+    cpu: acc.cpu + (Number(vm.cpu_cores) || 0),
+    ram: acc.ram + (Number(vm.memory_gb) || 0),
+    disk: acc.disk + (Number(vm.disk_gb) || 0),
+  }), { cpu: 0, ram: 0, disk: 0 });
+
+  const shortages = !hostFree ? [] : [
+    ['ядер CPU', requested.cpu, hostFree.cpu, ''],
+    ['ОЗУ', requested.ram, hostFree.ram, ' ГБ'],
+    ['места на диске', requested.disk, hostFree.disk, ' ГБ'],
+  ].filter(([, need, free]) => typeof free === 'number' && need > free);
 
   // Шаблоны, применимые к ОС конкретной ВМ кластера. Каталог не загрузился —
   // показываем всё: урезанный список хуже неотфильтрованного, несовместимую
@@ -488,6 +516,34 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
             
             <form onSubmit={handleCreateCluster} style={{ display: 'flex', flexDirection: 'column', height: 'calc(100% - 77px)' }}>
               <div className="slide-over-body">
+                {/* Ресурсы хоста — до отправки формы, а не после отказа.
+                    Кластер запрашивает СУММУ всех своих ВМ: по отдельности
+                    каждая проходит проверку, а вместе не влезают. */}
+                {hostFree && (
+                  <div className={shortages.length ? 'alert alert-danger' : 'glass-card'}
+                       style={{ marginBottom: '16px', padding: '12px 14px', fontSize: '0.82rem' }}>
+                    {shortages.length > 0 ? (
+                      <>
+                        <b>Не хватает ресурсов хоста — кластер не создастся.</b>
+                        <div style={{ marginTop: '6px' }}>
+                          {shortages.map(([what, need, free, unit]) => (
+                            <div key={what}>
+                              {what}: запрошено {need}{unit}, свободно {free}{unit}
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ marginTop: '6px' }}>
+                          Уменьшите ресурсы ВМ или их количество, либо удалите ненужные ВМ.
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-muted">
+                        Свободно на хосте: {hostFree.cpu} ядер, {hostFree.ram} ГБ ОЗУ, {hostFree.disk} ГБ диска.
+                        {' '}Кластер запросит: {requested.cpu} ядер, {requested.ram} ГБ ОЗУ, {requested.disk} ГБ диска.
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className="input-group">
                   <label className="input-label">Имя кластера (L2 Сети)</label>
                   <input 

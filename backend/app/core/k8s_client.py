@@ -880,6 +880,14 @@ class K8sClient:
         http_port = None
         https_port = None
         rdp_port = None
+        # Порт СОБСТВЕННОГО сервиса шаблона (Grafana 3000, Portainer 9000).
+        # Его не было в ответе вовсе: карточка ВМ показывала только ссылки на
+        # 80 и 443, где у таких шаблонов никто не слушает, — обе с подписью
+        # «пока не отвечает», а единственный рабочий адрес не показывался
+        # нигде. Снаружи это выглядело как «шаблон не работает», хотя сервис
+        # внутри ВМ был поднят и проброс существовал.
+        app_port = None
+        app_int_port = None
         try:
             from app.db import SessionLocal
             from app.models.models import VMTask
@@ -908,6 +916,9 @@ class K8sClient:
                                     https_port = ext_p
                                 elif int_p == 3389:
                                     rdp_port = ext_p
+                                elif p.get("name") == "APP":
+                                    app_port = ext_p
+                                    app_int_port = int_p
                         except Exception:
                             pass
             finally:
@@ -945,6 +956,8 @@ class K8sClient:
             "rdp_port": rdp_port,
             "http_port": http_port,
             "https_port": https_port,
+            "app_port": app_port,
+            "app_int_port": app_int_port,
             "node": node_name,
             "created_at": creation_timestamp,
             "credentials": credentials

@@ -1184,6 +1184,12 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client), curre
                         probe_ip, internal_port_for(ports_cfg, vm_data.get("http_port"), 80))
                     vm_data["https_available"] = port_is_open(
                         probe_ip, internal_port_for(ports_cfg, vm_data.get("https_port"), 443))
+                    # Сервис шаблона на своём порту (Grafana 3000, Portainer
+                    # 9000) — проверяем ровно его, а не 80: именно он и должен
+                    # отвечать у таких ВМ.
+                    if vm_data.get("app_int_port"):
+                        vm_data["app_available"] = port_is_open(
+                            probe_ip, vm_data["app_int_port"])
         finally:
             db.close()
             

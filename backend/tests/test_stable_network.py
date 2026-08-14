@@ -236,3 +236,51 @@ def test_external_ports_of_a_template_do_not_collide_with_the_standard_ones():
 
     ext = [p["ext_port"] for p in default_ports_for(71, "linux", "grafana")]
     assert len(ext) == len(set(ext))
+
+
+# ----- порт собственного сервиса шаблона должен доезжать до интерфейса ------
+#
+# Живой случай: Grafana в кластере поднялась, контейнер Up, проброс 29009→3000
+# создан — а карточка ВМ показывала только ссылки на 28009 (порт 80) и 44309
+# (443), где у Grafana не слушает никто. Обе честно писали «пока не отвечает»,
+# а единственный рабочий адрес не показывался нигде: выглядело как «шаблон не
+# работает», хотя работало всё, кроме подсказки.
+
+def test_app_port_entry_is_named_so_the_api_can_find_it():
+    """Карточка ВМ ищет проброс приложения по имени APP — переименование
+    молча лишило бы её рабочей ссылки."""
+    from app.api.vms import default_ports_for
+    app = [p for p in default_ports_for(9, "ubuntu", "grafana") if p["name"] == "APP"]
+    assert app == [{"ext_port": 29009, "int_port": 3000, "name": "APP"}]
+
+
+def test_vm_payload_exposes_the_app_port():
+    """get_vm обязан отдавать app_port/app_int_port — иначе интерфейсу нечего
+    показать, даже когда проброс существует."""
+    import os
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "app", "core", "k8s_client.py")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    assert '"app_port": app_port' in src
+    assert '"app_int_port": app_int_port' in src
+    assert 'p.get("name") == "APP"' in src
+
+
+def test_ui_shows_the_app_link():
+    import os
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "frontend", "src", "components", "VMDetail.jsx")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    assert "vm.app_port" in src, "карточка ВМ не показывает адрес приложения"
+
+
+def test_templates_without_their_own_port_have_no_app_entry():
+    """У lamp/wordpress сервис и так на 80 — лишний проброс только запутает."""
+    from app.api.vms import default_ports_for
+    for tpl in ("lamp", "lemp", "wordpress", "zabbix", "docker", "nodejs"):
+        names = {p["name"] for p in default_ports_for(9, "ubuntu", tpl)}
+        assert "APP" not in names, tpl
