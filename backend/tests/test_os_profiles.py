@@ -23,9 +23,9 @@ import pytest
 import yaml
 
 from app.services.os_profiles import (
-    TEMPLATES, build_template_steps, family_of, has_systemd,
-    nfs_client_package, supported_templates_for, template_offered,
-    template_supported,
+    TEMPLATES, build_template_steps, docker_container_name, family_of,
+    has_systemd, nfs_client_package, supported_templates_for,
+    template_offered, template_rejection_reason, template_supported,
 )
 
 
@@ -962,3 +962,163 @@ def test_wordpress_config_gets_its_selinux_context_on_rhel():
     # в Debian SELinux нет — там этой команды быть не должно
     _, deb = build_template_steps("wordpress", "ubuntu")
     assert not any("restorecon" in c for c in deb)
+
+
+# --------- Docker-шаблоны: ждать демон и переживать сетевые сбои ------------
+#
+# Живой случай: в кластере ставится шаблон Grafana — Docker в ВМ есть и
+# работает, порт 3000 проброшен, а контейнера нет вовсе. Причина в том, что
+# `systemctl enable --now docker` возвращается, как только systemd запустил
+# юнит, а сокет демона к этому моменту ещё не принимает запросы: следующая же
+# команда падала с «Cannot connect to the Docker daemon». Вторая причина —
+# `docker run` тянет образ из реестра и не переживал ни одного сетевого сбоя.
+# У маркетплейса обе защиты были с самого начала (COMPOSE_UP_RUNCMD), у
+# шаблонов — нет, поэтому маркетплейсная Grafana работала, а шаблонная нет.
+
+DOCKER_TEMPLATES = ("portainer", "grafana")
+
+
+@pytest.mark.parametrize("template", DOCKER_TEMPLATES)
+def test_docker_templates_wait_for_the_daemon_before_using_it(template):
+    _, commands = build_template_steps(template, "ubuntu")
+    joined = "\n".join(commands)
+    assert "docker info" in joined, "нет ожидания готовности демона Docker"
+
+    # Именно ДО первой команды, которая демоном пользуется, — иначе ожидание
+    # бесполезно.
+    wait_at = next(i for i, c in enumerate(commands) if "docker info" in c)
+    uses_daemon = [i for i, c in enumerate(commands)
+                   if ("docker run" in c or "docker volume" in c)]
+    assert uses_daemon, "шаблон не запускает контейнер — тест бессмысленен"
+    assert wait_at < min(uses_daemon)
+
+
+@pytest.mark.parametrize("template", DOCKER_TEMPLATES)
+def test_docker_run_is_retried(template):
+    """Скачивание образа зависит от сети так же, как установка пакетов."""
+    _, commands = build_template_steps(template, "ubuntu")
+    run = [c for c in commands if "docker run" in c]
+    assert run, "нет команды запуска контейнера"
+    for cmd in run:
+        assert "while" in cmd and "break" in cmd, f"запуск без повторов: {cmd}"
+
+
+@pytest.mark.parametrize("template", DOCKER_TEMPLATES)
+def test_retry_clears_a_half_created_container_first(template):
+    """Без этого вторая попытка упирается в «name is already in use», и
+    повторы не помогают уже никогда."""
+    _, commands = build_template_steps(template, "ubuntu")
+    run = next(c for c in commands if "docker run" in c)
+    assert "docker rm -f" in run
+    # Снимаем именно тот контейнер, который создаём.
+    name = docker_container_name(run)
+    assert name and f"docker rm -f {name}" in run
+
+
+@pytest.mark.parametrize("template", DOCKER_TEMPLATES)
+def test_every_docker_template_names_its_container(template):
+    """Имя контейнера — то, за что цепляется очистка перед повтором. Шаблон
+    без --name молча остался бы без этой защиты."""
+    from app.services.os_profiles import TEMPLATES
+    for cmd in TEMPLATES[template]["_after_docker"]:
+        if "docker run" in cmd:
+            assert docker_container_name(cmd), f"docker run без --name: {cmd}"
+
+
+def test_container_name_extraction():
+    assert docker_container_name("docker run -d --name grafana x") == "grafana"
+    assert docker_container_name("docker volume create grafana_data") == ""
+    assert docker_container_name("") == ""
+
+
+@pytest.mark.parametrize("template", DOCKER_TEMPLATES)
+def test_image_reference_survives_the_retry_wrapper(template):
+    """Обёртка не должна потерять сам образ — иначе повторяли бы пустоту."""
+    _, commands = build_template_steps(template, "ubuntu")
+    joined = "\n".join(commands)
+    expected = "portainer/portainer-ce" if template == "portainer" else "grafana/grafana-oss"
+    assert expected in joined
+
+
+def test_templates_and_marketplace_share_the_same_protection():
+    """Обе стороны собираются из одних и тех же кусков — разъехаться, как
+    раньше, они больше не могут."""
+    from app.services.cloudinit import COMPOSE_UP_RUNCMD, DOCKER_READY_CMD
+    assert DOCKER_READY_CMD in COMPOSE_UP_RUNCMD
+    _, commands = build_template_steps("grafana", "ubuntu")
+    assert DOCKER_READY_CMD in commands
+
+
+def test_plain_docker_template_is_unchanged():
+    """Шаблон «просто Docker» ничего не запускает, лишние циклы ожидания ему
+    не нужны."""
+    _, commands = build_template_steps("docker", "ubuntu")
+    assert not any("docker info" in c for c in commands)
+    assert not any("docker run" in c for c in commands)
+
+
+# ------- отказ по несовместимой паре «шаблон + ОС» — на обоих путях --------
+#
+# Проверка была только в одиночном создании ВМ. Кластер принимал любую пару
+# молча: build_template_steps возвращал пустые списки, и ВМ поднималась
+# «чистой» — без окружения и без единой ошибки в панели.
+
+def test_no_reason_for_a_supported_pair():
+    assert template_rejection_reason("grafana", "ubuntu") == ""
+
+
+def test_no_reason_without_a_template():
+    """Чистая ОС — всегда допустимо, в том числе для ISO-систем."""
+    assert template_rejection_reason(None, "windows") == ""
+    assert template_rejection_reason("", "ubuntu") == ""
+
+
+@pytest.mark.parametrize("os_type", ["windows", "proxmox", "truenas"])
+def test_iso_systems_cannot_take_a_template(os_type):
+    """В них не выполняется cloud-init, применять шаблон физически некуда."""
+    reason = template_rejection_reason("docker", os_type)
+    assert "ISO" in reason
+
+
+def test_web_stack_conflict_explains_the_port():
+    """Отказ должен объяснять причину и подсказывать выход, а не просто
+    отказывать: два веб-стека подерутся за порт 80."""
+    from app.services.os_profiles import OS_WITH_OWN_WEB_STACK, WEB_STACK_TEMPLATES
+    os_type = next(iter(OS_WITH_OWN_WEB_STACK))
+    reason = template_rejection_reason(next(iter(WEB_STACK_TEMPLATES)), os_type)
+    assert "80" in reason and "Docker" in reason
+
+
+def test_unsupported_pair_names_the_template_and_the_os():
+    # LAMP описан только для debian/rhel/suse — на Alpine его нет.
+    reason = template_rejection_reason("lamp", "alpine")
+    assert "alpine" in reason and "LAMP" in reason
+
+
+def test_grafana_is_allowed_wherever_docker_is():
+    """Grafana — это контейнер поверх Docker, отдельных пакетов у неё нет:
+    отказывать там, где Docker ставится, было бы неверно."""
+    assert template_rejection_reason("grafana", "alpine") == ""
+    assert template_supported("docker", "alpine") is True
+
+
+def test_cluster_creation_checks_templates_before_creating_anything():
+    """Отказ на второй ВМ не должен оставлять висеть сам кластер и уже
+    поставленные в очередь машины — значит, проверка идёт до Cluster(...)."""
+    import os
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "app", "api", "clusters.py")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    assert "template_rejection_reason" in src, "кластер не проверяет шаблоны"
+    assert src.index("template_rejection_reason") < src.index("cluster = Cluster(")
+
+
+def test_both_creation_paths_use_the_same_rule():
+    """Тексты отказов не должны разъезжаться между кластером и одиночной ВМ."""
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for module in ("vms.py", "clusters.py"):
+        with open(os.path.join(root, "app", "api", module), encoding="utf-8") as f:
+            assert "template_rejection_reason" in f.read(), module

@@ -35,6 +35,20 @@ def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_c
         from app.core.capacity import lock_host_capacity, ensure_host_capacity
         check_rate_limit(current_user, "create_cluster")
 
+        # Та же проверка «шаблон + ОС», что и при одиночном создании ВМ.
+        # Здесь её не было вовсе: несовместимая пара принималась молча,
+        # build_template_steps возвращал пустые списки, и ВМ в кластере
+        # поднималась «чистой», без обещанного окружения и без ошибки.
+        #
+        # Проверяем ВСЕ ВМ до создания кластера, а не по ходу цикла ниже:
+        # отказ на второй ВМ иначе оставил бы висеть и сам кластер, и уже
+        # поставленные в очередь машины.
+        from app.services.os_profiles import template_rejection_reason
+        for vm in req.vms:
+            reason = template_rejection_reason(vm.cloud_init_template, vm.os_type)
+            if reason:
+                raise HTTPException(status_code=400, detail=f"ВМ «{vm.name}»: {reason}")
+
         total_vcpus = sum(vm.cpu_cores for vm in req.vms)
         total_ram = sum(vm.memory_gb for vm in req.vms)
         total_disk = sum(vm.disk_gb for vm in req.vms)
@@ -69,6 +83,7 @@ def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_c
             # Проверка имени ВМ
             if db.query(VMTask).filter(VMTask.name == vm_req.name).first():
                 continue
+
 
             task = VMTask(
                 name=vm_req.name,

@@ -141,12 +141,46 @@ WAIT_NETWORK_RUNCMD = (
 #
 # Ждём и готовности самого демона: systemctl enable --now docker возвращает
 # управление раньше, чем dockerd начинает принимать команды.
+# Ожидание готовности демона Docker.
+#
+# `systemctl enable --now docker` возвращается, как только systemd запустил
+# юнит, — но сокет демона к этому моменту ещё может не принимать запросы.
+# Следующая же docker-команда падает с «Cannot connect to the Docker daemon»,
+# и дальше не делается ничего: Docker в ВМ стоит и работает, а контейнера нет.
+DOCKER_READY_CMD = (
+    "i=1; while [ $i -le 30 ] && ! docker info >/dev/null 2>&1; "
+    "do sleep 2; i=$((i+1)); done || true"
+)
+
+
+def docker_retry_cmd(command: str, container: str = "",
+                     attempts: int = 10, delay: int = 15) -> str:
+    """Оборачивает docker-команду в повтор — как установку пакетов.
+
+    Запуск контейнера тянет образ из реестра, то есть зависит от сети ровно
+    так же, как apt-get, но повторов исторически не имел: одна неудачная
+    попытка (ещё не поднявшийся DNS, таймаут до Docker Hub) — и контейнера
+    нет уже навсегда.
+
+    container: имя контейнера, если команда его создаёт. Перед каждой
+    попыткой недосозданный контейнер с этим именем снимается — иначе вторая
+    попытка упрётся в «name is already in use» и не поможет уже никогда.
+    Успешная попытка выходит из цикла раньше, так что работающий контейнер
+    этот шаг не трогает.
+    """
+    cleanup = f"docker rm -f {container} >/dev/null 2>&1; " if container else ""
+    return (f"i=1; while [ $i -le {attempts} ]; do {cleanup}{command} && break "
+            f"|| sleep {delay}; i=$((i+1)); done || true")
+
+
+# Подъём compose-стека маркетплейса. Собирается из тех же кусков, что и шаги
+# шаблонов окружения (см. os_profiles.build_template_steps): раньше защита от
+# неготового демона и от сетевых сбоев была только здесь, и шаблоны
+# portainer/grafana оставались без неё — Docker ставился, а контейнер не
+# поднимался. Общий код гарантирует, что оба пути не разъедутся снова.
 COMPOSE_UP_RUNCMD = (
-    "  - i=1; while [ $i -le 30 ] && ! docker info >/dev/null 2>&1; "
-    "do sleep 2; i=$((i+1)); done || true\n"
-    "  - i=1; while [ $i -le 10 ]; do cd /opt/app && "
-    "(docker compose up -d || docker-compose up -d) && break || sleep 15; "
-    "i=$((i+1)); done || true"
+    f"  - {DOCKER_READY_CMD}\n"
+    f"  - " + docker_retry_cmd("cd /opt/app && (docker compose up -d || docker-compose up -d)")
 )
 
 

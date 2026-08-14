@@ -1243,31 +1243,13 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         # в которой шаблон молча не сработает (именно так было раньше —
         # ставились дебиановские имена пакетов на RHEL, установка падала,
         # и пользователь получал «чистую» ОС без всякого сообщения).
-        tmpl = getattr(req, "cloud_init_template", None)
-        if tmpl:
-            from app.services.os_profiles import template_supported, TEMPLATES
-            if req.os_type in ISO_INSTALL_OS:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Шаблоны окружения работают только для Linux-систем с cloud-init, "
-                           f"а «{req.os_type}» ставится с установочного ISO."
-                )
-            if not template_supported(tmpl, req.os_type):
-                from app.services.os_profiles import OS_WITH_OWN_WEB_STACK, WEB_STACK_TEMPLATES
-                label = (TEMPLATES.get(tmpl) or {}).get("label", tmpl)
-                if req.os_type in OS_WITH_OWN_WEB_STACK and tmpl in WEB_STACK_TEMPLATES:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"«{req.os_type}» уже поднимает собственный веб-сервер на порту 80, "
-                               f"поэтому шаблон «{label}» к нему не добавляется — два стека "
-                               f"займут один порт. Шаблоны без веб-сервера (Docker, Redis, "
-                               f"PostgreSQL, Node.js, Python) выбрать можно."
-                    )
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Шаблон «{label}» не поддерживается для ОС «{req.os_type}». "
-                           f"Выберите другую ОС или создайте ВМ без шаблона."
-                )
+        # Один и тот же текст отказа, что и при создании кластера — правило
+        # живёт в os_profiles.template_rejection_reason.
+        from app.services.os_profiles import template_rejection_reason
+        reason = template_rejection_reason(
+            getattr(req, "cloud_init_template", None), req.os_type)
+        if reason:
+            raise HTTPException(status_code=400, detail=reason)
 
         db = SessionLocal()
 

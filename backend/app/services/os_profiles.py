@@ -10,6 +10,7 @@
 семейства не описан — он для него не поддерживается (см. template_supported),
 и это честнее, чем подставить заведомо несуществующие имена пакетов.
 """
+import re
 
 # os_type -> семейство. Определяет менеджер пакетов и имена пакетов/служб.
 OS_FAMILY = {
@@ -896,6 +897,18 @@ TEMPLATES = {
 }
 
 
+# Имя контейнера из команды `docker run ... --name X ...`. Нужно, чтобы
+# повторная попытка запуска могла снять недосозданный контейнер: без этого
+# вторая попытка упирается в «name is already in use» и повторы бесполезны.
+_DOCKER_NAME_RE = re.compile(r"--name\s+(\S+)")
+
+
+def docker_container_name(command: str) -> str:
+    """Имя контейнера, который создаёт команда, или "" если не создаёт."""
+    m = _DOCKER_NAME_RE.search(command or "")
+    return m.group(1) if m else ""
+
+
 def template_supported(template: str, os_type: str) -> bool:
     """Поддерживается ли шаблон окружения для этой ОС — технически.
 
@@ -920,6 +933,37 @@ def template_supported(template: str, os_type: str) -> bool:
         # доступны везде, где доступен сам Docker.
         return template_supported("docker", os_type)
     return family_of(os_type) in spec
+
+
+# ОС, которые ставятся с установочного ISO, а не из cloud-образа: cloud-init
+# в них не выполняется вовсе, поэтому шаблон окружения применить не к чему.
+ISO_INSTALL_OS = ("windows", "proxmox", "truenas")
+
+
+def template_rejection_reason(template: str, os_type: str) -> str:
+    """Почему пару «шаблон + ОС» нельзя создать. Пустая строка — можно.
+
+    Живёт здесь, а не в обработчике создания ВМ, потому что проверять это
+    обязаны оба пути создания. Кластер её не делал вовсе: несовместимый
+    шаблон принимался молча, build_template_steps возвращал пустые списки, и
+    ВМ поднималась «чистой» — ровно тот симптом, ради которого проверку
+    когда-то и добавили в одиночное создание.
+    """
+    if not template:
+        return ""
+    label = (TEMPLATES.get(template) or {}).get("label", template)
+    if os_type in ISO_INSTALL_OS:
+        return (f"Шаблоны окружения работают только для Linux-систем с cloud-init, "
+                f"а «{os_type}» ставится с установочного ISO.")
+    if template_supported(template, os_type):
+        return ""
+    if os_type in OS_WITH_OWN_WEB_STACK and template in WEB_STACK_TEMPLATES:
+        return (f"«{os_type}» уже поднимает собственный веб-сервер на порту 80, "
+                f"поэтому шаблон «{label}» к нему не добавляется — два стека "
+                f"займут один порт. Шаблоны без веб-сервера (Docker, Redis, "
+                f"PostgreSQL, Node.js, Python) выбрать можно.")
+    return (f"Шаблон «{label}» не поддерживается для ОС «{os_type}». "
+            f"Выберите другую ОС или создайте ВМ без шаблона.")
 
 
 # ОС, для которых шаблоны окружения предлагаются в интерфейсе.
@@ -962,8 +1006,23 @@ def build_template_steps(template: str, os_type: str):
     spec_all = TEMPLATES[template]
     if "_after_docker" in spec_all:
         # Portainer, Grafana: сам Docker плюс запуск контейнера поверх него.
+        #
+        # Шаги оборачиваются ровно так же, как подъём compose-стека у
+        # маркетплейса (см. cloudinit.COMPOSE_UP_RUNCMD): сначала ждём демон,
+        # потом повторяем каждую docker-команду. Без этого шаблон вёл себя
+        # так: Docker в ВМ установлен и работает, порт проброшен, а контейнера
+        # нет — `docker volume create` выполнялся раньше, чем поднимался сокет
+        # демона, а `docker run` не переживал ни одного сетевого сбоя при
+        # скачивании образа. Маркетплейсная Grafana при этом работала, потому
+        # что у неё эта защита была с самого начала.
+        from app.services.cloudinit import DOCKER_READY_CMD, docker_retry_cmd
+
         packages, commands = build_template_steps("docker", os_type)
-        return packages, commands + spec_all["_after_docker"]
+        steps = [DOCKER_READY_CMD] + [
+            docker_retry_cmd(cmd, container=docker_container_name(cmd))
+            for cmd in spec_all["_after_docker"]
+        ]
+        return packages, commands + steps
 
     spec = TEMPLATES[template][family]
     packages = list(spec["packages"])
