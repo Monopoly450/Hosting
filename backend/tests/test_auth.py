@@ -81,3 +81,33 @@ def test_frontend_logs_out_only_on_401():
         src = f.read()
     assert "response.status === 401" in src
     assert "403" not in src
+
+
+def test_login_form_is_recognisable_to_password_managers():
+    """Менеджер паролей браузера опознаёт форму входа по name и autocomplete.
+    Без них он не предлагает сохранить пароль и не подставляет его при
+    следующем входе — «запомнить меня» выглядит неработающим, хотя оно про
+    срок жизни сессии, а не про подстановку."""
+    import os, re
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "frontend", "src", "App.jsx")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+
+    card = src[src.index('className="login-card"'):]
+    card = card[:card.index("Защищённое соединение")]
+    assert 'autoComplete="username"' in card
+    assert 'autoComplete="current-password"' in card
+    assert 'name="username"' in card and 'name="password"' in card
+
+
+def test_remember_me_only_changes_the_session_lifetime():
+    """Галочка продлевает токен, а не хранит пароль: хранить его панели
+    негде и незачем — это работа менеджера паролей."""
+    from app.api.auth import DEFAULT_SESSION_SECONDS, REMEMBER_ME_SECONDS
+
+    assert DEFAULT_SESSION_SECONDS == 3600 * 24
+    assert REMEMBER_ME_SECONDS > DEFAULT_SESSION_SECONDS
+    # Не бесконечно: токен лежит в localStorage, отозвать его поштучно нечем.
+    assert REMEMBER_ME_SECONDS <= 3600 * 24 * 31

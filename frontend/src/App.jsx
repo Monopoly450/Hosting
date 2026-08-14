@@ -489,6 +489,13 @@ const App = () => {
                   value={usernameInput}
                   onChange={(e) => setUsernameInput(e.target.value)}
                   placeholder="admin"
+                  /* name + autoComplete — по ним менеджер паролей браузера
+                     и распознаёт форму входа. Без них он не предлагал
+                     сохранить пароль и не подставлял его при следующем
+                     входе: «запомнить меня» выглядело неработающим, хотя
+                     оно про срок жизни сессии, а не про подстановку. */
+                  name="username"
+                  autoComplete="username"
                   required
                 />
               </div>
@@ -505,6 +512,8 @@ const App = () => {
                   value={passwordInput}
                   onChange={(e) => setPasswordInput(e.target.value)}
                   placeholder="Введите пароль или API ключ..."
+                  name="password"
+                  autoComplete="current-password"
                   required
                 />
               </div>
