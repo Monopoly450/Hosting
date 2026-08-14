@@ -179,3 +179,16 @@ def test_search_covers_the_fields_the_backend_added():
     for field in ("vm.name", "vm.owner_username", "vm.source", "vm.source_detail",
                   "vm.domains", "vm.ips", "vm.cluster_name"):
         assert field in block, field
+
+
+def test_filter_panel_is_not_hidden_on_a_small_list():
+    """Сначала панель пряталась при одной машине как «лишний шум». Но тогда
+    её не найти и в тот момент, когда она понадобится: вкладка выглядит так,
+    будто поиска в ней нет вовсе. Выпадающие списки сами скрываются, пока
+    значение в них одно, поэтому на одной ВМ остаётся только строка поиска —
+    и этого достаточно."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "frontend", "src", "App.jsx"), encoding="utf-8") as f:
+        src = f.read()
+    assert "(vms.length + externalServers.length) > 0 &&" in src
+    assert "(vms.length + externalServers.length) > 1 &&" not in src
