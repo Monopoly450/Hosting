@@ -666,6 +666,59 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
     }
 
 
+def _enrich_for_filters(db, vms: list):
+    """Дописывает ВМ то, по чему их ищут в панели: откуда развёрнута, в каком
+    кластере, какие домены на неё ведут.
+
+    Всё одним проходом по трём таблицам, а не запросом на каждую ВМ: список
+    открывают часто, и N+1 здесь стоил бы дороже самой выборки.
+    """
+    from app.models.models import AppDeployment, Cluster, Domain, VMTask
+
+    by_name = {vm.get("name"): vm for vm in vms}
+    rows = db.query(VMTask).filter(VMTask.name.in_(list(by_name))).all() if by_name else []
+    by_id = {r.id: r for r in rows}
+
+    clusters = {c.id: c.name for c in db.query(Cluster).all()}
+    deps = {d.vm_id: d for d in db.query(AppDeployment).all() if d.vm_id}
+
+    # Домены: и привязанные к ВМ напрямую, и привязанные к её деплою.
+    dep_to_vm = {d.id: d.vm_id for d in deps.values()}
+    domains_by_vm = {}
+    for dom in db.query(Domain).all():
+        vm_id = dom.target_id if dom.target_type == "vm" else dep_to_vm.get(dom.target_id)
+        if vm_id:
+            domains_by_vm.setdefault(vm_id, []).append(dom.domain)
+
+    for row in rows:
+        vm = by_name.get(row.name)
+        if vm is None:
+            continue
+        vm["template"] = row.cloud_init_template or ""
+        vm["cluster_name"] = clusters.get(row.cluster_id, "")
+        vm["domains"] = domains_by_vm.get(row.id, [])
+
+        # «Откуда развёрнута» — одной понятной строкой, чтобы фильтр и
+        # поиск работали по тому же тексту, который видит пользователь.
+        dep = deps.get(row.id)
+        if dep and dep.stack == "marketplace":
+            vm["source"] = "Маркетплейс"
+            vm["source_detail"] = (dep.repo_url or "").replace("marketplace://", "")
+        elif dep:
+            vm["source"] = "GitHub"
+            vm["source_detail"] = dep.repo_url or ""
+        elif row.cloud_init_template:
+            vm["source"] = "Шаблон"
+            vm["source_detail"] = row.cloud_init_template
+        elif row.cluster_id:
+            vm["source"] = "Кластер"
+            vm["source_detail"] = clusters.get(row.cluster_id, "")
+        else:
+            vm["source"] = "Чистая ОС"
+            vm["source_detail"] = ""
+    return vms
+
+
 @router.get("", response_model=List[dict])
 def list_vms(client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     try:
@@ -685,7 +738,7 @@ def list_vms(client: K8sClient = Depends(get_k8s_client), current_user: User = D
                     name = vm.get("name")
                     vm["id"] = db_vm_map.get(name)
                     vm["owner_username"] = db_vm_owner_map.get(name, "Unknown")
-                return all_vms
+                return _enrich_for_filters(db, all_vms)
             else:
                 # Видны свои ВМ и ВМ проектов, где пользователь состоит
                 from sqlalchemy import or_
@@ -706,7 +759,7 @@ def list_vms(client: K8sClient = Depends(get_k8s_client), current_user: User = D
                         vm["id"] = row.id
                         vm["owner_username"] = users_map.get(row.owner_id, current_user.username)
                         filtered_vms.append(vm)
-                return filtered_vms
+                return _enrich_for_filters(db, filtered_vms)
         finally:
             db.close()
     except Exception as e:
