@@ -90,12 +90,26 @@ export default function DomainsPanel() {
             const res = await fetch(`/api/domains/${id}/verify`, { method: 'POST', headers: headers() });
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Ошибка');
-            if (!data.ownership_ok) {
-                alert(`Владение доменом не подтверждено: ${data.ownership_detail}\n\n`
-                    + `Создайте TXT-запись:\n${data.challenge_record}\nсо значением:\n${data.verification_token}\n\n`
-                    + `Затем повторите проверку (изменения DNS могут идти до нескольких часов).`);
-            } else if (!data.dns_ok) {
-                alert(`DNS ещё не готов: ${data.detail}\n\nСоздайте A-запись на ${data.expected_ip} и повторите.`);
+            // С автонастройкой записи уже созданы панелью — предлагать
+            // создать их руками было бы враньём: делать пользователю нечего,
+            // кроме как подождать, пока их увидят публичные резолверы. Ровно
+            // на этом обжигались: жмёшь «Проверить» через несколько секунд
+            // после добавления и получаешь инструкцию сделать то, что уже
+            // сделано.
+            if (!data.ownership_ok || !data.dns_ok) {
+                const what = !data.ownership_ok ? 'TXT-запись подтверждения' : 'A-запись';
+                if (auto) {
+                    alert(`${what} ещё не разошлась по DNS.\n\n`
+                        + `Панель уже создала её в вашей зоне — делать ничего не нужно. `
+                        + `Обычно это занимает до минуты; проверка повторится сама, `
+                        + `страница обновится.`);
+                } else if (!data.ownership_ok) {
+                    alert(`Владение доменом не подтверждено: ${data.ownership_detail}\n\n`
+                        + `Создайте TXT-запись:\n${data.challenge_record}\nсо значением:\n${data.verification_token}\n\n`
+                        + `Затем повторите проверку (изменения DNS могут идти до нескольких часов).`);
+                } else {
+                    alert(`DNS ещё не готов: ${data.detail}\n\nСоздайте A-запись на ${data.expected_ip} и повторите.`);
+                }
             }
             fetchAll();
         } catch (e) { alert(`Ошибка: ${e.message}`); } finally { setVerifying(null); }
