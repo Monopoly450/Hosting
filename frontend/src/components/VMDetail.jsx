@@ -198,7 +198,13 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
         const res = await fetch('/api/domains', { headers: { 'Authorization': `Bearer ${token}` } });
         if (!res.ok) return;
         const data = await res.json();
-        setBoundDomains(data.filter(d => d.target_type === 'vm' && d.target_id === vm.id));
+        // По vm_id, а не по target_type: приложение маркетплейса — это
+        // СРАЗУ ДВЕ записи с одним именем (VMTask и AppDeployment), и в
+        // списке целей имя появляется дважды. Выбрав «Приложение»,
+        // пользователь получал домен с target_type == 'deployment', и
+        // карточка ВМ его не находила, хотя ведёт он именно сюда.
+        // vm_id бэкенд считает сам, разворачивая деплой до его ВМ.
+        setBoundDomains(data.filter(d => d.vm_id === vm.id));
       } catch (e) { /* не критично — просто не покажем блок */ }
     };
     fetchDomains();

@@ -44,13 +44,29 @@ class DomainInfo(BaseModel):
     last_error: Optional[str]
     last_checked: Optional[str]
     url: str
-    # Заполняются только при добавлении домена: удалось ли создать DNS-записи
-    # автоматически (см. services/dns_api.py) и что именно произошло.
+    # ВМ, на которой домен в итоге оказывается. Для target_type == "vm" это
+    # сам target_id, а для деплоя — ВМ, где он крутится.
+    #
+    # Нужно карточке ВМ. Она искала домены только по target_type == "vm" и не
+    # находила ничего у приложений маркетплейса: тот создаёт СРАЗУ ДВЕ записи
+    # с одним именем — VMTask и AppDeployment (см. api/marketplace.py), и в
+    # списке целей имя появляется дважды. Выбрав «Приложение», пользователь
+    # получал домен с target_type == "deployment", и карточка ВМ честно
+    # писала «Домен не привязан», хотя домен ведёт именно на неё.
+    vm_id: Optional[int] = None
     auto: Optional[bool] = None
     auto_detail: Optional[str] = None
 
 
-def _to_info(d: Domain) -> DomainInfo:
+def _vm_id_of(db, d: Domain) -> Optional[int]:
+    """ВМ, на которую в итоге ведёт домен (через деплой, если он есть)."""
+    if d.target_type == "vm":
+        return d.target_id
+    dep = db.query(AppDeployment).filter(AppDeployment.id == d.target_id).first()
+    return dep.vm_id if dep else None
+
+
+def _to_info(d: Domain, db=None) -> DomainInfo:
     return DomainInfo(
         id=d.id, domain=d.domain, target_type=d.target_type, target_id=d.target_id,
         target_port=d.target_port, status=d.status or "pending", dns_ok=bool(d.dns_ok),
@@ -59,6 +75,7 @@ def _to_info(d: Domain) -> DomainInfo:
         verification_token=d.verification_token,
         last_error=d.last_error, last_checked=d.last_checked.isoformat() if d.last_checked else None,
         url=f"https://{d.domain}",
+        vm_id=_vm_id_of(db, d) if db is not None else None,
     )
 
 
@@ -109,7 +126,7 @@ def list_domains(current_user: User = Depends(get_current_user)):
         q = db.query(Domain)
         if current_user.role != "admin":
             q = q.filter(Domain.owner_id == current_user.id)
-        return [_to_info(d) for d in q.order_by(Domain.id.desc()).all()]
+        return [_to_info(d, db) for d in q.order_by(Domain.id.desc()).all()]
     finally:
         db.close()
 
@@ -172,7 +189,7 @@ def create_domain(req: DomainCreate, current_user: User = Depends(get_current_us
         elif auto.get("errors"):
             logger.warning(f"Автонастройка DNS для {dom.domain} не удалась: {auto['reason']}")
 
-        info = _to_info(dom)
+        info = _to_info(dom, db)
         info.auto = bool(auto.get("auto"))
         info.auto_detail = "; ".join(auto.get("steps") or []) or auto.get("reason") or None
         return info

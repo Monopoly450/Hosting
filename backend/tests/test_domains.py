@@ -1287,3 +1287,70 @@ def test_domain_deletion_cleans_up_after_applying_the_config():
     block = block[:block.index("db.close()")]
     assert "remove_certificate" in block
     assert block.index("_apply_config") < block.index("remove_certificate")
+
+
+# ------ домен приложения маркетплейса должен находиться и на его ВМ ---------
+#
+# Маркетплейс создаёт СРАЗУ ДВЕ записи с одним именем: VMTask и AppDeployment
+# (см. api/marketplace.py). В списке целей при добавлении домена имя поэтому
+# появляется дважды — «Приложение: n8n-qte6» и «ВМ: n8n-qte6». Выбрав первое,
+# пользователь получал домен с target_type == "deployment", и карточка ВМ,
+# искавшая только target_type == "vm", честно писала «Домен не привязан» —
+# хотя домен ведёт именно на эту ВМ.
+
+class _Dep:
+    def __init__(self, id, vm_id):
+        self.id, self.vm_id = id, vm_id
+
+
+class _DepDb:
+    def __init__(self, deps):
+        self._deps = deps
+
+    def query(self, model):
+        outer = self
+
+        class Q:
+            def filter(self, *a, **k):
+                return self
+
+            def first(self):
+                return outer._deps[0] if outer._deps else None
+        return Q()
+
+
+def test_vm_domain_resolves_to_itself():
+    from app.api.domains import _vm_id_of
+
+    dom = types.SimpleNamespace(target_type="vm", target_id=11)
+    assert _vm_id_of(_DepDb([]), dom) == 11
+
+
+def test_deployment_domain_resolves_to_the_vm_it_runs_on():
+    from app.api.domains import _vm_id_of
+
+    dom = types.SimpleNamespace(target_type="deployment", target_id=7)
+    assert _vm_id_of(_DepDb([_Dep(id=7, vm_id=11)]), dom) == 11
+
+
+def test_deployment_without_a_vm_is_not_pinned_anywhere():
+    """Деплой мог остаться без ВМ (её удалили) — тогда домен ничьей карточке
+    не принадлежит, и подставлять чужую нельзя."""
+    from app.api.domains import _vm_id_of
+
+    dom = types.SimpleNamespace(target_type="deployment", target_id=7)
+    assert _vm_id_of(_DepDb([]), dom) is None
+    assert _vm_id_of(_DepDb([_Dep(id=7, vm_id=None)]), dom) is None
+
+
+def test_vm_card_matches_domains_by_vm_id():
+    """Фильтр по target_type пропускал домены приложений маркетплейса."""
+    import os, re
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    path = os.path.join(root, "frontend", "src", "components", "VMDetail.jsx")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+
+    code = re.sub(r"//[^\n]*", "", src)
+    assert "d.vm_id === vm.id" in code
+    assert "d.target_type === 'vm'" not in code
