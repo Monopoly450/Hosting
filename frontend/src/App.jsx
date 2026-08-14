@@ -92,13 +92,19 @@ const App = () => {
   // машине, ставить её каждый раз заново не хочет.
   const [rememberMe, setRememberMe] = useState(localStorage.getItem('aegis_remember') === '1');
 
-  // Фильтр списка серверов. Поиск — по всему сразу (имя, владелец, домен,
-  // IP, источник): держать отдельное поле под каждое поле было бы дольше,
-  // чем просто набрать кусок того, что ищешь.
-  const [vmSearch, setVmSearch] = useState('');
-  const [vmOwner, setVmOwner] = useState('');     // только админу: чужих ВМ у студента и так нет
-  const [vmSource, setVmSource] = useState('');
-  const [vmStatus, setVmStatus] = useState('');
+  // Фильтр списка серверов. Выбор из РЕАЛЬНЫХ значений, а не строка поиска:
+  // так видно, какие вообще есть владельцы, домены и источники, и не нужно
+  // угадывать написание. Внутри группы условия складываются по «или»
+  // (владелец A или B), между группами — по «и».
+  const [vmFilters, setVmFilters] = useState({ owner: [], source: [], domain: [], status: [] });
+
+  const toggleVmFilter = (group, value) => setVmFilters(prev => ({
+    ...prev,
+    [group]: prev[group].includes(value)
+      ? prev[group].filter(v => v !== value)
+      : [...prev[group], value],
+  }));
+  const resetVmFilters = () => setVmFilters({ owner: [], source: [], domain: [], status: [] });
   const [requires2fa, setRequires2fa] = useState(false);
   const [userRole, setUserRole] = useState(localStorage.getItem('aegis_role') || 'student');
   const [username, setUsername] = useState(localStorage.getItem('aegis_username') || '');
@@ -135,38 +141,47 @@ const App = () => {
   // Вкладки только для администратора. Скрыть кнопку в сайдбаре мало:
   // вкладка может остаться выбранной с прошлой сессии или после понижения
   // роли, и тогда пользователь упирался бы в пустой экран.
-  // Списки значений для выпадающих фильтров — из самих данных, чтобы не
-  // держать второй захардкоженный перечень источников рядом с бэкендом.
-  const vmOwners = [...new Set(vms.map(v => v.owner_username).filter(Boolean))].sort();
-  const vmSources = [...new Set(vms.map(v => v.source).filter(Boolean))].sort();
-  const vmStatuses = [...new Set(vms.map(v => v.status).filter(Boolean))].sort();
-
-  const matchesVmFilter = (vm) => {
-    if (vmOwner && vm.owner_username !== vmOwner) return false;
-    if (vmSource && vm.source !== vmSource) return false;
-    if (vmStatus && vm.status !== vmStatus) return false;
-    if (!vmSearch.trim()) return true;
-    const q = vmSearch.trim().toLowerCase();
-    return [
-      vm.name, vm.owner_username, vm.os_type, vm.source, vm.source_detail,
-      vm.template, vm.cluster_name, ...(vm.domains || []), ...(vm.ips || []),
-    ].some(v => v && String(v).toLowerCase().includes(q));
+  // Варианты собираем из самих данных — фильтр показывает то, что реально
+  // существует сейчас, вместе с количеством. Пустых пунктов не бывает.
+  const vmFacetValues = (pick) => {
+    const counts = new Map();
+    vms.forEach(vm => [].concat(pick(vm) || []).filter(Boolean)
+      .forEach(v => counts.set(v, (counts.get(v) || 0) + 1)));
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ru'));
   };
 
-  // Внешние серверы ищутся по тем же полям, какие у них есть: у них нет ни
-  // источника, ни владельца, поэтому при выборе этих фильтров они выпадают —
-  // иначе фильтр «Маркетплейс» показывал бы их наравне с приложениями.
+  const vmFacets = [
+    { key: 'owner', label: 'Владелец', values: vmFacetValues(v => v.owner_username),
+      adminOnly: true },
+    { key: 'source', label: 'Откуда развёрнута', values: vmFacetValues(v => v.source) },
+    { key: 'domain', label: 'Домен', values: vmFacetValues(v => v.domains) },
+    { key: 'status', label: 'Статус', values: vmFacetValues(v => v.status) },
+  ].filter(f => (!f.adminOnly || userRole === 'admin') && f.values.length > 0);
+
+  const vmFilterActive = Object.values(vmFilters).some(list => list.length > 0);
+
+  const matchesVmFilter = (vm) => {
+    const { owner, source, domain, status } = vmFilters;
+    if (owner.length && !owner.includes(vm.owner_username)) return false;
+    if (source.length && !source.includes(vm.source)) return false;
+    if (status.length && !status.includes(vm.status)) return false;
+    // Домен — список: ВМ подходит, если у неё есть хотя бы один выбранный.
+    if (domain.length && !(vm.domains || []).some(d => domain.includes(d))) return false;
+    return true;
+  };
+
+  // У внешних серверов нет ни владельца, ни источника, ни домена — при
+  // выборе этих групп они выпадают. Иначе фильтр «Маркетплейс» показывал бы
+  // их наравне с приложениями.
   const matchesServerFilter = (srv) => {
-    if (vmOwner || vmSource) return false;
-    if (vmStatus && srv.status !== vmStatus) return false;
-    if (!vmSearch.trim()) return true;
-    const q = vmSearch.trim().toLowerCase();
-    return [srv.name, srv.host, srv.username].some(v => v && String(v).toLowerCase().includes(q));
+    const { owner, source, domain, status } = vmFilters;
+    if (owner.length || source.length || domain.length) return false;
+    if (status.length && !status.includes(srv.status)) return false;
+    return true;
   };
 
   const visibleVms = vms.filter(matchesVmFilter);
   const visibleServers = externalServers.filter(matchesServerFilter);
-  const vmFilterActive = !!(vmSearch.trim() || vmOwner || vmSource || vmStatus);
 
   const ADMIN_ONLY_TABS = ['balancer'];
 
@@ -981,68 +996,41 @@ const App = () => {
                 </div>
               </div>
 
-              {/* Фильтр показывается всегда, когда есть хоть один сервер.
-                  Сначала он прятался при одной машине как «лишний шум» — но
-                  тогда его не найти и в тот момент, когда он понадобится:
-                  панель выглядит так, будто поиска в ней нет вовсе.
-                  Выпадающие списки ниже сами скрываются, пока значение в них
-                  одно, поэтому на одной ВМ остаётся только строка поиска. */}
-              {(vms.length + externalServers.length) > 0 && (
-                <div className="glass-card" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap',
-                                                     alignItems: 'flex-end', marginBottom: '16px', padding: '16px' }}>
-                  <div className="input-group" style={{ marginBottom: 0, flex: '1 1 260px' }}>
-                    <label className="input-label">Поиск</label>
-                    <input
-                      className="form-control"
-                      value={vmSearch}
-                      onChange={(e) => setVmSearch(e.target.value)}
-                      placeholder="имя, владелец, домен, IP, приложение..."
-                    />
+              {/* Фильтр — колонкой слева, список справа. Сбоку он виден
+                  целиком: сразу читаются все существующие владельцы, домены
+                  и источники вместе с количеством, и не нужно угадывать
+                  написание, как это было со строкой поиска. */}
+              <div className="vm-layout">
+                <aside className="vm-filter">
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: 700, color: 'var(--text-heading)' }}>Фильтр</span>
+                    {vmFilterActive && (
+                      <button className="btn-icon" title="Сбросить фильтр" onClick={resetVmFilters}>
+                        <X size={14} />
+                      </button>
+                    )}
                   </div>
-                  {userRole === 'admin' && vmOwners.length > 1 && (
-                    <div className="input-group" style={{ marginBottom: 0, width: '190px' }}>
-                      <label className="input-label">Владелец</label>
-                      <CustomSelect
-                        value={vmOwner}
-                        onChange={(e) => setVmOwner(e.target.value)}
-                        options={[{ value: '', label: 'Все' },
-                                  ...vmOwners.map(o => ({ value: o, label: o }))]}
-                      />
+                  {vmFacets.length === 0 ? (
+                    <p className="text-muted" style={{ fontSize: '0.8rem', margin: 0 }}>Пока нечего фильтровать.</p>
+                  ) : vmFacets.map(facet => (
+                    <div key={facet.key} className="vm-facet">
+                      <div className="vm-facet-title">{facet.label}</div>
+                      {facet.values.map(([value, count]) => {
+                        const on = vmFilters[facet.key].includes(value);
+                        return (
+                          <label key={value} className={`vm-facet-item ${on ? 'active' : ''}`}>
+                            <input type="checkbox" checked={on}
+                                   onChange={() => toggleVmFilter(facet.key, value)} />
+                            <span className="vm-facet-name" title={value}>{value}</span>
+                            <span className="vm-facet-count">{count}</span>
+                          </label>
+                        );
+                      })}
                     </div>
-                  )}
-                  {vmSources.length > 1 && (
-                    <div className="input-group" style={{ marginBottom: 0, width: '190px' }}>
-                      <label className="input-label">Откуда развёрнута</label>
-                      <CustomSelect
-                        value={vmSource}
-                        onChange={(e) => setVmSource(e.target.value)}
-                        options={[{ value: '', label: 'Любой источник' },
-                                  ...vmSources.map(o => ({ value: o, label: o }))]}
-                      />
-                    </div>
-                  )}
-                  {vmStatuses.length > 1 && (
-                    <div className="input-group" style={{ marginBottom: 0, width: '170px' }}>
-                      <label className="input-label">Статус</label>
-                      <CustomSelect
-                        value={vmStatus}
-                        onChange={(e) => setVmStatus(e.target.value)}
-                        options={[{ value: '', label: 'Любой' },
-                                  ...vmStatuses.map(o => ({ value: o, label: o }))]}
-                      />
-                    </div>
-                  )}
-                  {vmFilterActive && (
-                    <button className="btn btn-secondary"
-                            onClick={() => { setVmSearch(''); setVmOwner(''); setVmSource(''); setVmStatus(''); }}>
-                      <X size={14} /> Сбросить
-                    </button>
-                  )}
-                </div>
-              )}
+                  ))}
+                </aside>
 
-
-
+                <div style={{ minWidth: 0 }}>
               {(loading && vms.length === 0) || (serversLoading && externalServers.length === 0) ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}><div className="spinner"></div></div>
               ) : (vms.length === 0 && externalServers.length === 0) ? (
@@ -1060,7 +1048,7 @@ const App = () => {
                   <h3 className="section-title" style={{ justifyContent: 'center' }}>Ничего не найдено</h3>
                   <p className="text-muted">Под фильтр не попал ни один сервер из {vms.length + externalServers.length}.</p>
                   <button className="btn btn-secondary" style={{ marginTop: '14px' }}
-                          onClick={() => { setVmSearch(''); setVmOwner(''); setVmSource(''); setVmStatus(''); }}>
+                          onClick={resetVmFilters}>
                     <X size={14} /> Сбросить фильтр
                   </button>
                 </div>
@@ -1086,6 +1074,8 @@ const App = () => {
                   ))}
                 </div>
               )}
+                </div>
+              </div>
             </div>
           ) : activeTab === 'balancer' ? (
             <BalancerPanel />

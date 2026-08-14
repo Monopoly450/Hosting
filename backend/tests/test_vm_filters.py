@@ -154,41 +154,57 @@ def test_vm_missing_from_the_database_is_left_alone():
 
 # ------------------------- фильтр по владельцу — только админу ---------------
 
-def test_owner_filter_is_admin_only():
-    """У студента чужих ВМ в списке и так нет (list_vms их не отдаёт), а поле
-    «Владелец» создавало бы впечатление, что бывают."""
-    import re
+def test_owner_facet_is_admin_only():
+    """У студента чужих ВМ в списке и так нет (list_vms их не отдаёт), а
+    группа «Владелец» создавала бы впечатление, что бывают."""
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     with open(os.path.join(root, "frontend", "src", "App.jsx"), encoding="utf-8") as f:
         src = f.read()
 
-    i = src.index('<label className="input-label">Владелец</label>')
-    # Поле обёрнуто в проверку роли — ищем её в ближайшем блоке выше.
-    assert "userRole === 'admin'" in src[i - 300:i]
+    block = src[src.index("const vmFacets = ["):]
+    block = block[:block.index("];") + 2]
+    assert "adminOnly: true" in block
+    # Отсев по роли делается там же, где собирается список групп.
+    tail = src[src.index("const vmFacets = ["):]
+    assert "userRole === 'admin'" in tail[:tail.index("const vmFilterActive")]
 
 
-def test_search_covers_the_fields_the_backend_added():
-    """Смысл enrich'а — искать по домену и источнику, которых в карточке не
-    видно. Если поиск их не читает, поля добавлены впустую."""
+def test_facets_are_built_from_the_data_not_hardcoded():
+    """Смысл фильтра — показать, какие владельцы, домены и источники есть
+    СЕЙЧАС. Захардкоженный перечень отстал бы от бэкенда молча."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "frontend", "src", "App.jsx"), encoding="utf-8") as f:
+        src = f.read()
+
+    block = src[src.index("const vmFacets = ["):]
+    block = block[:block.index("];") + 2]
+    for field in ("v.owner_username", "v.source", "v.domains", "v.status"):
+        assert f"vmFacetValues(v => {field})" in block, field
+
+
+def test_filter_groups_combine_with_and_values_with_or():
+    """Внутри группы — «или» (владелец A ИЛИ B), между группами — «и».
+    Иначе выбор двух владельцев давал бы пусто."""
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     with open(os.path.join(root, "frontend", "src", "App.jsx"), encoding="utf-8") as f:
         src = f.read()
 
     block = src[src.index("const matchesVmFilter"):]
-    block = block[:block.index("};")]
-    for field in ("vm.name", "vm.owner_username", "vm.source", "vm.source_detail",
-                  "vm.domains", "vm.ips", "vm.cluster_name"):
-        assert field in block, field
+    block = block[:block.index("\n  };")]
+    # «или» внутри группы — членство в выбранном списке...
+    assert "owner.includes(vm.owner_username)" in block
+    # ...домен особый: у ВМ их может быть несколько, подходит любой выбранный.
+    assert "(vm.domains || []).some(d => domain.includes(d))" in block
+    # «и» между группами — каждая проверка выходит из функции самостоятельно.
+    assert block.count("return false;") >= 4
 
 
 def test_filter_panel_is_not_hidden_on_a_small_list():
     """Сначала панель пряталась при одной машине как «лишний шум». Но тогда
     её не найти и в тот момент, когда она понадобится: вкладка выглядит так,
-    будто поиска в ней нет вовсе. Выпадающие списки сами скрываются, пока
-    значение в них одно, поэтому на одной ВМ остаётся только строка поиска —
-    и этого достаточно."""
+    будто фильтра в ней нет вовсе."""
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     with open(os.path.join(root, "frontend", "src", "App.jsx"), encoding="utf-8") as f:
         src = f.read()
-    assert "(vms.length + externalServers.length) > 0 &&" in src
+    assert "vm-filter" in src
     assert "(vms.length + externalServers.length) > 1 &&" not in src

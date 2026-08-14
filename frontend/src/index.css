@@ -322,6 +322,67 @@ body {
   min-height: 220px;
 }
 
+/* =================== Фильтр списка серверов =================== */
+/* Колонка фильтра слева, список справа. 210px хватает под самое длинное
+   значение (домен), а list — оставшееся место; minmax(0,1fr) обязателен,
+   иначе сетка карточек внутри распирает колонку по своему содержимому. */
+.vm-layout {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.vm-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  /* Список длинный, фильтр — короткий: пусть остаётся на виду при прокрутке.
+     70px — высота верхней панели, ниже неё он и прилипает. */
+  position: sticky;
+  top: 90px;
+}
+
+.vm-facet { display: flex; flex-direction: column; gap: 2px; }
+.vm-facet-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.vm-facet-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.vm-facet-item:hover { background: var(--bg-body); }
+.vm-facet-item.active { color: var(--text-heading); font-weight: 600; }
+.vm-facet-item input { width: 14px; height: 14px; accent-color: var(--accent-primary); cursor: pointer; flex-shrink: 0; }
+
+/* Значение может быть длинным (домен) — обрезаем, полное показывает title. */
+.vm-facet-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vm-facet-count { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; }
+
+/* На узком экране фильтр уезжает наверх: колонка в 210px там съела бы
+   половину ширины. */
+@media (max-width: 900px) {
+  .vm-layout { grid-template-columns: 1fr; }
+  .vm-filter { position: static; }
+}
+
 /* Карточка приложения маркетплейса. Плитки там теперь такого же размера,
    как у серверов и проектов, и им идёт лёгкая реакция на наведение —
    раньше карточка была статичной, хотя целиком ведёт к одному действию.
