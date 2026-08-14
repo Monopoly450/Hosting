@@ -161,3 +161,31 @@ def test_every_tab_uses_the_shared_header_layout():
     # Своя разметка «заголовок вкладки» с inline-стилями не должна вернуться:
     # именно она разъезжалась по отступам с остальными панелями.
     assert "fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-heading)'" not in src
+
+
+def test_top_header_cannot_be_squeezed_by_page_content():
+    """Верхняя панель — flex-элемент внутри .main-area (flex-колонка в
+    .app-layout с height: 100vh). У flex-элементов flex-shrink равен 1 по
+    умолчанию, поэтому её сжимал сам контент страницы: пока данных мало —
+    70px, как только они загрузились и перестали влезать в экран — меньше
+    (замерено: 37px при 4000px контента). Отсюда «панель не зафиксирована»
+    и разная её высота на разных вкладках. У .sidebar эта защита уже была."""
+    import os, re
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "frontend", "src", "index.css"), encoding="utf-8") as f:
+        css = f.read()
+
+    # Комментарии вырезаем: в пояснении рядом упоминается height: 100vh
+    # родителя, и наивная проверка по подстроке ловила именно его.
+    code = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+    block = code[code.index(".top-header {"):]
+    block = block[:block.index("}")]
+    assert "flex-shrink: 0" in block, "верхнюю панель снова будет сжимать контент"
+    assert "min-height: 70px" in block, "фиксированный height сжимается, min-height — нет"
+
+    # Мобильное правило не должно вернуть height обратно: оно перебило бы
+    # защиту из базового блока.
+    for m in re.finditer(r"\.top-header \{[^}]*\}", code):
+        assert not re.search(r"(?<!-)\bheight:\s*\d", m.group(0)), \
+            f"height вместо min-height вернёт сжатие: {m.group(0)}"

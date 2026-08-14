@@ -248,7 +248,16 @@ body {
 }
 
 .top-header {
-  height: 70px;
+  /* flex-shrink: 0 обязателен. .top-header — flex-элемент внутри .main-area
+     (flex-колонка в .app-layout с height: 100vh), а у flex-элементов
+     flex-shrink равен 1 по умолчанию. Пока данных мало, шапка держала свои
+     70px; как только контент переставал влезать в экран, flex сжимал её —
+     тем сильнее, чем больше на вкладке данных. Отсюда и «панель не
+     зафиксирована», и разная её высота на разных вкладках, и уменьшение
+     ровно в момент загрузки данных. У .sidebar эта защита уже была.
+     min-height вместо height — чтобы длинный заголовок не обрезался. */
+  min-height: 70px;
+  flex-shrink: 0;
   background: var(--bg-surface);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -1211,7 +1220,9 @@ font { background-color: transparent !important; }
     margin-right: 4px;
   }
   .btn-menu:hover { background-color: var(--bg-surface-hover); }
-  .top-header { padding: 0 12px; height: 70px; border-radius: var(--radius-md); }
+  /* min-height, а не height: иначе это правило перебило бы защиту от сжатия
+     из базового блока .top-header и на мобильном шапка снова уезжала бы. */
+  .top-header { padding: 0 12px; min-height: 70px; border-radius: var(--radius-md); }
   .content-container { padding: 14px 10px 32px; }
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr !important; gap: 16px !important; }
   .table-responsive { overflow-x: auto; width: 100%; margin-bottom: 16px; }
