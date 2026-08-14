@@ -141,9 +141,12 @@ def create_domain(req: DomainCreate, current_user: User = Depends(get_current_us
                 raise HTTPException(status_code=404, detail="ВМ не найдена")
             if current_user.role != "admin" and vm.owner_id != current_user.id:
                 raise HTTPException(status_code=403, detail="Доступ к ВМ запрещён")
-            if not req.target_port:
-                raise HTTPException(status_code=400, detail="Для ВМ укажите target_port")
-            port = req.target_port
+            # Порт определяем сами, если его не указали явно. Раньше здесь был
+            # отказ «Для ВМ укажите target_port», и пользователь должен был
+            # знать, что Grafana слушает 3000, а Portainer — 9000. Это ровно
+            # то же самое, что уже знает шаблон (см. os_profiles.template_port),
+            # и спрашивать об этом незачем.
+            port = req.target_port or dsvc.default_target_port(vm)
 
         dom = Domain(
             domain=name, target_type=req.target_type, target_id=req.target_id,

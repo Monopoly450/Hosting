@@ -186,6 +186,19 @@ def system_domain_entries() -> list:
     return entries
 
 
+def default_target_port(vm) -> int:
+    """Порт внутри ВМ, на который логично направить домен.
+
+    Шаблон уже знает, где слушает его сервис: Grafana — 3000, Portainer —
+    9000, всё остальное — обычный веб-сервер на 80. Спрашивать это у
+    пользователя было лишним: он должен был помнить порт наизусть, а ошибка
+    всплывала только через несколько минут — доменом, который никуда не ведёт.
+    """
+    from app.services.os_profiles import template_port
+
+    return template_port(getattr(vm, "cloud_init_template", None)) or 80
+
+
 def is_valid_domain(domain: str) -> bool:
     if not domain or len(domain) > 253:
         return False

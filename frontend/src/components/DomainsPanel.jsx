@@ -15,11 +15,14 @@ export default function DomainsPanel() {
     const [verifying, setVerifying] = useState(null);
     const [copied, setCopied] = useState('');
 
-    // форма
+    // Форма. Цель — ОДНО поле вида "vm:12" / "deployment:3": раньше их было
+    // два (сначала тип, потом объект), плюс обязательный порт для ВМ —
+    // четыре поля там, где по смыслу нужен один домен. Порт теперь
+    // определяет бэкенд по шаблону ВМ (см. domains.default_target_port).
     const [name, setName] = useState('');
-    const [targetType, setTargetType] = useState('deployment');
     const [target, setTarget] = useState('');
     const [port, setPort] = useState('');
+    const [showPort, setShowPort] = useState(false);
 
     const headers = () => ({
         'Authorization': `Bearer ${localStorage.getItem('aegis_admin_token') || ''}`,
@@ -62,12 +65,13 @@ export default function DomainsPanel() {
         e.preventDefault();
         setBusy(true);
         try {
-            const body = { domain: name.trim(), target_type: targetType, target_id: parseInt(target) };
+            const [targetType, targetId] = target.split(':');
+            const body = { domain: name.trim(), target_type: targetType, target_id: parseInt(targetId) };
             if (port) body.target_port = parseInt(port);
             const res = await fetch('/api/domains', { method: 'POST', headers: headers(), body: JSON.stringify(body) });
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Ошибка');
-            setShowAdd(false); setName(''); setTarget(''); setPort('');
+            setShowAdd(false); setName(''); setTarget(''); setPort(''); setShowPort(false);
             if (data.auto) {
                 alert(`Готово, дальше всё само.\n\n${data.auto_detail}\n\n`
                     + `DNS-записи разойдутся за минуту-другую, после чего домен подтвердится и `
@@ -297,32 +301,45 @@ export default function DomainsPanel() {
                                     <label className="input-label">Домен</label>
                                     <input className="form-control" value={name} onChange={e => setName(e.target.value)} placeholder="app.example.com" required autoFocus />
                                 </div>
+                                {/* Один список вместо «тип» + «объект»: тип
+                                    однозначно следует из выбранной цели. */}
                                 <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Направить на</label>
-                                    <CustomSelect
-                                        value={targetType}
-                                        onChange={e => { setTargetType(e.target.value); setTarget(''); }}
-                                        options={[
-                                            { value: 'deployment', label: 'Приложение (деплой)' },
-                                            { value: 'vm', label: 'Виртуальную машину' },
-                                        ]}
-                                    />
-                                </div>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">{targetType === 'deployment' ? 'Деплой' : 'Виртуальная машина'}</label>
+                                    <label className="input-label">Куда направить</label>
                                     <CustomSelect
                                         value={target}
                                         onChange={e => setTarget(e.target.value)}
                                         placeholder="— выберите —"
-                                        options={targetType === 'deployment'
-                                            ? deployments.map(x => ({ value: x.id, label: `${x.name} (порт ${x.app_port})` }))
-                                            : vms.filter(v => v.id).map(x => ({ value: x.id, label: x.name }))}
+                                        options={[
+                                            ...deployments.map(x => ({
+                                                value: `deployment:${x.id}`,
+                                                label: `Приложение: ${x.name} (порт ${x.app_port})`,
+                                            })),
+                                            ...vms.filter(v => v.id).map(x => ({
+                                                value: `vm:${x.id}`,
+                                                label: `ВМ: ${x.name}${x.app_int_port ? ` (порт ${x.app_int_port})` : ''}`,
+                                            })),
+                                        ]}
                                     />
                                 </div>
-                                <div className="input-group" style={{ marginBottom: 0 }}>
-                                    <label className="input-label">Внутренний порт {targetType === 'deployment' && <span className="text-muted">(по умолчанию — порт деплоя)</span>}</label>
-                                    <input type="number" className="form-control" value={port} onChange={e => setPort(e.target.value)} placeholder={targetType === 'deployment' ? 'авто' : 'например 8080'} min="1" max="65535" required={targetType === 'vm'} />
-                                </div>
+                                {/* Порт убран из основной формы: бэкенд берёт
+                                    его у шаблона ВМ (Grafana 3000, Portainer
+                                    9000) или у деплоя. Раньше для ВМ он был
+                                    обязателен, и надо было помнить его
+                                    наизусть. */}
+                                {showPort ? (
+                                    <div className="input-group" style={{ marginBottom: 0 }}>
+                                        <label className="input-label">Внутренний порт</label>
+                                        <input type="number" className="form-control" value={port}
+                                               onChange={e => setPort(e.target.value)}
+                                               placeholder="например 8080" min="1" max="65535" autoFocus />
+                                    </div>
+                                ) : (
+                                    <button type="button" className="btn-link" onClick={() => setShowPort(true)}
+                                            style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer',
+                                                     color: 'var(--accent-primary)', fontSize: '0.78rem', textAlign: 'left' }}>
+                                        Указать порт вручную
+                                    </button>
+                                )}
                             </div>
                             <div className="modal-actions">
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowAdd(false)} disabled={busy}>Отмена</button>

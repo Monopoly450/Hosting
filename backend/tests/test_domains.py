@@ -1086,3 +1086,66 @@ def test_worker_runs_the_autoverify_daemon():
         src = f.read()
     assert "domains_autoverify_daemon" in src
     assert "autoverify_tick" in src
+
+
+# ---------- порт домена определяется сам, а не спрашивается у человека -------
+#
+# Раньше форма привязки домена требовала четыре поля: домен, тип цели, саму
+# цель и ОБЯЗАТЕЛЬНЫЙ внутренний порт для ВМ — то есть пользователь должен был
+# помнить, что Grafana слушает 3000, а Portainer 9000. Ошибался — домен молча
+# вёл в никуда, и выяснялось это через несколько минут ожидания сертификата.
+
+class _VmRow:
+    def __init__(self, template=None):
+        self.cloud_init_template = template
+
+
+@pytest.mark.parametrize("template,expected", [
+    ("grafana", 3000),
+    ("portainer", 9000),
+])
+def test_port_comes_from_the_template(template, expected):
+    assert d.default_target_port(_VmRow(template)) == expected
+
+
+@pytest.mark.parametrize("template", [None, "", "lamp", "wordpress", "docker"])
+def test_plain_vm_gets_the_web_port(template):
+    """У шаблонов без своего порта сервис и так на 80 — как и у чистой ВМ."""
+    assert d.default_target_port(_VmRow(template)) == 80
+
+
+def test_port_matches_the_forward_the_panel_creates():
+    """Домен должен вести на тот же порт, на который смотрит проброс, —
+    иначе сайт по домену не откроется, хотя по IP:порту работает."""
+    from app.api.vms import default_ports_for
+
+    for template in ("grafana", "portainer"):
+        app = [p for p in default_ports_for(9, "ubuntu", template) if p["name"] == "APP"]
+        assert app[0]["int_port"] == d.default_target_port(_VmRow(template))
+
+
+def test_api_no_longer_demands_a_port_for_vms():
+    """Явный отказ «Для ВМ укажите target_port» должен был исчезнуть вместе
+    с полем в форме."""
+    import os
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "app", "api", "domains.py")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    # Ищем именно отказ, а не упоминание: в комментарии рядом описано, почему
+    # прежнее поведение убрали, и наивная проверка по подстроке ловила его.
+    code = "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("#"))
+    assert "укажите target_port" not in code
+    assert "default_target_port" in code
+
+
+def test_explicit_port_still_wins():
+    """Ручной порт никуда не делся — он просто спрятан за ссылкой в форме."""
+    import os
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "app", "api", "domains.py")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+    assert "req.target_port or dsvc.default_target_port(vm)" in src
