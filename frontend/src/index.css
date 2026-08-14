@@ -323,65 +323,60 @@ body {
 }
 
 /* =================== Фильтр списка серверов =================== */
-/* Колонка фильтра слева, список справа. 210px хватает под самое длинное
-   значение (домен), а list — оставшееся место; minmax(0,1fr) обязателен,
-   иначе сетка карточек внутри распирает колонку по своему содержимому. */
-.vm-layout {
-  display: grid;
-  grid-template-columns: 210px minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
-}
-
-.vm-filter {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  padding: 16px;
-  background: var(--bg-surface);
+/* Живёт в боковом окне (slide-over), которое открывается кнопкой рядом с
+   «Внешний сервер» и «Локальная ВМ». Раньше это была постоянная колонка
+   слева — она занимала место у списка всегда, даже когда фильтр не нужен. */
+.vm-facet {
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  /* Список длинный, фильтр — короткий: пусть остаётся на виду при прокрутке.
-     70px — высота верхней панели, ниже неё он и прилипает. */
-  position: sticky;
-  top: 90px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
 
-.vm-facet { display: flex; flex-direction: column; gap: 2px; }
-.vm-facet-title {
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  margin-bottom: 6px;
+.vm-facet-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 14px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-heading);
+  transition: background var(--transition-fast);
+}
+.vm-facet-toggle:hover { background: var(--bg-surface-hover); }
+
+/* Список значений прокручивается: доменов и владельцев со временем
+   становится много, и без ограничения группа выталкивала бы кнопки
+   «Сбросить»/«Показать» за нижний край окна. */
+.vm-facet-list {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px 8px 8px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .vm-facet-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 6px;
+  padding: 7px 6px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 0.84rem;
+  font-size: 0.85rem;
   color: var(--text-secondary);
   transition: background var(--transition-fast), color var(--transition-fast);
 }
-.vm-facet-item:hover { background: var(--bg-body); }
+.vm-facet-item:hover { background: var(--bg-surface-hover); }
 .vm-facet-item.active { color: var(--text-heading); font-weight: 600; }
-.vm-facet-item input { width: 14px; height: 14px; accent-color: var(--accent-primary); cursor: pointer; flex-shrink: 0; }
+.vm-facet-item input { width: 15px; height: 15px; accent-color: var(--accent-primary); cursor: pointer; flex-shrink: 0; }
 
 /* Значение может быть длинным (домен) — обрезаем, полное показывает title. */
 .vm-facet-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vm-facet-count { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; }
-
-/* На узком экране фильтр уезжает наверх: колонка в 210px там съела бы
-   половину ширины. */
-@media (max-width: 900px) {
-  .vm-layout { grid-template-columns: 1fr; }
-  .vm-filter { position: static; }
-}
+.vm-facet-count { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; font-weight: 400; }
 
 /* Карточка приложения маркетплейса. Плитки там теперь такого же размера,
    как у серверов и проектов, и им идёт лёгкая реакция на наведение —

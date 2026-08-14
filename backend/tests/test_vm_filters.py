@@ -199,12 +199,37 @@ def test_filter_groups_combine_with_and_values_with_or():
     assert block.count("return false;") >= 4
 
 
-def test_filter_panel_is_not_hidden_on_a_small_list():
-    """Сначала панель пряталась при одной машине как «лишний шум». Но тогда
-    её не найти и в тот момент, когда она понадобится: вкладка выглядит так,
-    будто фильтра в ней нет вовсе."""
+def _app_jsx():
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     with open(os.path.join(root, "frontend", "src", "App.jsx"), encoding="utf-8") as f:
-        src = f.read()
-    assert "vm-filter" in src
-    assert "(vms.length + externalServers.length) > 1 &&" not in src
+        return f.read()
+
+
+def test_filter_opens_from_a_button_next_to_the_other_actions():
+    """Фильтр — кнопка в одном ряду с «Внешний сервер» и «Локальная ВМ», а не
+    постоянная колонка: та занимала место у списка всегда, даже когда
+    фильтровать нечего."""
+    src = _app_jsx()
+    row = src[src.index("setShowConnectModal(true)") - 900:src.index("setShowConnectModal(true)")]
+    assert "setShowVmFilter(true)" in row, "кнопки фильтра нет в ряду действий"
+    assert "vm-layout" not in src, "постоянная колонка фильтра должна была уйти"
+
+
+def test_filter_panel_renders_in_a_portal():
+    """Боковое окно внутри .main-area накрыть её не может: та создаёт свой
+    контекст наложения, и панель просвечивала насквозь — ровно как модалки
+    до перевода на портал."""
+    src = _app_jsx()
+    block = src[src.index("{showVmFilter && ("):]
+    block = block[:block.index("{showConnectModal && (")]
+    assert "<Portal>" in block and "</Portal>" in block
+    assert "slide-over-overlay" in block
+
+
+def test_active_filter_count_is_visible_with_the_panel_closed():
+    """Закрытая панель ничего о себе не сообщает: без счётчика набранные
+    условия легко забыть и потом гадать, почему список неполный."""
+    src = _app_jsx()
+    assert "vmFilterCount" in src
+    row = src[src.index("setShowVmFilter(true)"):src.index("setShowConnectModal(true)")]
+    assert "vmFilterCount > 0" in row

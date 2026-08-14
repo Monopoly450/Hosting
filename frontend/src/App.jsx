@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket, Boxes, ScrollText, CalendarClock, Bell, Store, Globe, FolderKanban } from 'lucide-react';
+import { Server, Plus, Layers, ShieldCheck, Activity, Terminal, Shield, FolderOpen, LayoutDashboard, Link2, LogOut, Key, Menu, Monitor, Info, ChevronDown, ChevronLeft, Package, HardDrive, Square, Shuffle, Users, Database, Mail, X, Sun, Moon, Rocket, Boxes, ScrollText, CalendarClock, Bell, Store, Globe, FolderKanban, SlidersHorizontal, ChevronUp } from 'lucide-react';
 import HostStats from './components/HostStats';
 import VMCard from './components/VMCard';
 import VncConsole from './components/VncConsole';
@@ -29,6 +29,7 @@ import S3Panel from './components/S3Panel';
 import VolumesPanel from './components/VolumesPanel';
 import MailPanel from './components/MailPanel';
 import CustomSelect from './components/CustomSelect';
+import Portal from './components/Portal';
 
 const OS_VERSIONS = {
   ubuntu: [
@@ -97,6 +98,8 @@ const App = () => {
   // угадывать написание. Внутри группы условия складываются по «или»
   // (владелец A или B), между группами — по «и».
   const [vmFilters, setVmFilters] = useState({ owner: [], source: [], domain: [], status: [] });
+  const [showVmFilter, setShowVmFilter] = useState(false);
+  const [openVmFacet, setOpenVmFacet] = useState('owner');
 
   const toggleVmFilter = (group, value) => setVmFilters(prev => ({
     ...prev,
@@ -158,7 +161,8 @@ const App = () => {
     { key: 'status', label: 'Статус', values: vmFacetValues(v => v.status) },
   ].filter(f => (!f.adminOnly || userRole === 'admin') && f.values.length > 0);
 
-  const vmFilterActive = Object.values(vmFilters).some(list => list.length > 0);
+  const vmFilterCount = Object.values(vmFilters).reduce((n, list) => n + list.length, 0);
+  const vmFilterActive = vmFilterCount > 0;
 
   const matchesVmFilter = (vm) => {
     const { owner, source, domain, status } = vmFilters;
@@ -987,6 +991,18 @@ const App = () => {
                   </p>
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
+                  {/* Счётчик на кнопке — единственное, что видно о фильтре,
+                      когда панель закрыта: без него набранные условия легко
+                      забыть и потом гадать, почему список неполный. */}
+                  <button className="btn btn-secondary" onClick={() => setShowVmFilter(true)}>
+                    <SlidersHorizontal size={16}/> Фильтр
+                    {vmFilterCount > 0 && (
+                      <span className="badge" style={{ marginLeft: '2px', background: 'var(--accent-primary)',
+                                                       color: '#fff', fontSize: '0.7rem', padding: '1px 6px' }}>
+                        {vmFilterCount}
+                      </span>
+                    )}
+                  </button>
                   <button className="btn btn-secondary" onClick={() => setShowConnectModal(true)}>
                     <Link2 size={16}/> Внешний сервер
                   </button>
@@ -996,41 +1012,6 @@ const App = () => {
                 </div>
               </div>
 
-              {/* Фильтр — колонкой слева, список справа. Сбоку он виден
-                  целиком: сразу читаются все существующие владельцы, домены
-                  и источники вместе с количеством, и не нужно угадывать
-                  написание, как это было со строкой поиска. */}
-              <div className="vm-layout">
-                <aside className="vm-filter">
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ fontWeight: 700, color: 'var(--text-heading)' }}>Фильтр</span>
-                    {vmFilterActive && (
-                      <button className="btn-icon" title="Сбросить фильтр" onClick={resetVmFilters}>
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                  {vmFacets.length === 0 ? (
-                    <p className="text-muted" style={{ fontSize: '0.8rem', margin: 0 }}>Пока нечего фильтровать.</p>
-                  ) : vmFacets.map(facet => (
-                    <div key={facet.key} className="vm-facet">
-                      <div className="vm-facet-title">{facet.label}</div>
-                      {facet.values.map(([value, count]) => {
-                        const on = vmFilters[facet.key].includes(value);
-                        return (
-                          <label key={value} className={`vm-facet-item ${on ? 'active' : ''}`}>
-                            <input type="checkbox" checked={on}
-                                   onChange={() => toggleVmFilter(facet.key, value)} />
-                            <span className="vm-facet-name" title={value}>{value}</span>
-                            <span className="vm-facet-count">{count}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </aside>
-
-                <div style={{ minWidth: 0 }}>
               {(loading && vms.length === 0) || (serversLoading && externalServers.length === 0) ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '100px 0' }}><div className="spinner"></div></div>
               ) : (vms.length === 0 && externalServers.length === 0) ? (
@@ -1074,8 +1055,6 @@ const App = () => {
                   ))}
                 </div>
               )}
-                </div>
-              </div>
             </div>
           ) : activeTab === 'balancer' ? (
             <BalancerPanel />
@@ -1136,6 +1115,69 @@ const App = () => {
           onClose={() => setEditingVM(null)} 
           onSaveSuccess={fetchVMs} 
         />
+      )}
+
+      {/* Боковое окно фильтра. Тот же slide-over, что у создания кластера, —
+          отдельной вёрстки под него заводить незачем. Группы раскрывающиеся:
+          доменов и владельцев со временем становится много, и развёрнутые
+          сразу все они превращают панель в простыню. */}
+      {/* В <Portal>: боковое окно, отрисованное внутри .main-area, накрыть её
+          не может — .main-area создаёт свой контекст наложения, и панель
+          просвечивала насквозь. Ровно та же причина, что была у модалок. */}
+      {showVmFilter && (
+        <Portal>
+        <div className="slide-over-overlay" onClick={() => setShowVmFilter(false)}>
+          <div className="slide-over-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <div className="slide-over-header">
+              <h2>Фильтр</h2>
+              <button className="btn-icon" onClick={() => setShowVmFilter(false)}><X size={20} /></button>
+            </div>
+
+            <div className="slide-over-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {vmFacets.length === 0 ? (
+                <p className="text-muted" style={{ fontSize: '0.85rem', margin: 0 }}>Пока нечего фильтровать.</p>
+              ) : vmFacets.map(facet => {
+                const chosen = vmFilters[facet.key].length;
+                const open = openVmFacet === facet.key;
+                return (
+                  <div key={facet.key} className="vm-facet">
+                    <button type="button" className="vm-facet-toggle"
+                            onClick={() => setOpenVmFacet(open ? null : facet.key)}>
+                      <span style={{ flex: 1, textAlign: 'left' }}>{facet.label}</span>
+                      {chosen > 0 && <span className="vm-facet-count">выбрано: {chosen}</span>}
+                      {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    </button>
+                    {open && (
+                      <div className="vm-facet-list">
+                        {facet.values.map(([value, count]) => {
+                          const on = vmFilters[facet.key].includes(value);
+                          return (
+                            <label key={value} className={`vm-facet-item ${on ? 'active' : ''}`}>
+                              <input type="checkbox" checked={on}
+                                     onChange={() => toggleVmFilter(facet.key, value)} />
+                              <span className="vm-facet-name" title={value}>{value}</span>
+                              <span className="vm-facet-count">{count}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="slide-over-actions">
+              <button className="btn btn-secondary" onClick={resetVmFilters} disabled={!vmFilterActive}>
+                <X size={14} /> Сбросить
+              </button>
+              <button className="btn btn-primary" onClick={() => setShowVmFilter(false)}>
+                Показать: {visibleVms.length + visibleServers.length}
+              </button>
+            </div>
+          </div>
+        </div>
+        </Portal>
       )}
 
       {showConnectModal && (
