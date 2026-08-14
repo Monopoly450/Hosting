@@ -1206,3 +1206,84 @@ def test_staging_ca_is_closed_off_not_just_deprioritised():
     issuer_at = cfg.index("issuer acme")
     closing = cfg.index("\t\t}", issuer_at)
     assert "test_dir" in cfg[issuer_at:closing]
+
+
+# ---------- сертификат уходит вместе с доменом ------------------------------
+#
+# Caddy держит сертификаты в своём томе и сам их не вычищает: домен убрали из
+# конфига — сайт перестал обслуживаться, а файлы остались. На живом сервере
+# так и накопились сертификаты доменов, удалённых днями раньше.
+
+class _ExecContainer:
+    def __init__(self, exit_code=0, output=b""):
+        self.exit_code = exit_code
+        self.output = output
+        self.calls = []
+
+    def exec_run(self, cmd):
+        self.calls.append(cmd)
+        return types.SimpleNamespace(exit_code=self.exit_code, output=self.output)
+
+
+class _CertDocker:
+    def __init__(self, container):
+        self.client = types.SimpleNamespace(
+            containers=types.SimpleNamespace(get=lambda name: container))
+
+
+def _patch_docker(monkeypatch, container):
+    import app.core.docker_client as dc
+    monkeypatch.setattr(dc, "HostDockerClient", lambda: _CertDocker(container))
+
+
+def test_certificate_is_removed_with_the_domain(monkeypatch):
+    c = _ExecContainer()
+    _patch_docker(monkeypatch, c)
+    assert d.remove_certificate("app.example.com") == {"removed": True}
+    # Проходим по каталогам ВСЕХ УЦ: staging от прежних версий тоже мусорит.
+    assert c.calls == [["sh", "-c", "rm -rf /data/caddy/certificates/*/app.example.com"]]
+
+
+def test_system_domain_certificate_is_never_removed(monkeypatch):
+    """Домен панели живёт в .env, а не в БД. Но если завести такой же ещё и
+    через панель, а потом удалить — снесётся сертификат самой панели, и она
+    станет недоступна по HTTPS."""
+    monkeypatch.setenv("PANEL_DOMAIN", "home.example.com")
+    c = _ExecContainer()
+    _patch_docker(monkeypatch, c)
+
+    res = d.remove_certificate("home.example.com")
+    assert res["removed"] is False and "служебн" in res["reason"]
+    assert c.calls == []          # команда даже не запускалась
+
+
+@pytest.mark.parametrize("bad", ["", "не домен", "a b.com", "app.example.com; rm -rf /"])
+def test_garbage_never_reaches_the_shell(bad, monkeypatch):
+    """Имя подставляется в команду как есть — пускать туда что попало нельзя."""
+    c = _ExecContainer()
+    _patch_docker(monkeypatch, c)
+    assert d.remove_certificate(bad)["removed"] is False
+    assert c.calls == []
+
+
+def test_cleanup_failure_does_not_raise(monkeypatch):
+    """Удаление домена уже произошло; уборка за собой не повод его завалить."""
+    _patch_docker(monkeypatch, _ExecContainer(exit_code=1, output=b"permission denied"))
+    res = d.remove_certificate("app.example.com")
+    assert res["removed"] is False and "permission denied" in res["reason"]
+
+
+def test_domain_deletion_cleans_up_after_applying_the_config():
+    """Порядок важен: сначала конфиг без домена, потом чистка. Наоборот —
+    Caddy успеет выпустить сертификат заново."""
+    import os
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "app", "api", "domains.py")
+    with open(path, encoding="utf-8") as f:
+        src = f.read()
+
+    block = src[src.index("def delete_domain"):]
+    block = block[:block.index("db.close()")]
+    assert "remove_certificate" in block
+    assert block.index("_apply_config") < block.index("remove_certificate")

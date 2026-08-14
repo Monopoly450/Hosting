@@ -232,9 +232,15 @@ def delete_domain(domain_id: int, current_user: User = Depends(get_current_user)
     db = SessionLocal()
     try:
         dom = _owned(db, domain_id, current_user)
+        name = dom.domain
         db.delete(dom)
         db.commit()
         _apply_config(db)
-        return {"status": "deleted", "id": domain_id}
+        # Убираем и сертификат: Caddy сам его из тома не вычищает, и файлы
+        # удалённых доменов копились там неделями. Порядок важен — сначала
+        # конфиг без домена, потом чистка, иначе Caddy тут же выпустит его
+        # заново.
+        cert = dsvc.remove_certificate(name)
+        return {"status": "deleted", "id": domain_id, "certificate_removed": cert.get("removed", False)}
     finally:
         db.close()

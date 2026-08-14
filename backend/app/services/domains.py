@@ -812,6 +812,49 @@ def caddy_watchdog_tick(k8s):
         db.close()
 
 
+def remove_certificate(domain: str) -> dict:
+    """Убирает сертификат домена из хранилища Caddy.
+
+    Caddy держит сертификаты в томе (CADDY_VOLUME) и сам их оттуда не
+    вычищает: убрали домен из конфига — сайт перестал обслуживаться, а файлы
+    сертификата остались лежать. На живом сервере так и накопились
+    сертификаты доменов, удалённых из панели неделю назад.
+
+    Возвращает словарь, а не бросает: чистка — уборка за собой, и её сбой не
+    повод завалить удаление домена, которое уже произошло.
+    """
+    from app.core.docker_client import HostDockerClient
+
+    if not is_valid_domain(domain):
+        # В команду ниже имя попадает как есть — пускать туда что попало
+        # нельзя. Заодно отсекает пустую строку.
+        return {"removed": False, "reason": "некорректное имя домена"}
+
+    # Домены служебных сервисов живут в .env, а не в БД, поэтому под удаление
+    # клиентского домена попасть не должны. Но если кто-то заведёт такой же
+    # домен ещё и через панель, а потом удалит — сертификат самой панели
+    # снесётся вместе с ним, и она станет недоступна по HTTPS.
+    if domain in {v for v in system_domains().values() if v}:
+        return {"removed": False, "reason": "домен служебного сервиса, сертификат нужен"}
+
+    try:
+        cli = HostDockerClient().client
+        if not cli:
+            return {"removed": False, "reason": "Docker недоступен"}
+        c = cli.containers.get(CADDY_CONTAINER)
+        # Каталогов у каждого УЦ свой (боевой, staging от прежних версий) —
+        # проходим по всем через glob, а не по одному известному пути.
+        res = c.exec_run(["sh", "-c", f"rm -rf /data/caddy/certificates/*/{domain}"])
+        if res.exit_code != 0:
+            out = res.output.decode(errors="ignore")[:200] if res.output else ""
+            return {"removed": False, "reason": out or f"exit code {res.exit_code}"}
+        logger.info(f"Сертификат домена {domain} удалён из хранилища Caddy.")
+        return {"removed": True}
+    except Exception as e:
+        logger.warning(f"Не удалось удалить сертификат {domain}: {e}")
+        return {"removed": False, "reason": str(e)}
+
+
 def reload_caddy(docker_client):
     """Перечитывает конфиг без простоя."""
     c = docker_client.client.containers.get(CADDY_CONTAINER)

@@ -787,38 +787,43 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                     сертификатом, привяжите домен в разделе «Домены» — сертификат выпустится сам.
                   </div>
                 )}
-                <div style={{ marginTop: '10px' }}>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Домен:</div>
-                  {boundDomains.length > 0 ? boundDomains.map(d => {
-                    const active = d.dns_ok && d.ownership_ok;
-                    const field = `domain${d.id}`;
-                    return (
-                      <div key={d.id} style={{ marginBottom: '8px' }}>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={d.url} />
-                          <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(d.url, field)}>
-                            {copiedField === field ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
-                          </button>
-                        </div>
-                        <div style={{ fontSize: '0.72rem', marginTop: '4px', color: active ? 'var(--status-success)' : 'var(--text-secondary)' }}>
-                          {/* «DNS подтверждён», а не «активен (TLS)»: сертификат
-                              выпускает Caddy уже после этой проверки — см.
-                              DomainsPanel. */}
-                          {active ? '● DNS подтверждён' : '○ ожидает подтверждения DNS'}
-                        </div>
-                      </div>
-                    );
-                  }) : (
-                    <div>
-                      <input type="text" readOnly disabled className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value="Домен не привязан" />
-                      <div style={{ fontSize: '0.72rem', marginTop: '4px', color: 'var(--text-secondary)' }}>
-                        ○ ожидание — привяжите домен в разделе «Домены»
-                      </div>
-                    </div>
-                  )}
-                </div>
               </div>
             )}
+            {/* Привязанный домен — ОТДЕЛЬНЫМ блоком, а не внутри секции
+                «Доступ к веб-серверу». Раньше он был вложен в условие
+                {vm.http_port && ...}: у ВМ без проброса на порт 80 домен не
+                показывался вовсе, хотя к этому пробросу он отношения не
+                имеет. */}
+              <div style={{ marginTop: '10px' }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Домен:</div>
+                {boundDomains.length > 0 ? boundDomains.map(d => {
+                  const active = d.dns_ok && d.ownership_ok;
+                  const field = `domain${d.id}`;
+                  return (
+                    <div key={d.id} style={{ marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={d.url} />
+                        <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(d.url, field)}>
+                          {copiedField === field ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                      <div style={{ fontSize: '0.72rem', marginTop: '4px', color: active ? 'var(--status-success)' : 'var(--text-secondary)' }}>
+                        {/* «DNS подтверждён», а не «активен (TLS)»: сертификат
+                            выпускает Caddy уже после этой проверки — см.
+                            DomainsPanel. */}
+                        {active ? '● DNS подтверждён' : '○ ожидает подтверждения DNS'}
+                      </div>
+                    </div>
+                  );
+                }) : (
+                  <div>
+                    <input type="text" readOnly disabled className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value="Домен не привязан" />
+                    <div style={{ fontSize: '0.72rem', marginTop: '4px', color: 'var(--text-secondary)' }}>
+                      ○ ожидание — привяжите домен в разделе «Домены»
+                    </div>
+                  </div>
+                )}
+              </div>
           </div>
         </div>
 
