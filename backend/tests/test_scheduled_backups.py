@@ -108,3 +108,47 @@ def test_backup_picks_the_exact_disk_of_the_vm():
     block = block[:block.index("def list_vm_backups")]
     assert 'expected = f"{name}-disk"' in block
     assert "pvc.metadata.name == expected" in block
+
+
+def _backup_list_jsx():
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "frontend", "src", "components", "BackupList.jsx"), encoding="utf-8") as f:
+        return f.read()
+
+
+def test_backup_row_uses_theme_colours():
+    """Строка заливалась rgba(0,0,0,0.2) — чёрным поверх фона. В тёмной теме
+    это сходило за подложку, в светлой давало серую плашку, на которой не
+    читались ни название копии, ни кнопки."""
+    src = _backup_list_jsx()
+    assert "rgba(0, 0, 0, 0.2)" not in src
+    assert "var(--bg-surface-hover)" in src
+
+
+def test_backup_in_progress_is_not_shown_as_an_error():
+    """Разбирались три фазы DataVolume из полутора десятков, остальные падали
+    в default и рисовались красным «ошибка». Копия, которая спокойно
+    клонируется, выглядела сломанной."""
+    src = _backup_list_jsx()
+    for phase in ("CloneInProgress", "WaitForFirstConsumer", "PendingPopulation", "ImportInProgress"):
+        assert phase in src, f"фаза {phase} снова попадёт в «ошибка»"
+
+
+def test_restore_button_is_always_visible():
+    """Кнопка рисовалась только у готовой копии. У всех остальных на строке
+    оставалась одна корзина, и выглядело это как «восстановления в панели
+    нет». Показываем всегда, отключаем пока копия не готова: восстановить из
+    наполовину склонированного тома значит затереть диск ВМ мусором."""
+    src = _backup_list_jsx()
+    assert "{b.status === 'Succeeded' && (" not in src, "кнопка снова спрятана"
+    assert "disabled={actionLoading !== null || !isDone(b)}" in src
+    assert "title={isDone(b)" in src, "недоступная кнопка должна объяснять причину"
+
+
+def test_backup_size_is_human_readable():
+    """Размер приходит из PVC как есть — «22763326669». В списке это читалось
+    как случайный номер, а не как объём."""
+    src = _backup_list_jsx()
+    assert "formatSize" in src
+    assert "{formatSize(b.size)}" in src

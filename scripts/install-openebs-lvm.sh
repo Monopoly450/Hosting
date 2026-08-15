@@ -23,13 +23,22 @@ if [ "$EUID" -ne 0 ]; then
     error "Этот скрипт должен быть запущен с правами root (через sudo)."
 fi
 
+# Размер пула передаёт install.sh (там он считается от свободного места).
+# 40 ГБ — запасное значение для запуска скрипта руками: из этого пула
+# нарезаются ВСЕ диски ВМ, и на 40 ГБ их поместится пара штук.
+POOL_GB="${AEGIS_LVM_POOL_GB:-40}"
+case "$POOL_GB" in
+    ''|*[!0-9]*) error "AEGIS_LVM_POOL_GB должен быть целым числом гигабайт, получено: '$POOL_GB'." ;;
+esac
+[ "$POOL_GB" -lt 10 ] && error "Пул меньше 10 ГБ бесполезен: на нём не поместится ни одна ВМ."
+
 # 1. Создание виртуального диска для LVM (если группы vg-aegis еще нет)
 if vgs vg-aegis &>/dev/null; then
-    log "Группа томов LVM 'vg-aegis' уже существует."
+    log "Группа томов LVM 'vg-aegis' уже существует (размер не меняется — пул создаётся один раз)."
 else
-    log "Создание разреженного файла-образа на 40 ГБ для блочного хранилища (мгновенно)..."
+    log "Создание разреженного файла-образа на ${POOL_GB} ГБ для блочного хранилища (мгновенно)..."
     mkdir -p /var/lib/aegis
-    truncate -s 40G /var/lib/aegis/lvm-storage.img
+    truncate -s "${POOL_GB}G" /var/lib/aegis/lvm-storage.img
 
     log "Создание службы автоподключения петлевого устройства (loop device) с Direct I/O..."
     cat <<EOF > /etc/systemd/system/aegis-lvm-loop.service

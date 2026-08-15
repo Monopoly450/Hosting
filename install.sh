@@ -196,6 +196,20 @@ ask_secret() {
     echo "${input:-$generated}"
 }
 
+# 60% свободного места на разделе с /var/lib, но не меньше 40 ГБ: на меньшем
+# пуле не поместится даже пара типовых ВМ, и LVM тогда только мешает.
+default_lvm_pool_gb() {
+    local avail
+    avail=$(df -BG --output=avail /var/lib 2>/dev/null | tail -n1 | tr -dc '0-9')
+    if [ -z "$avail" ] || [ "$avail" -lt 1 ]; then
+        echo 40
+        return
+    fi
+    local pool=$(( avail * 60 / 100 ))
+    [ "$pool" -lt 40 ] && pool=40
+    echo "$pool"
+}
+
 ask_value() {
     local prompt="$1" default="$2"
     if [ "$AUTO_YES" = true ]; then
@@ -214,6 +228,10 @@ ask_value() {
 detect_host_ip() {
     ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="src") print $(i+1)}' | head -n1
 }
+
+# Задаётся в generate_env_file, читается шагом 8. Значение по умолчанию нужно
+# для случая, когда .env уже есть и вопросы не задавались вовсе.
+LVM_POOL_GB=""
 
 generate_env_file() {
     local env_file="${PROJECT_DIR}/.env"
@@ -254,7 +272,7 @@ generate_env_file() {
     local postgres_password admin_token aegis_secret_key rabbitmq_user rabbitmq_pass \
           minio_user minio_password mariadb_password storage_class detected_ip host_ip \
           acme_email registry_port panel_domain mail_domain storage_domain rabbitmq_domain \
-          dns_provider timeweb_token cloudflare_token cloudflare_tunnel_token
+          timeweb_token
 
     postgres_password=$(ask_secret "Пароль системной базы данных PostgreSQL")
     admin_token=$(ask_secret "Токен администратора API (это же будет пароль входа в панель под admin)")
@@ -264,7 +282,18 @@ generate_env_file() {
     minio_user=$(ask_value "Логин объектного хранилища MinIO" "minioadmin")
     minio_password=$(ask_secret "Пароль объектного хранилища MinIO")
     mariadb_password=$(ask_secret "Пароль root служебной MariaDB")
-    storage_class=$(ask_value "Класс хранения Kubernetes (nfs-storage — только для отказоустойчивого кластера)" "local-path")
+    # openebs-lvm по умолчанию, а не local-path. Снимки ВМ умеет делать только
+    # CSI-драйвер, а local-path им не является: без него панель создаёт объект
+    # VirtualMachineSnapshot успешно, показывает «создаётся» — и он навсегда
+    # остаётся в Pending, потому что настоящий VolumeSnapshot делать нечем.
+    # Снаружи это выглядит как «снимки не работают», без единой ошибки.
+    # Если установка LVM ниже не удастся, шаг 8 сам вернёт сюда local-path.
+    storage_class=$(ask_value "Класс хранения дисков ВМ (local-path — без снимков; nfs-storage — только для отказоустойчивого кластера)" "openebs-lvm")
+    # Пул LVM — файл-образ, из которого нарезаются диски ВМ. По умолчанию
+    # берём 60% свободного места: остальное нужно образам ОС, слоям Docker и
+    # самой системе. Раньше размер был жёстко зашит в 40 ГБ — на сервере с
+    # терабайтом это означало, что после четырёх ВМ место кончалось.
+    LVM_POOL_GB=$(ask_value "Размер пула LVM под диски ВМ, ГБ (файл-образ разреженный: место занимается по мере записи)" "$(default_lvm_pool_gb)")
     registry_port=$(ask_value "Порт приватного реестра образов" "5000")
 
     detected_ip=$(detect_host_ip)
@@ -291,39 +320,13 @@ generate_env_file() {
     storage_domain=$(ask_value "Домен для консоли хранилища (MinIO)" "")
     rabbitmq_domain=$(ask_value "Домен для консоли очереди (RabbitMQ)" "")
 
-    # DNS-провайдер спрашиваем только если домен вообще задан: без домена
-    # токен ни на что не влияет.
+    # Токен DNS спрашиваем, только если домен вообще задан: без домена он ни
+    # на что не влияет.
     timeweb_token=""
-    cloudflare_token=""
-    dns_provider=""
     if [ -n "$panel_domain$mail_domain$storage_domain$rabbitmq_domain" ]; then
-        dns_provider=$(ask_value "У кого обслуживается DNS этих доменов: timeweb или cloudflare" "timeweb")
-        case "$dns_provider" in
-            [cC]*)
-                dns_provider="cloudflare"
-                cloudflare_token=$(ask_value "API-токен Cloudflare (My Profile -> API Tokens, права Zone:DNS:Edit; можно оставить пустым и дописать в .env позже)" "")
-                ;;
-            *)
-                dns_provider="timeweb"
-                timeweb_token=$(ask_value "API-токен Timeweb Cloud (Настройки -> API-ключи; можно оставить пустым и дописать в .env позже)" "")
-                ;;
-        esac
+        timeweb_token=$(ask_value "API-токен Timeweb Cloud (Настройки -> API-ключи; можно оставить пустым и дописать в .env позже)" "")
     fi
 
-    # Cloudflare Tunnel — отдельный вопрос и отдельный токен: он решает не
-    # задачу сертификата, а задачу «сервер за NAT вообще не виден снаружи».
-    if [ "$USE_WHIPTAIL" = true ]; then
-        whiptail --title "$WT_TITLE" --msgbox \
-"Если у сервера нет 'белого' IP, домен всё равно можно открыть из интернета — через Cloudflare Tunnel: сервер сам подключается к Cloudflare, порты на роутере открывать не нужно.\n\nТокен берётся в Cloudflare Zero Trust -> Networks -> Tunnels -> создать туннель -> Docker: длинная строка после '--token'.\n\nПропустите (Enter), если сервер и так доступен снаружи." \
-            15 76
-    else
-        echo
-        echo -e "${CYAN}Если у сервера нет 'белого' IP, домен всё равно можно открыть из${NC}"
-        echo -e "${CYAN}интернета через Cloudflare Tunnel: сервер сам подключается к Cloudflare,${NC}"
-        echo -e "${CYAN}порты на роутере открывать не нужно. Токен: Cloudflare Zero Trust ->${NC}"
-        echo -e "${CYAN}Networks -> Tunnels -> создать туннель -> Docker (строка после --token).${NC}"
-    fi
-    cloudflare_tunnel_token=$(ask_value "Токен Cloudflare Tunnel (Enter — пропустить)" "")
 
     {
         echo "# Сгенерировано install.sh $(date +'%Y-%m-%d %H:%M:%S')"
@@ -385,33 +388,18 @@ generate_env_file() {
         else
             echo "# TIMEWEB_DNS_API_TOKEN=  — нужен, только если DNS доменов выше у Timeweb"
         fi
-        if [ -n "$cloudflare_token" ]; then
-            echo "CLOUDFLARE_DNS_API_TOKEN=${cloudflare_token}"
-        else
-            echo "# CLOUDFLARE_DNS_API_TOKEN=  — нужен, только если DNS доменов выше у Cloudflare"
-        fi
-        if [ -n "$panel_domain$mail_domain$storage_domain$rabbitmq_domain" ] && [ -z "$timeweb_token$cloudflare_token" ]; then
+        if [ -n "$panel_domain$mail_domain$storage_domain$rabbitmq_domain" ] && [ -z "$timeweb_token" ]; then
             echo "# ВАЖНО: домен указан, но токен DNS-провайдера не введён — впишите его в"
             echo "# строку выше, иначе сертификаты не выпустятся и панель не заведёт DNS-записи сама."
-        fi
-        echo
-        if [ -n "$cloudflare_tunnel_token" ]; then
-            echo "CLOUDFLARE_TUNNEL_TOKEN=${cloudflare_tunnel_token}"
-            # Профиль включает сервис cloudflared в docker-compose.yml.
-            # Без него контейнер туннеля не запускается вовсе.
-            echo "COMPOSE_PROFILES=cloudflare"
-        else
-            echo "# CLOUDFLARE_TUNNEL_TOKEN=  — не задан, публикация через Cloudflare Tunnel выключена"
-            echo "# COMPOSE_PROFILES=cloudflare   — раскомментировать вместе с токеном выше"
         fi
     } > "$env_file"
 
     chmod 600 "$env_file"
     log ".env создан (права 600)."
 
-    if [ -n "$panel_domain$mail_domain$storage_domain$rabbitmq_domain" ] && [ -z "$timeweb_token$cloudflare_token" ]; then
-        warn "Домен(ы) указаны, но токен DNS-провайдера не введён — сертификаты НЕ выпустятся, пока вы"
-        warn "не допишете в .env строку TIMEWEB_DNS_API_TOKEN=<токен> или CLOUDFLARE_DNS_API_TOKEN=<токен>"
+    if [ -n "$panel_domain$mail_domain$storage_domain$rabbitmq_domain" ] && [ -z "$timeweb_token" ]; then
+        warn "Домен(ы) указаны, но токен DNS не введён — сертификаты НЕ выпустятся, пока вы"
+        warn "не допишете в .env строку TIMEWEB_DNS_API_TOKEN=<токен>"
         warn "и не перезапустите: docker compose up -d --build backend worker"
         warn "До этого сервисы как обычно доступны по IP и портам."
     fi
@@ -678,9 +666,42 @@ log "Prometheus развёрнут в namespace prometheus."
 
 # ============================== 8. LVM-хранилище ==============================
 
-step "Настройка блочного хранилища LVM (горячая замена дисков)"
+step "Настройка блочного хранилища LVM (снимки и горячая замена дисков)"
+# .env целиком не подключаем: в нём пароли и произвольные строки, а нужно одно
+# значение. Оно же могло прийти из существующего .env, когда вопросы не
+# задавались вовсе.
+STORAGE_CLASS=$(grep -E '^STORAGE_CLASS=' "${PROJECT_DIR}/.env" 2>/dev/null | tail -n1 | cut -d= -f2-)
+[ -z "$LVM_POOL_GB" ] && LVM_POOL_GB=$(default_lvm_pool_gb)
+log "Пул LVM: ${LVM_POOL_GB} ГБ, класс дисков ВМ: ${STORAGE_CLASS:-<не задан>}"
 if [ -f "${PROJECT_DIR}/scripts/install-openebs-lvm.sh" ]; then
-    bash "${PROJECT_DIR}/scripts/install-openebs-lvm.sh" || warn "Настройка LVM завершилась с предупреждением — можно перезапустить позже: sudo bash scripts/install-openebs-lvm.sh"
+    AEGIS_LVM_POOL_GB="${LVM_POOL_GB}" \
+        bash "${PROJECT_DIR}/scripts/install-openebs-lvm.sh" \
+        || warn "Настройка LVM завершилась с ошибкой — можно перезапустить позже: sudo bash scripts/install-openebs-lvm.sh"
+fi
+
+# Проверяем результат, а не верим коду возврата. У скрипта LVM стоит set -e:
+# упади он на создании группы томов или на установке чарта — StorageClass и
+# VolumeSnapshotClass в конце файла просто не выполнятся, а install.sh об
+# этом узнает только по warn выше и пойдёт дальше. Дальше панель поднимется
+# с STORAGE_CLASS=openebs-lvm, которого в кластере нет, и НИ ОДНА ВМ не
+# создастся: PVC навсегда останется Pending.
+if [ "$STORAGE_CLASS" = "openebs-lvm" ]; then
+    if ! kubectl get storageclass openebs-lvm >/dev/null 2>&1; then
+        warn "Класс хранения openebs-lvm в кластере не появился — возвращаю local-path,"
+        warn "иначе ни одна ВМ не создастся. Снимки при этом работать не будут."
+        warn "Починить: sudo bash scripts/install-openebs-lvm.sh, затем в .env"
+        warn "STORAGE_CLASS=openebs-lvm и docker compose up -d --build backend worker"
+        sed -i 's/^STORAGE_CLASS=.*/STORAGE_CLASS=local-path/' "${PROJECT_DIR}/.env"
+        STORAGE_CLASS="local-path"
+    elif ! kubectl get volumesnapshotclass >/dev/null 2>&1 \
+         || [ -z "$(kubectl get volumesnapshotclass -o name 2>/dev/null)" ]; then
+        # Диски создавать есть на чём, а снимать с них снимки — нечем.
+        # На работу панели не влияет, поэтому класс не откатываем.
+        warn "Класс снимков VolumeSnapshotClass не создан — диски ВМ работать будут, снимки нет."
+        warn "Починить: sudo bash scripts/install-openebs-lvm.sh"
+    else
+        log "Хранилище openebs-lvm и класс снимков готовы — снимки ВМ доступны."
+    fi
 fi
 
 # ============================== 9. Fail2Ban ==============================
@@ -898,7 +919,7 @@ echo
 echo -e "${YELLOW} Важно: AEGIS_SECRET_KEY в .env менять после первого запуска нельзя —"
 echo -e " старые секреты (пароли внешних серверов, БД, ключи S3) перестанут расшифровываться.${NC}"
 if [ -n "$PANEL_DOMAIN$MAIL_DOMAIN$STORAGE_DOMAIN$RABBITMQ_DOMAIN" ]; then
-    if [ -n "${TIMEWEB_DNS_API_TOKEN}${CLOUDFLARE_DNS_API_TOKEN}" ]; then
+    if [ -n "${TIMEWEB_DNS_API_TOKEN}" ]; then
         echo
         echo -e " ${GREEN}Домены заданы — сертификаты выпустятся автоматически (обычно 1-2 минуты):${NC}"
         [ -n "$PANEL_DOMAIN" ] && echo -e "   ${GREEN}https://${PANEL_DOMAIN}${NC}"
@@ -907,25 +928,11 @@ if [ -n "$PANEL_DOMAIN$MAIL_DOMAIN$STORAGE_DOMAIN$RABBITMQ_DOMAIN" ]; then
         [ -n "$RABBITMQ_DOMAIN" ] && echo -e "   ${GREEN}https://${RABBITMQ_DOMAIN}${NC}"
     else
         echo
-        echo -e " ${YELLOW}Домен(ы) указаны, но токен DNS-провайдера в .env ещё не задан —"
+        echo -e " ${YELLOW}Домен(ы) указаны, но токен DNS в .env ещё не задан —"
         echo -e " сертификаты не выпустятся, пока не допишете токен и не перезапустите:"
-        echo -e "   nano .env   # TIMEWEB_DNS_API_TOKEN=<токен> или CLOUDFLARE_DNS_API_TOKEN=<токен>"
+        echo -e "   nano .env   # TIMEWEB_DNS_API_TOKEN=<токен>"
         echo -e "   docker compose up -d --build backend worker"
         echo -e " До этого сервисы как обычно доступны по IP и портам.${NC}"
     fi
-fi
-if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
-    echo
-    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^aegis-cloudflared$'; then
-        echo -e " ${GREEN}Cloudflare Tunnel запущен — сервер доступен из интернета без белого IP.${NC}"
-    else
-        echo -e " ${YELLOW}Cloudflare Tunnel настроен, но контейнер не поднялся: docker compose logs cloudflared${NC}"
-    fi
-    echo " Публичные адреса задаются в Cloudflare Zero Trust -> Networks -> Tunnels ->"
-    echo " ваш туннель -> Public hostnames. Локальные адреса сервисов:"
-    echo "   панель      http://localhost:8081"
-    echo "   почта       http://localhost:8082"
-    echo "   хранилище   http://localhost:9001"
-    echo "   очередь     http://localhost:15672"
 fi
 echo -e "${GREEN}==========================================================${NC}"

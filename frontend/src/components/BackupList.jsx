@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshCw, Play, Trash2, Calendar, HardDrive, Plus, CheckCircle, AlertCircle } from 'lucide-react';
+import { Trash2, Calendar, HardDrive, Plus, CheckCircle, AlertCircle, RotateCcw } from 'lucide-react';
 
 const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
   const [backups, setBackups] = useState([]);
@@ -87,15 +87,56 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
     return date.toLocaleString();
   };
 
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'Succeeded': return <CheckCircle size={14} color="var(--success)" />;
-      case 'Importing': 
-      case 'CloneSource':
-      case 'Running':
-        return <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }} />;
-      default: return <AlertCircle size={14} color="var(--danger)" />;
+  /* Фазы DataVolume у CDI. Раньше разбирались ровно три, а «в работе» у CDI
+     их с десяток — все остальные попадали в default и рисовались красным
+     кружком «ошибка». Копия, которая спокойно клонируется, выглядела
+     сломанной, и восстановить её было нельзя: кнопка появляется только у
+     Succeeded. */
+  const IN_PROGRESS = [
+    'Pending', 'PendingPopulation', 'PVCBound', 'WaitForFirstConsumer',
+    'ImportScheduled', 'ImportInProgress', 'Importing',
+    'CloneScheduled', 'CloneInProgress', 'CloneSource', 'Running',
+    'SnapshotForSmartCloneInProgress', 'CloneFromSnapshotSourceInProgress',
+    'SmartClonePVCInProgress', 'CSICloneInProgress', 'ExpansionInProgress',
+    'NamespaceTransferInProgress', 'UploadScheduled', 'UploadReady', 'Paused',
+  ];
+
+  const STATUS_LABELS = {
+    Succeeded: 'Готова',
+    Failed: 'Не удалась',
+    Unknown: 'Состояние неизвестно',
+    Pending: 'В очереди',
+    PendingPopulation: 'В очереди',
+    PVCBound: 'Том выделен',
+    WaitForFirstConsumer: 'Ждёт запуска ВМ',
+    Paused: 'Приостановлена',
+  };
+
+  const isDone = (b) => b.status === 'Succeeded';
+  const isBusy = (b) => IN_PROGRESS.includes(b.status);
+
+  const statusLabel = (b) => STATUS_LABELS[b.status] || (isBusy(b) ? 'Копируется' : b.status);
+
+  const getStatusIcon = (b) => {
+    if (isDone(b)) return <CheckCircle size={14} color="var(--status-success)" />;
+    if (isBusy(b)) return <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }} />;
+    return <AlertCircle size={14} color="var(--status-danger)" />;
+  };
+
+  /* Размер приходит из PVC как есть: «22763326669» — столько байт, сколько
+     запросил CDI. В списке это читалось как случайный номер. */
+  const formatSize = (raw) => {
+    if (raw === null || raw === undefined || raw === '') return '';
+    const asNumber = Number(raw);
+    if (!Number.isFinite(asNumber)) return String(raw);  // «40Gi» и подобное — уже читаемо
+    const units = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'];
+    let value = asNumber;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit += 1;
     }
+    return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
   };
 
   return (
@@ -135,14 +176,17 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                 alignItems: 'center',
                 padding: '10px 14px',
                 borderRadius: 'var(--radius-md)',
-                background: 'rgba(0, 0, 0, 0.2)',
-                border: '1px solid var(--border-color)',
+                /* Было rgba(0,0,0,0.2) — заливка чёрным поверх фона. В тёмной
+                   теме сходило за подложку, а в светлой давало ровно ту серую
+                   плашку, на которой не читались ни текст, ни кнопки. */
+                background: 'var(--bg-surface-hover)',
+                border: '1px solid var(--border-default)',
                 fontSize: '0.8rem'
               }}
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {getStatusIcon(b.status)}
+                  {getStatusIcon(b)}
                   <span>{b.name}</span>
                 </div>
                 <div style={{ display: 'flex', gap: '15px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
@@ -150,7 +194,13 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                     <Calendar size={12} /> {formatTime(b.created_at)}
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <HardDrive size={12} /> {b.size}
+                    <HardDrive size={12} /> {formatSize(b.size)}
+                  </span>
+                  {/* Статус словами. Без него у незавершённой копии просто нет
+                      кнопки «Восстановить», и непонятно, ждать её или это
+                      уже отказ. */}
+                  <span style={{ color: isDone(b) ? 'var(--status-success)' : isBusy(b) ? 'var(--text-muted)' : 'var(--status-danger)' }}>
+                    {statusLabel(b)}
                   </span>
                 </div>
                 {/* Если бэкап клонируется, показываем прогресс */}
@@ -168,16 +218,26 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
               </div>
 
               <div style={{ display: 'flex', gap: '6px' }}>
-                {b.status === 'Succeeded' && (
-                  <button 
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => handleRestoreBackup(b.name)}
-                    disabled={actionLoading !== null}
-                    style={{ fontSize: '0.75rem', padding: '4px 8px' }}
-                  >
-                    {actionLoading === `restore-${b.name}` ? 'Восстановление...' : 'Восстановить'}
-                  </button>
-                )}
+                {/* Кнопку показываем всегда, а не только у готовой копии:
+                    иначе на строке нет ничего, кроме корзины, и создаётся
+                    впечатление, что восстановления в панели нет вовсе.
+                    Недоступна она ровно пока копия не готова — восстановить
+                    из наполовину склонированного тома значит затереть диск
+                    ВМ мусором. */}
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => handleRestoreBackup(b.name)}
+                  disabled={actionLoading !== null || !isDone(b)}
+                  title={isDone(b)
+                    ? 'Заменить диск ВМ содержимым этой копии'
+                    : isBusy(b)
+                      ? 'Копия ещё создаётся — восстановление будет доступно, когда она завершится'
+                      : `Копия не готова (${statusLabel(b)}) — восстанавливать из неё нельзя`}
+                  style={{ fontSize: '0.75rem', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <RotateCcw size={12} />
+                  {actionLoading === `restore-${b.name}` ? 'Восстановление...' : 'Восстановить'}
+                </button>
                 <button 
                   className="btn btn-danger btn-sm btn-icon-only"
                   onClick={() => handleDeleteBackup(b.name)}
