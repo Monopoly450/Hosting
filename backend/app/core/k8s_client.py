@@ -23,6 +23,7 @@ class K8sClient:
         self.load_config()
         self.core_api = client.CoreV1Api()
         self.custom_api = client.CustomObjectsApi()
+        self.storage_api = client.StorageV1Api()
         self.api_client = client.ApiClient()
 
     def load_config(self):
@@ -1309,32 +1310,107 @@ class K8sClient:
         for item in items:
             source_name = item.get("spec", {}).get("source", {}).get("name")
             if source_name == vm_name:
+                status = item.get("status", {})
+                # includedVolumes/excludedVolumes — самое важное поле снимка, и
+                # раньше панель его не читала вовсе.
+                #
+                # KubeVirt снимает ДВЕ вещи: описание ВМ и её диски. Если под
+                # класс хранения диска нет подходящего VolumeSnapshotClass, он
+                # не падает — он молча кладёт том в excludedVolumes и всё равно
+                # выставляет phase: Succeeded и readyToUse: true. Панель
+                # показывала «Готов», откат отрабатывал без ошибок, и он
+                # действительно возвращал описание ВМ. Но диск оставался
+                # нетронутым: установленное после снимка приложение никуда не
+                # девалось. Пользователь при этом уверен, что точка отката у
+                # него есть, — а её нет.
+                volumes = status.get("snapshotVolumes") or {}
+                included = volumes.get("includedVolumes") or []
+                excluded = volumes.get("excludedVolumes") or []
                 filtered.append({
                     "name": item.get("metadata", {}).get("name"),
                     "creation_time": item.get("metadata", {}).get("creationTimestamp"),
-                    "phase": item.get("status", {}).get("phase", "Unknown"),
-                    "ready_to_use": item.get("status", {}).get("readyToUse", False)
+                    "phase": status.get("phase", "Unknown"),
+                    "ready_to_use": status.get("readyToUse", False),
+                    "included_volumes": included,
+                    "excluded_volumes": excluded,
+                    # Снимок без единого захваченного тома — пустышка: откатывать
+                    # им нечего. Поле считаем здесь, чтобы одинаково думали и
+                    # список, и проверка перед откатом.
+                    "has_disk": bool(included) and not excluded,
                 })
         return filtered
 
-    def volume_snapshot_classes(self):
-        """Классы снимков томов, установленные в кластере.
+    def storage_class_provisioner(self, name: str):
+        """Провизионер класса хранения (None, если класса нет)."""
+        if not name:
+            return None
+        try:
+            return self.storage_api.read_storage_class(name).provisioner
+        except ApiException as e:
+            if e.status == 404:
+                return None
+            raise
 
-        Снимок ВМ физически невозможен, если их нет ни одного: KubeVirt
-        создаёт под VirtualMachineSnapshot настоящий VolumeSnapshot, а тот
-        требует класса и CSI-драйвера, умеющего снимки. Дефолтный
-        local-path — не CSI-драйвер и снимки не умеет вовсе.
+    def vm_disk_storage_classes(self, vm_name: str, namespace: str = "default") -> list:
+        """Классы хранения, на которых лежат диски ВМ.
 
-        Пустой список возвращается и когда CRD не установлены (404) — для
-        вызывающей стороны это одно и то же: снимать нечем.
+        Берём с реальных PVC, а не из dataVolumeTemplates: шаблон говорит, что
+        просили при создании, а снимать придётся то, что получилось. Диск,
+        добавленный горячей заменой позже, в шаблоне не значится вовсе.
+        """
+        classes = []
+        try:
+            vm = self.custom_api.get_namespaced_custom_object(
+                "kubevirt.io", "v1", namespace, "virtualmachines", vm_name)
+        except ApiException:
+            return []
+        volumes = vm.get("spec", {}).get("template", {}).get("spec", {}).get("volumes", [])
+        names = [
+            v.get("dataVolume", {}).get("name") or v.get("persistentVolumeClaim", {}).get("claimName")
+            for v in volumes
+        ]
+        for pvc_name in [n for n in names if n]:
+            try:
+                pvc = self.core_api.read_namespaced_persistent_volume_claim(pvc_name, namespace)
+            except ApiException:
+                continue
+            sc = pvc.spec.storage_class_name
+            if sc and sc not in classes:
+                classes.append(sc)
+        return classes
+
+    def snapshot_support(self, vm_name: str, namespace: str = "default") -> dict:
+        """Можно ли физически снять снимок дисков этой ВМ.
+
+        Наличия хоть какого-нибудь VolumeSnapshotClass мало, а раньше
+        проверялось именно оно. Класс снимков привязан к CSI-драйверу: после
+        установки LVM в кластере появляется класс с driver
+        local.csi.openebs.io, и проверка «есть ли хоть один» проходит — при
+        том что диск ВМ остался на local-path с провизионером
+        rancher.io/local-path. Совпадения нет, том попадёт в excludedVolumes,
+        и снимок выйдет пустым, но «успешным».
         """
         try:
             res = self.custom_api.list_cluster_custom_object(
                 "snapshot.storage.k8s.io", "v1", "volumesnapshotclasses")
-            return [i.get("metadata", {}).get("name") for i in res.get("items", [])]
+            drivers = {i.get("driver") for i in res.get("items", [])}
         except Exception as e:
             logger.warning(f"Не удалось получить список VolumeSnapshotClass: {e}")
-            return []
+            drivers = set()
+
+        classes = self.vm_disk_storage_classes(vm_name, namespace)
+        unsupported = []
+        for sc in classes:
+            provisioner = self.storage_class_provisioner(sc)
+            if provisioner not in drivers:
+                unsupported.append({"storage_class": sc, "provisioner": provisioner})
+
+        return {
+            "supported": bool(classes) and not unsupported,
+            "storage_classes": classes,
+            "unsupported": unsupported,
+            "snapshot_drivers": sorted(d for d in drivers if d),
+        }
 
     def delete_vm_snapshot(self, snapshot_name: str, namespace: str = "default"):
         """Удаляет снимок виртуальной машины"""

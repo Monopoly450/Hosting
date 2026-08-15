@@ -1246,21 +1246,34 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                                     <td style={{ fontWeight: 'bold' }}>{s.name}</td>
                                     <td>{s.creation_time}</td>
                                     <td>
-                                        <span className={`status-badge ${s.phase === 'Succeeded' ? 'status-active' : s.phase === 'Failed' ? 'status-danger' : 'status-pending'}`}>
-                                            {s.phase === 'Succeeded' ? 'Готов' : s.phase === 'InProgress' ? 'Создается' : s.phase}
-                                        </span>
+                                        {/* «Готов» только если в снимке ЕСТЬ диск. KubeVirt ставит
+                                            Succeeded и тогда, когда снял одно описание ВМ, а том
+                                            положил в excludedVolumes: откат таким снимком проходит
+                                            без ошибок и ничего не меняет — приложение, поставленное
+                                            после снимка, остаётся на месте. */}
+                                        {s.phase === 'Succeeded' && s.has_disk === false ? (
+                                            <span className="status-badge status-danger" title={`Хранилище диска не умеет делать снимки, поэтому в снимок попал только конфиг ВМ${(s.excluded_volumes || []).length ? ` (не снято: ${s.excluded_volumes.join(', ')})` : ''}. Откатить им нельзя.`}>
+                                                Без диска
+                                            </span>
+                                        ) : (
+                                            <span className={`status-badge ${s.phase === 'Succeeded' ? 'status-active' : s.phase === 'Failed' ? 'status-danger' : 'status-pending'}`}>
+                                                {s.phase === 'Succeeded' ? 'Готов' : s.phase === 'InProgress' ? 'Создается' : s.phase}
+                                            </span>
+                                        )}
                                     </td>
                                     <td>
                                         <div style={{ display: 'flex', gap: '8px' }}>
                                             <button
                                                 className="btn btn-secondary btn-sm"
                                                 onClick={() => handleRestoreSnapshot(s.name)}
-                                                disabled={restoring !== null || s.phase !== 'Succeeded'}
-                                                title={s.phase !== 'Succeeded'
-                                                    ? 'Снимок ещё не готов'
-                                                    : vmStatus === 'Running'
-                                                        ? 'ВМ будет выключена на время отката и включена обратно'
-                                                        : 'Откатить состояние ВМ'}
+                                                disabled={restoring !== null || s.phase !== 'Succeeded' || s.has_disk === false}
+                                                title={s.has_disk === false
+                                                    ? 'В снимке нет диска — откатывать нечего'
+                                                    : s.phase !== 'Succeeded'
+                                                        ? 'Снимок ещё не готов'
+                                                        : vmStatus === 'Running'
+                                                            ? 'ВМ будет выключена на время отката и включена обратно'
+                                                            : 'Откатить состояние ВМ'}
                                             >
                                                 {restoring === s.name ? 'Откат...' : 'Откатить'}
                                             </button>

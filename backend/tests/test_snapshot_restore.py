@@ -144,3 +144,146 @@ def test_worker_runs_the_restart_daemon():
     src = _source("app", "worker.py")
     assert "def snapshot_restart_daemon" in src
     assert "target=snapshot_restart_daemon" in src
+
+
+class FakeStorageApi:
+    def __init__(self, provisioners):
+        self.provisioners = provisioners
+
+    def read_storage_class(self, name):
+        if name not in self.provisioners:
+            raise ApiException(status=404)
+        return type("SC", (), {"provisioner": self.provisioners[name]})()
+
+
+class FakeCoreApi:
+    def __init__(self, pvc_classes):
+        self.pvc_classes = pvc_classes
+
+    def read_namespaced_persistent_volume_claim(self, name, ns):
+        if name not in self.pvc_classes:
+            raise ApiException(status=404)
+        spec = type("Spec", (), {"storage_class_name": self.pvc_classes[name]})()
+        return type("PVC", (), {"spec": spec})()
+
+
+class SnapshotApi(FakeCustomApi):
+    """custom-objects API со снимками ВМ и классами снимков томов."""
+
+    def __init__(self, snapshots=(), drivers=(), vm_volumes=()):
+        super().__init__()
+        self.snapshots = list(snapshots)
+        self.drivers = list(drivers)
+        self.vm_volumes = list(vm_volumes)
+
+    def list_namespaced_custom_object(self, group, version, ns, plural):
+        if plural == "virtualmachinesnapshots":
+            return {"items": self.snapshots}
+        return {"items": []}
+
+    def list_cluster_custom_object(self, group, version, plural):
+        return {"items": [{"driver": d} for d in self.drivers]}
+
+    def get_namespaced_custom_object(self, group, version, ns, plural, name):
+        if plural == "virtualmachines":
+            return {"spec": {"template": {"spec": {"volumes": [
+                {"dataVolume": {"name": v}} for v in self.vm_volumes
+            ]}}}}
+        raise ApiException(status=404)
+
+
+def _snapshot(name, vm="vm1", included=(), excluded=()):
+    return {
+        "metadata": {"name": name, "creationTimestamp": "2026-08-15T12:03:05Z"},
+        "spec": {"source": {"name": vm}},
+        "status": {
+            "phase": "Succeeded",
+            "readyToUse": True,
+            "snapshotVolumes": {
+                "includedVolumes": list(included),
+                "excludedVolumes": list(excluded),
+            },
+        },
+    }
+
+
+def test_snapshot_without_the_disk_is_not_reported_as_ready():
+    """Самая дорогая из найденных ошибок: KubeVirt ставит Succeeded и
+    readyToUse даже когда снял ОДНО ОПИСАНИЕ ВМ, а том положил в
+    excludedVolumes — так бывает, когда под класс хранения диска нет
+    подходящего VolumeSnapshotClass. Панель показывала «Готов», откат
+    проходил без ошибок и возвращал конфиг ВМ, но не диск: приложение,
+    установленное после снимка, оставалось на месте. Пользователь при этом
+    уверен, что точка отката у него есть."""
+    api = SnapshotApi(snapshots=[
+        _snapshot("snap-empty", excluded=["vm1-disk"]),
+        _snapshot("snap-real", included=["vm1-disk"]),
+    ])
+    c = _client(api)
+    snaps = {s["name"]: s for s in c.list_vm_snapshots("vm1")}
+
+    assert snaps["snap-empty"]["has_disk"] is False
+    assert snaps["snap-empty"]["excluded_volumes"] == ["vm1-disk"]
+    # Фаза от KubeVirt приходит успешной — на неё и нельзя опираться.
+    assert snaps["snap-empty"]["phase"] == "Succeeded"
+    assert snaps["snap-real"]["has_disk"] is True
+
+
+def test_support_check_matches_the_driver_to_the_vm_disk():
+    """Наличия хоть какого-нибудь класса снимков мало, а проверялось именно
+    оно. После установки LVM в кластере появляется класс с driver
+    local.csi.openebs.io — проверка «есть хоть один» проходит, при том что
+    диск ВМ остался на local-path с провизионером rancher.io/local-path."""
+    api = SnapshotApi(drivers=["local.csi.openebs.io"], vm_volumes=["vm1-disk"])
+    c = _client(api)
+    c.core_api = FakeCoreApi({"vm1-disk": "local-path"})
+    c.storage_api = FakeStorageApi({"local-path": "rancher.io/local-path"})
+
+    support = c.snapshot_support("vm1")
+    assert support["supported"] is False
+    assert support["unsupported"] == [
+        {"storage_class": "local-path", "provisioner": "rancher.io/local-path"}
+    ]
+
+
+def test_support_check_passes_when_the_driver_matches():
+    api = SnapshotApi(drivers=["local.csi.openebs.io"], vm_volumes=["vm1-disk"])
+    c = _client(api)
+    c.core_api = FakeCoreApi({"vm1-disk": "openebs-lvm"})
+    c.storage_api = FakeStorageApi({"openebs-lvm": "local.csi.openebs.io"})
+
+    assert _client(api) is not None
+    support = c.snapshot_support("vm1")
+    assert support["supported"] is True
+    assert support["unsupported"] == []
+
+
+def test_disk_classes_come_from_real_pvcs_not_the_template():
+    """dataVolumeTemplates говорит, что просили при создании; снимать
+    придётся то, что получилось. Диск, добавленный горячей заменой позже, в
+    шаблоне не значится вовсе."""
+    api = SnapshotApi(vm_volumes=["vm1-disk", "vm1-extra"])
+    c = _client(api)
+    c.core_api = FakeCoreApi({"vm1-disk": "openebs-lvm", "vm1-extra": "local-path"})
+    c.storage_api = FakeStorageApi({})
+    assert c.vm_disk_storage_classes("vm1") == ["openebs-lvm", "local-path"]
+
+
+def test_rollback_from_an_empty_snapshot_is_refused():
+    """Откат таким снимком отрабатывает без ошибок и не меняет ничего —
+    выдавать это за откат нельзя."""
+    src = _source("app", "api", "snapshots.py")
+    restore = src[src.index("def restore_snapshot"):]
+    assert 'if not snap.get("has_disk", True):' in restore
+    assert "Откат невозможен" in restore
+    # Проверка должна стоять ДО остановки ВМ: иначе машину гасят зря.
+    assert restore.index("has_disk") < restore.index("client.stop_vm")
+
+
+def test_creation_names_the_actual_storage_class_in_the_error():
+    """«В кластере нет ни одного VolumeSnapshotClass» — не тот случай и не та
+    подсказка, когда класс есть, а диск лежит на чужом провизионере."""
+    src = _source("app", "api", "snapshots.py")
+    assert "client.snapshot_support(vm_name)" in src
+    assert "провизионер" in src
+    assert "пересоздайте ВМ" in src, "диск существующей машины на другой класс не переедет"

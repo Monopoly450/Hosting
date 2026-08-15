@@ -22,6 +22,11 @@ class SnapshotResponse(BaseModel):
     creation_time: str
     phase: str
     ready_to_use: bool
+    # Захвачен ли диск. KubeVirt считает снимок успешным и тогда, когда снял
+    # одно описание ВМ, а том положил в excludedVolumes — панель показывала
+    # такой снимок как «Готов», хотя откатывать им нечего.
+    has_disk: bool = True
+    excluded_volumes: List[str] = []
 
 @router.get("/{vm_name}", response_model=List[SnapshotResponse])
 def list_snapshots(vm_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
@@ -39,7 +44,9 @@ def list_snapshots(vm_name: str, client: K8sClient = Depends(get_k8s_client), cu
                 name=s["name"],
                 creation_time=time_str,
                 phase=s["phase"],
-                ready_to_use=s["ready_to_use"]
+                ready_to_use=s["ready_to_use"],
+                has_disk=s.get("has_disk", True),
+                excluded_volumes=s.get("excluded_volumes", []),
             ))
         return res
     except Exception as e:
@@ -75,20 +82,38 @@ def create_snapshot(vm_name: str, req: SnapshotCreateRequest, client: K8sClient 
     finally:
         db.close()
 
-    # Без класса снимков томов снимок не получится физически, и провал этот
-    # МОЛЧАЛИВЫЙ: объект VirtualMachineSnapshot создастся, панель покажет
-    # «создаётся», а readyToUse не станет true никогда — KubeVirt не из чего
-    # сделать настоящий VolumeSnapshot. Именно так это и выглядело: «снимки
-    # не создаются». Отказываем сразу и объясняем, что делать.
-    if not client.volume_snapshot_classes():
-        raise HTTPException(
-            status_code=400,
-            detail="Снимки недоступны: в кластере нет ни одного VolumeSnapshotClass. "
-                   "Хранилище по умолчанию (local-path) снимки не поддерживает — "
-                   "это не CSI-драйвер. Установите блочное хранилище LVM: "
-                   "sudo bash scripts/install-openebs-lvm.sh, затем создавайте "
-                   "диски ВМ на классе openebs-lvm."
-        )
+    # Проверяем не «есть ли в кластере хоть какой-нибудь класс снимков», а
+    # найдётся ли класс под провизионер диска ИМЕННО ЭТОЙ ВМ.
+    #
+    # Разница не теоретическая, на неё и напоролись. После установки LVM в
+    # кластере появляется VolumeSnapshotClass с driver local.csi.openebs.io,
+    # и проверка «есть хоть один» проходит. Но диск ВМ, созданной раньше,
+    # остался на local-path с провизионером rancher.io/local-path. Совпадения
+    # нет — KubeVirt не падает, а молча кладёт том в excludedVolumes и всё
+    # равно ставит снимку phase: Succeeded. Панель показывает «Готов», откат
+    # проходит без ошибок и возвращает описание ВМ, а диск не трогает:
+    # установленное после снимка приложение остаётся на месте. Пользователь
+    # при этом уверен, что точка отката у него есть.
+    support = client.snapshot_support(vm_name)
+    if not support["supported"]:
+        if not support["storage_classes"]:
+            detail = ("Снимки недоступны: не удалось определить класс хранения дисков этой ВМ.")
+        else:
+            bad = ", ".join(
+                f"{u['storage_class']} (провизионер {u['provisioner'] or 'неизвестен'})"
+                for u in support["unsupported"]
+            )
+            drivers = ", ".join(support["snapshot_drivers"]) or "нет ни одного"
+            detail = (
+                f"Снимки недоступны: диск этой ВМ лежит на {bad}, а снимки умеют "
+                f"делать только драйверы, для которых в кластере есть "
+                f"VolumeSnapshotClass ({drivers}). "
+                "Снимок создался бы «успешным», но без диска — откатить им ничего нельзя. "
+                "Установите блочное хранилище LVM: sudo bash scripts/install-openebs-lvm.sh, "
+                "укажите в .env STORAGE_CLASS=openebs-lvm и пересоздайте ВМ — "
+                "диск уже существующей машины на другой класс не переедет."
+            )
+        raise HTTPException(status_code=400, detail=detail)
 
     try:
         client.create_vm_snapshot(vm_name, full_snapshot_name)
@@ -115,6 +140,26 @@ def delete_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depend
 @router.post("/{vm_name}/{snapshot_name}/restore")
 def restore_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(vm_name, current_user)
+
+    # Откат снимком без диска не возвращает ничего заметного: KubeVirt честно
+    # применит описание ВМ, ответит успехом — и на этом всё. Именно так и
+    # выглядело «сделал откат, а приложение осталось». Лучше отказать, чем
+    # выдать за откат то, что им не является.
+    try:
+        snap = next(s for s in client.list_vm_snapshots(vm_name) if s["name"] == snapshot_name)
+    except StopIteration:
+        raise HTTPException(status_code=404, detail="Снимок не найден")
+    if not snap.get("has_disk", True):
+        excluded = ", ".join(snap.get("excluded_volumes") or []) or "диск"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Откат невозможен: в этом снимке нет диска ({excluded} не попал в снимок). "
+                "Снят только конфиг ВМ — хранилище её диска не умеет делать снимки, "
+                "поэтому откат вернул бы описание машины, но не её содержимое. "
+                "Такой снимок можно только удалить."
+            ),
+        )
 
     # KubeVirt требует, чтобы ВМ была выключена: пока жив VirtualMachineInstance,
     # он отклонит VirtualMachineRestore. Раньше панель просто отдавала 400

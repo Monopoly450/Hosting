@@ -68,7 +68,11 @@ def test_backup_timestamp_parsing():
 
 def test_snapshot_creation_refuses_without_a_volume_snapshot_class():
     """Отказ сразу и с объяснением лучше объекта, который навсегда зависнет
-    в Pending: пользователь иначе ждёт снимок, которого не будет."""
+    в Pending: пользователь иначе ждёт снимок, которого не будет.
+
+    Проверка с тех пор стала строже — сверяется драйвер класса снимков с
+    провизионером диска именно этой ВМ, а не «есть ли в кластере хоть один
+    класс». Слабой версии хватало, чтобы пропустить снимок без диска."""
     import os
     path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -76,7 +80,7 @@ def test_snapshot_creation_refuses_without_a_volume_snapshot_class():
     with open(path, encoding="utf-8") as f:
         src = f.read()
 
-    assert "volume_snapshot_classes()" in src
+    assert "client.snapshot_support(vm_name)" in src
     # Сообщение обязано называть причину и путь решения, а не просто «ошибка».
     assert "local-path" in src and "install-openebs-lvm.sh" in src
 
