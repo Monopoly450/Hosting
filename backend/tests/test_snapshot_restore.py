@@ -348,8 +348,12 @@ def test_ready_snapshot_reports_full_progress_without_extra_calls():
     опрашивается циклически, и лишний запрос на каждый снимок в каждом тике
     ощутимо дороже одной проверки флага."""
     class NoContent(ProgressApi):
-        def get_namespaced_custom_object(self, *a, **kw):
-            raise AssertionError("готовый снимок не должен ходить за контентом")
+        def get_namespaced_custom_object(self, group, version, ns, plural, name):
+            # Только за контентом: состав томов ВМ читается один раз на весь
+            # список и к прогрессу отношения не имеет.
+            if plural == "virtualmachinesnapshotcontents":
+                raise AssertionError("готовый снимок не должен ходить за контентом")
+            return super().get_namespaced_custom_object(group, version, ns, plural, name)
 
     api = NoContent(snapshots=[_snapshot("snap-done", included=["a"])])
     snap = _client(api).list_vm_snapshots("vm1")[0]
@@ -418,3 +422,101 @@ def test_warning_style_exists_for_things_that_are_not_broken():
         css = f.read()
     assert ".alert-warning {" in css
     assert '[data-theme="dark"] .alert-warning' in css, "в тёмной теме текст утонет в фоне"
+
+
+class VmVolumesApi(ProgressApi):
+    """Снимки + состав томов ВМ (нужен, чтобы отличать cloud-init от диска)."""
+
+    def __init__(self, snapshots=(), volumes=()):
+        super().__init__(snapshots=snapshots)
+        self.volumes = list(volumes)
+
+    def get_namespaced_custom_object(self, group, version, ns, plural, name):
+        if plural == "virtualmachines":
+            return {"spec": {"template": {"spec": {"volumes": self.volumes}}}}
+        return super().get_namespaced_custom_object(group, version, ns, plural, name)
+
+
+VM_VOLUMES = [
+    {"name": "datavolumedisk", "dataVolume": {"name": "gbgb-disk"}},
+    {"name": "cloudinitdisk", "cloudInitNoCloud": {"userData": "#cloud-config"}},
+]
+
+
+def test_cloud_init_being_excluded_does_not_condemn_the_snapshot():
+    """Проверка «исключён хоть один том — значит снимок пустой» ломала
+    исправные снимки. У каждой ВМ этой панели есть cloudinitdisk — том
+    cloudInitNoCloud, а не PVC, — и KubeVirt исключает его ВСЕГДА, снимать
+    там нечего. Полностью рабочий снимок диска на openebs-lvm из-за этого
+    помечался «Без диска», и откатить им было нельзя."""
+    api = VmVolumesApi(
+        snapshots=[_snapshot("snap-ok", included=["datavolumedisk"], excluded=["cloudinitdisk"])],
+        volumes=VM_VOLUMES,
+    )
+    snap = _client(api).list_vm_snapshots("vm1")[0]
+    assert snap["has_disk"] is True
+    assert snap["missing_volumes"] == []
+
+
+def test_a_real_disk_left_out_is_still_reported():
+    """А вот исключённый том, за которым стоит настоящий диск, — как раз то,
+    ради чего проверка и заводилась."""
+    api = VmVolumesApi(
+        snapshots=[_snapshot("snap-bad", included=[], excluded=["datavolumedisk", "cloudinitdisk"])],
+        volumes=VM_VOLUMES,
+    )
+    snap = _client(api).list_vm_snapshots("vm1")[0]
+    assert snap["has_disk"] is False
+    assert snap["missing_volumes"] == ["datavolumedisk"]
+
+
+def test_unknown_vm_layout_falls_back_to_suspecting_everything():
+    """Машину могли уже удалить. Выдумывать в этом случае нельзя — считаем
+    любой исключённый том подозрительным, как было до появления проверки."""
+    class NoVm(VmVolumesApi):
+        def get_namespaced_custom_object(self, group, version, ns, plural, name):
+            if plural == "virtualmachines":
+                raise ApiException(status=404)
+            return super().get_namespaced_custom_object(group, version, ns, plural, name)
+
+    api = NoVm(snapshots=[_snapshot("s", included=["d"], excluded=["cloudinitdisk"])])
+    snap = _client(api).list_vm_snapshots("vm1")[0]
+    assert snap["has_disk"] is False
+
+
+def test_backup_clone_carries_the_modes_of_the_source_disk():
+    """Без явных accessModes/volumeMode CDI идёт за ними в StorageProfile, а у
+    openebs-lvm он пустой — бэкап вставал намертво:
+
+        ErrClaimNotValid: no accessMode specified in StorageProfile openebs-lvm
+
+    Снаружи это «копия создалась и вечно висит в неизвестном состоянии».
+    Режимы обязаны совпадать с исходником ещё и потому, что клон между Block
+    и Filesystem CDI не делает."""
+    from app.core.k8s_client import _clone_target_modes
+
+    spec = type("Spec", (), {"access_modes": ["ReadWriteOnce"], "volume_mode": "Block"})()
+    pvc = type("PVC", (), {"spec": spec})()
+    assert _clone_target_modes(pvc) == {"accessModes": ["ReadWriteOnce"], "volumeMode": "Block"}
+
+    # Исходник ничего не сообщил — пусть решает CDI, это лучше, чем наугад.
+    bare = type("PVC", (), {"spec": type("Spec", (), {"access_modes": None, "volume_mode": None})()})()
+    assert _clone_target_modes(bare) == {}
+
+
+def test_both_clone_paths_set_the_modes():
+    """Восстановление удаляет старый диск ВМ ПЕРЕД созданием нового. Встать с
+    ErrClaimNotValid на этом месте — значит остаться без диска вообще."""
+    src = _source("app", "core", "k8s_client.py")
+    assert src.count("**_clone_target_modes(") == 2
+
+
+def test_installer_fills_the_storage_profile():
+    """CDI заполняет StorageProfile сам только для классов, которые знает в
+    лицо; для openebs-lvm он остаётся пустым."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "scripts", "install-openebs-lvm.sh"), encoding="utf-8") as f:
+        sh = f.read()
+    assert "kubectl patch storageprofile openebs-lvm" in sh
+    assert '"volumeMode": "Block"' in sh, "LVM отдаёт сырое блочное устройство"
+    assert "|| log" in sh, "падение патча не должно ронять установку под set -e"

@@ -1280,7 +1280,7 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                                             без ошибок и ничего не меняет — приложение, поставленное
                                             после снимка, остаётся на месте. */}
                                         {s.phase === 'Succeeded' && s.has_disk === false ? (
-                                            <span className="status-badge status-danger" title={`Хранилище диска не умеет делать снимки, поэтому в снимок попал только конфиг ВМ${(s.excluded_volumes || []).length ? ` (не снято: ${s.excluded_volumes.join(', ')})` : ''}. Откатить им нельзя.`}>
+                                            <span className="status-badge status-danger" title={`Хранилище диска не умеет делать снимки, поэтому в снимок попал только конфиг ВМ${(s.missing_volumes || []).length ? ` (не снято: ${s.missing_volumes.join(', ')})` : ''}. Откатить им нельзя.`}>
                                                 Без диска
                                             </span>
                                         ) : (

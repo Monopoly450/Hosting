@@ -18,6 +18,23 @@ DB_PVC_SIZE_GB = 5
 
 db_metrics_cache = {}
 
+def _clone_target_modes(source_pvc) -> dict:
+    """accessModes/volumeMode для копии — ровно как у исходного тома.
+
+    Пустой словарь, если исходник их не сообщил: тогда пусть CDI решает сам,
+    это всё равно лучше, чем подставить наугад несовпадающий режим.
+    """
+    modes = {}
+    spec = getattr(source_pvc, "spec", None)
+    access = getattr(spec, "access_modes", None) if spec else None
+    volume_mode = getattr(spec, "volume_mode", None) if spec else None
+    if access:
+        modes["accessModes"] = list(access)
+    if volume_mode:
+        modes["volumeMode"] = volume_mode
+    return modes
+
+
 class K8sClient:
     def __init__(self):
         self.load_config()
@@ -566,6 +583,22 @@ class K8sClient:
                     },
                     "storage": {
                         "storageClassName": settings.STORAGE_CLASS,
+                        # accessModes и volumeMode берём с исходного диска, а не
+                        # оставляем CDI догадываться. Без них он идёт за ними в
+                        # StorageProfile класса хранения, и на openebs-lvm
+                        # спотыкался намертво:
+                        #
+                        #   ErrClaimNotValid: no accessMode specified in
+                        #   StorageProfile openebs-lvm
+                        #
+                        # Профиль заполняется автоматически только для классов,
+                        # которые CDI знает; для openebs-lvm он пустой. Бэкап
+                        # при этом создавался объектом и вечно висел в Unknown.
+                        #
+                        # Копия обязана повторять исходник ещё и потому, что
+                        # клон между Block и Filesystem CDI не делает: диск ВМ
+                        # на LVM — блочный, и копия должна быть блочной.
+                        **_clone_target_modes(orig_pvc),
                         "resources": {
                             "requests": {
                                 "storage": storage_size
@@ -741,6 +774,11 @@ class K8sClient:
                     },
                     "storage": {
                         "storageClassName": settings.STORAGE_CLASS,
+                        # Та же причина, что и при создании копии: без явных
+                        # режимов CDI идёт в StorageProfile, а у openebs-lvm он
+                        # пуст — восстановление встало бы с ErrClaimNotValid,
+                        # уже удалив старый диск ВМ.
+                        **_clone_target_modes(backup_pvc),
                         "resources": {
                             "requests": {
                                 "storage": backup_size
@@ -1324,12 +1362,34 @@ class K8sClient:
             "snapshot.kubevirt.io", "v1beta1", namespace, "virtualmachinesnapshots", body
         )
 
+    def persistent_volume_names(self, vm_name: str, namespace: str = "default") -> set:
+        """Имена томов ВМ, за которыми стоит настоящий диск (PVC/DataVolume).
+
+        Нужны, чтобы отличать нормально исключённые тома от потерянных. У
+        любой ВМ этой панели есть cloudinitdisk — том cloudInitNoCloud, а не
+        PVC, и KubeVirt кладёт его в excludedVolumes ВСЕГДА, потому что
+        снимать там нечего. Так же ведут себя containerDisk и подключённые
+        ConfigMap.
+        """
+        try:
+            vm = self.custom_api.get_namespaced_custom_object(
+                "kubevirt.io", "v1", namespace, "virtualmachines", vm_name)
+        except ApiException:
+            return set()
+        volumes = vm.get("spec", {}).get("template", {}).get("spec", {}).get("volumes", [])
+        return {
+            v.get("name") for v in volumes
+            if (v.get("dataVolume") or v.get("persistentVolumeClaim")) and v.get("name")
+        }
+
     def list_vm_snapshots(self, vm_name: str, namespace: str = "default"):
         """Возвращает список снимков для определенной виртуальной машины"""
         res = self.custom_api.list_namespaced_custom_object(
             "snapshot.kubevirt.io", "v1beta1", namespace, "virtualmachinesnapshots"
         )
         items = res.get("items", [])
+        # Один запрос на весь список, а не на каждый снимок.
+        persistent = self.persistent_volume_names(vm_name, namespace)
         # Фильтруем те, у которых source.name == vm_name
         filtered = []
         for item in items:
@@ -1351,6 +1411,10 @@ class K8sClient:
                 volumes = status.get("snapshotVolumes") or {}
                 included = volumes.get("includedVolumes") or []
                 excluded = volumes.get("excludedVolumes") or []
+                # Если состав томов ВМ прочитать не удалось (машину уже
+                # удалили), не выдумываем: любой исключённый том считаем
+                # подозрительным, как было раньше.
+                missing = [v for v in excluded if not persistent or v in persistent]
                 progress = self._snapshot_progress(status, len(included), namespace)
                 filtered.append({
                     "name": item.get("metadata", {}).get("name"),
@@ -1359,10 +1423,20 @@ class K8sClient:
                     "ready_to_use": status.get("readyToUse", False),
                     "included_volumes": included,
                     "excluded_volumes": excluded,
-                    # Снимок без единого захваченного тома — пустышка: откатывать
-                    # им нечего. Поле считаем здесь, чтобы одинаково думали и
-                    # список, и проверка перед откатом.
-                    "has_disk": bool(included) and not excluded,
+                    # Снимок без единого захваченного тома — пустышка:
+                    # откатывать им нечего. Поле считаем здесь, чтобы
+                    # одинаково думали и список, и проверка перед откатом.
+                    #
+                    # Считать признаком беды ЛЮБОЙ excludedVolumes было
+                    # нельзя, и это ломало исправные снимки: у каждой ВМ
+                    # панели есть cloudinitdisk — том cloudInitNoCloud, не
+                    # PVC, — и KubeVirt исключает его всегда, снимать там
+                    # нечего. Полностью рабочий снимок диска на openebs-lvm
+                    # из-за этого помечался «Без диска», и откатить им было
+                    # нельзя. Тревожит только исключённый том, за которым
+                    # стоит настоящий диск.
+                    "has_disk": bool(included) and not missing,
+                    "missing_volumes": missing,
                     "error": (status.get("error") or {}).get("message"),
                     **progress,
                 })

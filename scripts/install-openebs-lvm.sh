@@ -159,6 +159,26 @@ driver: local.csi.openebs.io
 deletionPolicy: Delete
 EOF
 
+# 5. Профиль хранилища для CDI.
+#
+# CDI заполняет StorageProfile сам только для классов, которые знает в лицо.
+# Для openebs-lvm профиль остаётся пустым, и любой DataVolume без явных
+# accessModes/volumeMode встаёт намертво:
+#
+#   ErrClaimNotValid: no accessMode specified in StorageProfile openebs-lvm
+#
+# Внешне это выглядит как «бэкап создался и вечно висит в неизвестном
+# состоянии». Панель с тех пор проставляет режимы явно (см. k8s_client),
+# но профиль всё равно нужен: по нему CDI решает и за нас, и за всех
+# остальных, кто создаёт тома на этом классе.
+#
+# Block — потому что LVM отдаёт сырое блочное устройство, и диски ВМ панель
+# создаёт блочными. Клон между Block и Filesystem CDI не делает.
+log "Настройка StorageProfile для openebs-lvm..."
+kubectl patch storageprofile openebs-lvm --type=merge -p \
+  '{"spec": {"claimPropertySets": [{"accessModes": ["ReadWriteOnce"], "volumeMode": "Block"}]}}' \
+  || log "StorageProfile openebs-lvm ещё не создан CDI — панель задаёт режимы явно, это не помешает."
+
 log "=========================================================="
 log "Установка завершена! Блочное хранилище 'openebs-lvm' готово."
 log "Снимки виртуальных машин также готовы к работе."

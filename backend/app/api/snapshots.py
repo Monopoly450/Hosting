@@ -27,6 +27,10 @@ class SnapshotResponse(BaseModel):
     # такой снимок как «Готов», хотя откатывать им нечего.
     has_disk: bool = True
     excluded_volumes: List[str] = []
+    # Только те исключённые тома, за которыми стоял настоящий диск.
+    # excluded_volumes сам по себе ни о чём не говорит: cloudinitdisk есть у
+    # каждой ВМ и исключается всегда.
+    missing_volumes: List[str] = []
     # Ход создания. Процент у снимка грубый — по числу снятых томов, потому
     # что тонкого KubeVirt не считает (см. K8sClient._snapshot_progress).
     progress_percent: Optional[int] = None
@@ -102,6 +106,7 @@ def list_snapshots(vm_name: str, client: K8sClient = Depends(get_k8s_client), cu
                 ready_to_use=s["ready_to_use"],
                 has_disk=s.get("has_disk", True),
                 excluded_volumes=s.get("excluded_volumes", []),
+                missing_volumes=s.get("missing_volumes", []),
                 progress_percent=s.get("progress_percent"),
                 volumes_ready=s.get("volumes_ready", 0),
                 volumes_total=s.get("volumes_total", 0),
@@ -193,7 +198,7 @@ def restore_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depen
     except StopIteration:
         raise HTTPException(status_code=404, detail="Снимок не найден")
     if not snap.get("has_disk", True):
-        excluded = ", ".join(snap.get("excluded_volumes") or []) or "диск"
+        excluded = ", ".join(snap.get("missing_volumes") or snap.get("excluded_volumes") or []) or "диск"
         raise HTTPException(
             status_code=400,
             detail=(
