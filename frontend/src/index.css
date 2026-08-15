@@ -97,6 +97,30 @@
   --transition-normal: 150ms ease;
   --transition-slow: 200ms ease;
   --ease-spring: ease-out;
+
+  /* Раскладка.
+
+     --sidebar-width переопределяет SidebarResizer прямо на <html>, поэтому
+     значение здесь — только стартовое (и оно же остаётся, если пользователь
+     панель ни разу не тянул). Границы, между которыми её можно тащить,
+     заданы там же в JS: держать их ещё и здесь — верный способ развести
+     две копии одного числа.
+
+     --content-max: широкие мониторы раньше не использовались вовсе — контент
+     упирался в 1440px и висел узкой колонкой посреди 2560px экрана, а поля
+     по краям были шире самой боковой панели. 2040 покрывает 27" 1440p почти
+     целиком; на сверхшироком 3440 поля остаются намеренно — строка таблицы
+     в три тысячи пикселей нечитаема, глазу негде зацепиться при возврате.
+
+     --content-pad общий у шапки и у контента: они выровнены по левому краю,
+     и разъехались бы при первой же правке одного из двух чисел. */
+  --sidebar-width: 280px;
+  --content-max: 2040px;
+  --content-pad: 28px;
+}
+
+@media (min-width: 1600px) {
+  :root { --content-pad: 40px; }
 }
 
 * {
@@ -141,10 +165,12 @@ body {
 
 /* Sidebar */
 .sidebar {
-  /* 280px, как в мобильной версии ниже: на 240px длинные пункты («Двухфакторная
-     защита», «Бэкапы по расписанию», «Серверы и Инстансы») ломались на две
-     строки, из-за чего высота пунктов в меню плясала. */
-  width: 280px;
+  /* Стартовые 280px: на 240px длинные пункты («Двухфакторная защита»,
+     «Бэкапы по расписанию», «Серверы и Инстансы») ломались на две строки, и
+     высота пунктов в меню плясала. Ширину тянет SidebarResizer; ниже этого
+     порога он не пускает, а пункты меню теперь ещё и не переносятся. */
+  width: var(--sidebar-width);
+  position: relative;
   background: var(--sidebar-bg);
   border-radius: 0;
   border: none;
@@ -218,8 +244,51 @@ body {
   background: transparent;
   text-align: left;
   position: relative;
+  /* Панель теперь тянется, и на узких ширинах длинные пункты переносились на
+     вторую строку — меню начинало «дышать» под курсором. Пусть лучше край
+     подписи уходит под границу: высота строки остаётся одной и той же. */
+  white-space: nowrap;
+  overflow: hidden;
   transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
 }
+
+/* Ручка перетаскивания на правой кромке панели. Внутри .sidebar, а не за её
+   краем: у панели overflow: hidden, и вынесенный наружу элемент был бы срезан. */
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: col-resize;
+  z-index: 5;
+  /* Без этого браузер на тач-экране считает движение по ручке прокруткой и
+     pointermove до нас не доходит. */
+  touch-action: none;
+}
+.sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 2px;
+  background: var(--accent-primary);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after,
+body.resizing-sidebar .sidebar-resizer::after { opacity: 1; }
+.sidebar-resizer:focus { outline: none; }
+
+/* Пока тянут — курсор col-resize над всей страницей и никакого выделения
+   текста: иначе протаскивание по контенту выделяет его синим. */
+body.resizing-sidebar { user-select: none; -webkit-user-select: none; }
+body.resizing-sidebar * { cursor: col-resize !important; }
 
 .nav-item svg { transition: none; flex-shrink: 0; color: var(--sidebar-text); opacity: 0.85; }
 .nav-item:hover {
@@ -266,12 +335,26 @@ body {
   border-radius: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 32px;
+  justify-content: center;
+  padding: 0;
   position: sticky;
   top: 0;
   z-index: 50;
   box-shadow: none;
+}
+
+/* Подложка шапки тянется во всю ширину (полоса под ней должна доходить до
+   краёв), а её содержимое — нет: заголовок стоял у самого края экрана, тогда
+   как контент под ним начинался с середины. На 2560px они расходились на
+   сотни пикселей и не читались как одна страница. */
+.top-header-inner {
+  width: 100%;
+  max-width: var(--content-max);
+  padding: 0 var(--content-pad);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .header-title {
@@ -290,8 +373,8 @@ body {
 }
 
 .content-container {
-  padding: 24px 28px 40px;
-  max-width: 1440px;
+  padding: 24px var(--content-pad) 40px;
+  max-width: var(--content-max);
   margin: 0 auto;
   width: 100%;
 }
@@ -1287,8 +1370,13 @@ font { background-color: transparent !important; }
   .btn-menu:hover { background-color: var(--bg-surface-hover); }
   /* min-height, а не height: иначе это правило перебило бы защиту от сжатия
      из базового блока .top-header и на мобильном шапка снова уезжала бы. */
-  .top-header { padding: 0 12px; min-height: 70px; border-radius: var(--radius-md); }
-  .content-container { padding: 14px 10px 32px; }
+  .top-header { min-height: 70px; border-radius: var(--radius-md); }
+  .content-container { padding-top: 14px; padding-bottom: 32px; }
+  /* Одно число на шапку и контент — они выровнены по левому краю. */
+  :root { --content-pad: 10px; }
+  /* Панель здесь — выезжающая шторка поверх контента, её ширину задаёт не
+     пользователь: тянуть край шторки некуда, и ручка убрана. */
+  .sidebar-resizer { display: none; }
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr !important; gap: 16px !important; }
   .table-responsive { overflow-x: auto; width: 100%; margin-bottom: 16px; }
   .slide-over-content { width: 100% !important; max-width: 100% !important; border-radius: 0 !important; }

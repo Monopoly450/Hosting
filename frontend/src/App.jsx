@@ -30,6 +30,7 @@ import VolumesPanel from './components/VolumesPanel';
 import MailPanel from './components/MailPanel';
 import CustomSelect from './components/CustomSelect';
 import Portal from './components/Portal';
+import SidebarResizer from './components/SidebarResizer';
 
 const OS_VERSIONS = {
   ubuntu: [
@@ -638,6 +639,7 @@ const App = () => {
 
       {/* Left Sidebar */}
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
+        <SidebarResizer />
         <div className="sidebar-logo">
           <Layers className="logo-icon" size={26} strokeWidth={2.5} />
           <span className="logo-text">ByteBurners</span>
@@ -911,6 +913,10 @@ const App = () => {
       {/* Main Area */}
       <div className="main-area">
         <header className="top-header">
+          {/* Обёртка нужна, чтобы содержимое шапки встало по той же сетке,
+              что и контент под ней: подложка тянется во всю ширину, а
+              заголовок с кнопками — только до --content-max. */}
+          <div className="top-header-inner">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {selectedVMDetailName ? (
               <button 
@@ -937,6 +943,7 @@ const App = () => {
             >
               {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
+          </div>
           </div>
         </header>
 

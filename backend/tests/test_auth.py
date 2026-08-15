@@ -295,3 +295,102 @@ def test_modals_render_outside_the_app_shell():
         css = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
     m = re.search(r"\.main-area:has\(([^)]*)\)", css)
     assert m and "modal-overlay" not in m.group(1)
+
+
+def _frontend(*parts):
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "frontend", "src", *parts), encoding="utf-8") as f:
+        return f.read()
+
+
+def _without_comments(css):
+    import re
+    return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+
+def test_content_is_not_capped_at_a_1440px_column():
+    """Потолок 1440px писался под ноутбук. На 2560px мониторе контент вставал
+    узкой колонкой посередине, а поля по краям выходили шире самой боковой
+    панели — замерено: 4 карточки ВМ в ряду вместо 5, которые туда влезают."""
+    css = _without_comments(_frontend("index.css"))
+
+    block = css[css.index(".content-container {"):]
+    block = block[:block.index("}")]
+    assert "max-width: var(--content-max)" in block, "ширина контента снова прибита числом"
+    assert "1440px" not in block
+
+    root = css[css.index(":root {"):]
+    root = root[:root.index("}")]
+    assert "--content-max" in root
+
+
+def test_header_and_content_share_one_left_edge():
+    """Подложка шапки тянется во всю ширину, а её содержимое — нет: иначе на
+    широком мониторе заголовок стоял у самого края экрана, тогда как контент
+    под ним начинался с середины, и страница переставала читаться как целое.
+    Отступ у обоих один и тот же — двумя числами он бы разошёлся."""
+    css = _without_comments(_frontend("index.css"))
+    src = _frontend("App.jsx")
+
+    assert 'className="top-header-inner"' in src, "содержимому шапки нечем держать сетку"
+
+    inner = css[css.index(".top-header-inner {"):]
+    inner = inner[:inner.index("}")]
+    assert "max-width: var(--content-max)" in inner
+    assert "padding: 0 var(--content-pad)" in inner
+
+    content = css[css.index(".content-container {"):]
+    content = content[:content.index("}")]
+    assert "var(--content-pad)" in content, "отступы шапки и контента разъедутся"
+
+
+def test_sidebar_width_comes_from_a_variable():
+    """Ширину панели тянет пользователь, и записать её в .sidebar числом
+    значит потерять перетаскивание. Мобильный блок переменную намеренно
+    игнорирует: там панель — выезжающая шторка, её ширину задаёт не он."""
+    css = _without_comments(_frontend("index.css"))
+    import re
+
+    block = css[css.index(".sidebar {"):]
+    block = block[:block.index("}")]
+    assert "width: var(--sidebar-width)" in block
+    assert "position: relative" in block, "ручке не от чего позиционироваться"
+
+    mobile = css[css.index("@media (max-width: 768px)"):]
+    assert re.search(r"\.sidebar-resizer \{ display: none", mobile), \
+        "у шторки нет края, который можно тянуть — ручку там надо прятать"
+
+
+def test_drag_state_cannot_outlive_the_handle():
+    """Класс resizing-sidebar вешается на body и гасит выделение текста на
+    всей странице. Если ручку размонтируют посреди перетаскивания — а это
+    происходит при переходе на мобильную ширину, — снять класс станет
+    некому, и страница останется с курсором col-resize навсегда."""
+    src = _frontend("components", "SidebarResizer.jsx")
+    assert "useEffect(() => stopDrag" in src, "нет уборки при размонтировании"
+    assert "document.body.classList.remove('resizing-sidebar')" in src
+
+
+def test_sidebar_width_is_clamped_and_persisted():
+    """Без нижней границы панель утягивается в полоску, где не прочитать ни
+    одного пункта; без верхней — съедает контент. Порог снизу замерен по
+    самым длинным пунктам меню, а не выбран на глаз."""
+    src = _frontend("components", "SidebarResizer.jsx")
+    assert "export const MIN_WIDTH = 252" in src
+    assert "Math.min(MAX_WIDTH, Math.max(MIN_WIDTH" in src
+    # Запись — в конце перетаскивания, а не на каждый pointermove: иначе за
+    # одно движение мыши в хранилище улетают сотни записей.
+    assert "writeWidth(safeStorage(), widthRef.current)" in src
+    move = src[src.index("const onPointerMove"):src.index("const onPointerUp")]
+    assert "writeWidth" not in move
+
+
+def test_menu_items_never_wrap_to_a_second_line():
+    """Панель тянется, и на узких ширинах длинные пункты («Двухфакторная
+    защита», «Бэкапы по расписанию») переносились на вторую строку — высота
+    строк меню менялась прямо под курсором."""
+    css = _without_comments(_frontend("index.css"))
+    block = css[css.index(".nav-item {"):]
+    block = block[:block.index("}")]
+    assert "white-space: nowrap" in block
