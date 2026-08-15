@@ -34,6 +34,55 @@ class SnapshotResponse(BaseModel):
     volumes_total: int = 0
     error: Optional[str] = None
 
+def _unsupported_reason(support: dict) -> str:
+    """Почему снимки этой ВМ невозможны — одним текстом.
+
+    Один и тот же текст нужен и отказу при создании, и предупреждению в
+    панели. Держать две формулировки — верный способ, чтобы они разошлись.
+    """
+    if not support["storage_classes"]:
+        return "Не удалось определить класс хранения дисков этой ВМ."
+    bad = ", ".join(
+        f"{u['storage_class']} (провизионер {u['provisioner'] or 'неизвестен'})"
+        for u in support["unsupported"]
+    )
+    drivers = ", ".join(support["snapshot_drivers"]) or "нет ни одного"
+    return (
+        f"Диск этой ВМ лежит на {bad}, а снимки умеют делать только драйверы, "
+        f"для которых в кластере есть VolumeSnapshotClass ({drivers}). "
+        "Снимок создастся «успешным», но без диска — откатить им ничего нельзя. "
+        "Установите блочное хранилище LVM: sudo bash scripts/install-openebs-lvm.sh, "
+        "укажите в .env STORAGE_CLASS=openebs-lvm и пересоздайте ВМ — "
+        "диск уже существующей машины на другой класс не переедет."
+    )
+
+
+@router.get("/{vm_name}/support")
+def snapshot_support(vm_name: str, client: K8sClient = Depends(get_k8s_client),
+                     current_user: User = Depends(get_current_user)):
+    """Можно ли вообще снимать снимки с дисков этой ВМ.
+
+    Панель спрашивает это ДО того, как пользователь нажмёт «Создать снимок».
+    Без этого он видел ноль процентов, который не двигается (двигаться ему
+    нечем — тома в снимке нет), а через минуту вместо результата получал
+    «Без диска». Причину надо называть заранее, а не показывать полосу,
+    которая заведомо не дойдёт до конца.
+    """
+    check_vm_ownership(vm_name, current_user)
+    try:
+        support = client.snapshot_support(vm_name)
+    except Exception as e:
+        logger.error(f"Error checking snapshot support for {vm_name}: {e}")
+        # Панель не должна ломаться из-за диагностики: не смогли проверить —
+        # значит не мешаем, отказ при создании всё равно сработает.
+        return {"supported": True, "reason": None}
+    return {
+        "supported": support["supported"],
+        "reason": None if support["supported"] else _unsupported_reason(support),
+        "storage_classes": support["storage_classes"],
+    }
+
+
 @router.get("/{vm_name}", response_model=List[SnapshotResponse])
 def list_snapshots(vm_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(vm_name, current_user)
@@ -106,24 +155,7 @@ def create_snapshot(vm_name: str, req: SnapshotCreateRequest, client: K8sClient 
     # при этом уверен, что точка отката у него есть.
     support = client.snapshot_support(vm_name)
     if not support["supported"]:
-        if not support["storage_classes"]:
-            detail = ("Снимки недоступны: не удалось определить класс хранения дисков этой ВМ.")
-        else:
-            bad = ", ".join(
-                f"{u['storage_class']} (провизионер {u['provisioner'] or 'неизвестен'})"
-                for u in support["unsupported"]
-            )
-            drivers = ", ".join(support["snapshot_drivers"]) or "нет ни одного"
-            detail = (
-                f"Снимки недоступны: диск этой ВМ лежит на {bad}, а снимки умеют "
-                f"делать только драйверы, для которых в кластере есть "
-                f"VolumeSnapshotClass ({drivers}). "
-                "Снимок создался бы «успешным», но без диска — откатить им ничего нельзя. "
-                "Установите блочное хранилище LVM: sudo bash scripts/install-openebs-lvm.sh, "
-                "укажите в .env STORAGE_CLASS=openebs-lvm и пересоздайте ВМ — "
-                "диск уже существующей машины на другой класс не переедет."
-            )
-        raise HTTPException(status_code=400, detail=detail)
+        raise HTTPException(status_code=400, detail="Снимки недоступны: " + _unsupported_reason(support))
 
     try:
         client.create_vm_snapshot(vm_name, full_snapshot_name)

@@ -369,3 +369,52 @@ def test_backup_progress_bar_shows_before_cdi_reports_a_number():
     assert "{isBusy(b) && (" in src
     # Ноль означал бы «посчитано и ничего не сделано» — это не то же самое.
     assert "'идёт…'" in src
+
+
+def test_backup_surfaces_why_it_is_stuck():
+    """Сама фаза не объясняет ничего: «Unknown» одинаково выглядит и у копии,
+    созданной секунду назад, и у той, которой некуда лечь. Причину CDI пишет
+    в conditions — «no persistent volumes available for this claim» и
+    подобное. Без неё пользователю остаётся гадать, ждать или чинить."""
+    stuck = {"conditions": [
+        {"type": "Bound", "status": "False",
+         "message": "no persistent volumes available for this claim"},
+        {"type": "Ready", "status": "False", "reason": "Pending"},
+    ]}
+    assert K8sClient._datavolume_detail(stuck) == \
+        "no persistent volumes available for this claim"
+
+    # Условие в порядке ничего не объясняет — показывать его незачем.
+    healthy = {"conditions": [{"type": "Bound", "status": "True", "message": "claim bound"}]}
+    assert K8sClient._datavolume_detail(healthy) is None
+    assert K8sClient._datavolume_detail({}) is None
+
+
+def test_panel_is_told_about_broken_snapshots_before_creating_one():
+    """Пользователь видел ноль процентов, которому нечем двигаться — тома в
+    снимке нет, — а через минуту вместо результата получал «Без диска».
+    Причину надо называть заранее, а не показывать полосу, которая заведомо
+    не дойдёт до конца."""
+    src = _source("app", "api", "snapshots.py")
+    assert '@router.get("/{vm_name}/support")' in src
+    # Один и тот же текст у отказа и у предупреждения: две формулировки
+    # неизбежно разойдутся.
+    assert src.count("_unsupported_reason(support)") == 2
+
+
+def test_support_check_failure_does_not_block_the_panel():
+    """Диагностика не должна мешать работать: не смогли проверить — не
+    запрещаем, отказ при создании всё равно сработает."""
+    src = _source("app", "api", "snapshots.py")
+    block = src[src.index("def snapshot_support("):src.index('@router.get("/{vm_name}", response_model')]
+    assert '{"supported": True, "reason": None}' in block
+
+
+def test_warning_style_exists_for_things_that_are_not_broken():
+    """Набор alert обрывался на info, и такие места красили в danger — то есть
+    выдавали за поломку то, что ею не является."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "frontend", "src", "index.css"), encoding="utf-8") as f:
+        css = f.read()
+    assert ".alert-warning {" in css
+    assert '[data-theme="dark"] .alert-warning' in css, "в тёмной теме текст утонет в фоне"

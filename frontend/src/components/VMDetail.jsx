@@ -1094,6 +1094,9 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
     const [snapshots, setSnapshots] = useState([]);
     const [restoring, setRestoring] = useState(null);
+    /* null = ещё не спросили. Пока не знаем — не мешаем: запрет должен
+       появляться по факту, а не по умолчанию. */
+    const [support, setSupport] = useState(null);
     const [loading, setLoading] = useState(true);
     const [snapName, setSnapName] = useState('');
     const [creating, setCreating] = useState(false);
@@ -1122,6 +1125,18 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
 
     useEffect(() => {
         fetchSnapshots();
+    }, [vmName]);
+
+    /* Спрашиваем ДО того, как пользователь нажмёт «Создать снимок». Иначе он
+       видел ноль процентов, которому нечем двигаться — тома в снимке нет, —
+       а через минуту вместо результата получал «Без диска». */
+    useEffect(() => {
+        let alive = true;
+        fetch(`/api/snapshots/${vmName}/support`, getHeaders())
+            .then(r => (r.ok ? r.json() : null))
+            .then(d => { if (alive && d) setSupport(d); })
+            .catch(() => {});
+        return () => { alive = false; };
     }, [vmName]);
 
     const handleCreateSnapshot = async (e) => {
@@ -1212,17 +1227,30 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                 </div>
             </div>
 
+            {support && support.supported === false && (
+                <div className="alert alert-warning" style={{ marginBottom: '16px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                    <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                        <div style={{ fontWeight: 600, marginBottom: '4px' }}>Снимки этой ВМ работать не будут</div>
+                        <div style={{ fontSize: '0.85rem', lineHeight: 1.5 }}>{support.reason}</div>
+                    </div>
+                </div>
+            )}
+
             <form onSubmit={handleCreateSnapshot} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-                <input 
-                    type="text" 
-                    className="form-control" 
-                    placeholder="Название снимка (например, pre-install)" 
+                <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Название снимка (например, pre-install)"
                     value={snapName}
                     onChange={e => setSnapName(e.target.value)}
                     required
+                    disabled={support ? support.supported === false : false}
                     style={{ flex: 1 }}
                 />
-                <button type="submit" className="btn btn-primary" disabled={creating}>
+                <button type="submit" className="btn btn-primary"
+                        disabled={creating || (support ? support.supported === false : false)}
+                        title={support && support.supported === false ? support.reason : undefined}>
                     {creating ? 'Создание...' : 'Создать снимок'}
                 </button>
             </form>

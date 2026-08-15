@@ -604,23 +604,48 @@ class K8sClient:
                 backup_name = dv["metadata"]["name"]
                 
                 # Статус клонирования
-                status = dv.get("status", {}).get("phase", "Unknown")
-                progress = dv.get("status", {}).get("progress", "N/A")
-                
+                dv_status = dv.get("status", {})
+                status = dv_status.get("phase", "Unknown")
+                progress = dv_status.get("progress", "N/A")
+
                 size = dv.get("spec", {}).get("storage", {}).get("resources", {}).get("requests", {}).get("storage", "N/A")
                 created_at = dv["metadata"].get("creationTimestamp")
-                
+
                 backups.append({
                     "name": backup_name,
                     "size": size,
                     "status": status,
                     "progress": progress,
-                    "created_at": created_at
+                    "created_at": created_at,
+                    # Причина застревания. Сама фаза объясняет ровно ничего:
+                    # «Unknown» одинаково выглядит и у копии, созданной секунду
+                    # назад, и у той, которой некуда лечь. А CDI пишет причину
+                    # в conditions — там и «no persistent volumes available for
+                    # this claim», и отсутствие места, и не найденный источник.
+                    # Без неё пользователь видит красную надпись и не понимает,
+                    # ждать ему или чинить.
+                    "detail": self._datavolume_detail(dv_status),
                 })
             return backups
         except Exception as e:
             logger.error(f"Ошибка получения бэкапов для VM {name}: {e}")
             raise e
+
+    @staticmethod
+    def _datavolume_detail(dv_status: dict):
+        """Человекочитаемая причина из conditions DataVolume.
+
+        Берём первое условие, которое НЕ в порядке: Bound=False говорит, что
+        том не выделен, Running=False с reason — что клонирование не идёт.
+        Условие в порядке ничего не объясняет, и показывать его незачем.
+        """
+        for cond in dv_status.get("conditions") or []:
+            if cond.get("status") == "True":
+                continue
+            message = cond.get("message") or cond.get("reason")
+            if message:
+                return message
+        return None
 
     def delete_vm_backup(self, backup_name: str, namespace="default"):
         """Удаляет резервную копию (DataVolume и PVC)"""

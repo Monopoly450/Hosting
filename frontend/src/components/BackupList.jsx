@@ -209,10 +209,21 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                   {/* Статус словами. Без него у незавершённой копии просто нет
                       кнопки «Восстановить», и непонятно, ждать её или это
                       уже отказ. */}
-                  <span style={{ color: isDone(b) ? 'var(--status-success)' : isBusy(b) ? 'var(--text-muted)' : 'var(--status-danger)' }}>
+                  <span style={{ color: isDone(b) ? 'var(--status-success)' : isBusy(b) ? 'var(--text-muted)' : 'var(--status-danger)' }}
+                        title={b.detail || undefined}>
                     {statusLabel(b)}
                   </span>
                 </div>
+                {/* Причина, по которой копия встала. Сама фаза не объясняет
+                    ничего: «Состояние неизвестно» одинаково выглядит и у копии,
+                    созданной секунду назад, и у той, которой некуда лечь. CDI
+                    пишет причину в conditions — её и показываем, иначе
+                    пользователю остаётся гадать, ждать или чинить. */}
+                {b.detail && !isDone(b) && (
+                  <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                    {b.detail}
+                  </div>
+                )}
                 {/* Полоса нужна на всём времени копирования, а не только
                     когда CDI уже посчитал процент. Условие progress !== 'N/A'
                     прятало её целиком в самом начале — ровно тогда, когда

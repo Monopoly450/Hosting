@@ -819,6 +819,11 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
 .alert-danger { background: var(--status-danger-bg); color: var(--status-danger); border-color: rgba(244, 63, 94, 0.2); }
 .alert-success { background: var(--status-success-bg); color: var(--status-success); border-color: rgba(16, 185, 129, 0.2); }
 .alert-info { background: var(--status-info-bg); color: var(--status-info); border-color: rgba(59, 130, 246, 0.2); }
+/* Предупреждение — не ошибка: «так делать можно, но результат будет не тот».
+   Раньше набор обрывался на info, и такие места приходилось красить в
+   danger, то есть выдавать за поломку то, что ею не является. */
+.alert-warning { background: var(--status-warning-bg); color: #92400E; border-color: rgba(245, 158, 11, 0.25); }
+[data-theme="dark"] .alert-warning { color: var(--status-warning); }
 
 /* =========================== Progress =========================== */
 .progress-track {
