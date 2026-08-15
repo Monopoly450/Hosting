@@ -551,7 +551,9 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
       {activeTab === 'snapshots' && (
         <div className="glass-card">
-          <VMSnapshotsList vmName={vmName} vmStatus={vm.status} />
+          {/* onVmChanged: откат гасит ВМ, и карточка выше должна
+              перестать показывать её запущенной. */}
+          <VMSnapshotsList vmName={vmName} vmStatus={vm.status} onVmChanged={fetchVmDetails} />
         </div>
       )}
 
@@ -1089,8 +1091,9 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   );
 };
 
-function VMSnapshotsList({ vmName, vmStatus }) {
+function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
     const [snapshots, setSnapshots] = useState([]);
+    const [restoring, setRestoring] = useState(null);
     const [loading, setLoading] = useState(true);
     const [snapName, setSnapName] = useState('');
     const [creating, setCreating] = useState(false);
@@ -1167,21 +1170,36 @@ function VMSnapshotsList({ vmName, vmStatus }) {
     };
 
     const handleRestoreSnapshot = async (snapshotName) => {
-        if (!confirm(`Восстановить виртуальную машину из снимка ${snapshotName}? Все текущие данные будут утеряны.`)) return;
+        /* Раньше кнопка была просто недоступна у запущенной ВМ с подсказкой
+           «остановите ВМ». Гасить машину панель умеет и делает это сама при
+           восстановлении из бэкапа — перекладывать тот же шаг на пользователя
+           смысла не было. */
+        let msg = `Откатить виртуальную машину на снимок ${snapshotName}? Все изменения, сделанные после снимка, будут потеряны.`;
+        if (vmStatus === 'Running') {
+            msg += `\n\nВМ будет выключена на время отката и включена обратно, когда он завершится.`;
+        }
+        if (!confirm(msg)) return;
+        setRestoring(snapshotName);
         try {
             const res = await fetch(`/api/snapshots/${vmName}/${snapshotName}/restore`, {
                 method: 'POST',
                 headers: getHeaders().headers
             });
             if (res.ok) {
-                alert('Запрос на восстановление отправлен.');
+                const data = await res.json().catch(() => ({}));
+                alert(data.will_restart
+                    ? 'Откат запущен. ВМ выключена и включится сама, когда откат завершится.'
+                    : 'Откат запущен.');
                 fetchSnapshots();
+                if (onVmChanged) onVmChanged();
             } else {
                 const errData = await res.json();
                 alert(errData.detail || 'Ошибка восстановления снимка');
             }
         } catch (err) {
             alert(`Ошибка: ${err.message}`);
+        } finally {
+            setRestoring(null);
         }
     };
 
@@ -1234,13 +1252,17 @@ function VMSnapshotsList({ vmName, vmStatus }) {
                                     </td>
                                     <td>
                                         <div style={{ display: 'flex', gap: '8px' }}>
-                                            <button 
-                                                className="btn btn-secondary btn-sm" 
+                                            <button
+                                                className="btn btn-secondary btn-sm"
                                                 onClick={() => handleRestoreSnapshot(s.name)}
-                                                disabled={vmStatus === 'Running' || s.phase !== 'Succeeded'}
-                                                title={vmStatus === 'Running' ? 'Остановите ВМ перед восстановлением' : 'Откатить состояние ВМ'}
+                                                disabled={restoring !== null || s.phase !== 'Succeeded'}
+                                                title={s.phase !== 'Succeeded'
+                                                    ? 'Снимок ещё не готов'
+                                                    : vmStatus === 'Running'
+                                                        ? 'ВМ будет выключена на время отката и включена обратно'
+                                                        : 'Откатить состояние ВМ'}
                                             >
-                                                Откатить
+                                                {restoring === s.name ? 'Откат...' : 'Откатить'}
                                             </button>
                                             <button 
                                                 className="btn btn-danger btn-sm" 

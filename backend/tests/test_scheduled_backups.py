@@ -152,3 +152,13 @@ def test_backup_size_is_human_readable():
     src = _backup_list_jsx()
     assert "formatSize" in src
     assert "{formatSize(b.size)}" in src
+
+
+def test_backup_block_is_not_smaller_than_everything_around_it():
+    """Строка была 0.8rem против 0.9rem в соседних таблицах, а окно списка —
+    250px, в которые помещались две копии из десяти. Список бэкапов читают
+    так же, как таблицу снимков рядом, а не как подпись под графиком."""
+    src = _backup_list_jsx()
+    assert "maxHeight: '250px'" not in src
+    assert "maxHeight: '460px'" in src
+    assert "fontSize: '0.8rem'\n" not in src

@@ -1342,16 +1342,46 @@ class K8sClient:
             "snapshot.kubevirt.io", "v1beta1", namespace, "virtualmachinesnapshots", snapshot_name
         )
 
-    def restore_vm_snapshot(self, vm_name: str, snapshot_name: str, namespace: str = "default"):
+    # Аннотация, по которой воркер узнаёт, что ВМ гасили только ради отката и
+    # её надо поднять обратно. Живёт на самом объекте VirtualMachineRestore, а
+    # не в памяти процесса: откат идёт минутами, за это время панель успевает
+    # перезапуститься, и намерение пользователя потеряется вместе с ней.
+    RESTART_AFTER_RESTORE = "hosting.antigravity.io/restart-after-restore"
+
+    def wait_for_vm_stopped(self, vm_name: str, namespace: str = "default",
+                            timeout: float = 120.0, interval: float = 2.0) -> bool:
+        """Ждёт, пока ВМ действительно погаснет.
+
+        Не декоративная задержка: KubeVirt отклоняет VirtualMachineRestore, пока
+        VirtualMachineInstance ещё существует. Между stop_vm() и исчезновением
+        VMI проходит время выключения гостя — на Linux с диском на HDD это
+        десятки секунд, и фиксированный sleep тут либо слишком короткий, либо
+        зря держит запрос.
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                self.custom_api.get_namespaced_custom_object(
+                    "kubevirt.io", "v1", namespace, "virtualmachineinstances", vm_name
+                )
+            except ApiException as e:
+                if e.status == 404:
+                    return True
+                raise
+            time.sleep(interval)
+        return False
+
+    def restore_vm_snapshot(self, vm_name: str, snapshot_name: str, namespace: str = "default",
+                            restart_after: bool = False):
         """Восстанавливает виртуальную машину из снимка (ВМ должна быть выключена)"""
         # Имя ретора должно быть уникальным
-        import time
         restore_name = f"restore-{snapshot_name}-{int(time.time())}"
         body = {
             "apiVersion": "snapshot.kubevirt.io/v1beta1",
             "kind": "VirtualMachineRestore",
             "metadata": {
-                "name": restore_name
+                "name": restore_name,
+                "annotations": {self.RESTART_AFTER_RESTORE: "true"} if restart_after else {},
             },
             "spec": {
                 "target": {
@@ -1364,6 +1394,43 @@ class K8sClient:
         }
         return self.custom_api.create_namespaced_custom_object(
             "snapshot.kubevirt.io", "v1beta1", namespace, "virtualmachinerestores", body
+        )
+
+    def restores_awaiting_start(self, namespace: str = "default") -> list:
+        """Завершённые откаты, после которых ВМ надо поднять обратно."""
+        try:
+            restores = self.custom_api.list_namespaced_custom_object(
+                "snapshot.kubevirt.io", "v1beta1", namespace, "virtualmachinerestores"
+            )
+        except ApiException as e:
+            # 404 — CRD отката в кластере нет вовсе (снимки не установлены).
+            # Это не ошибка воркера, ему просто нечего делать.
+            if e.status == 404:
+                return []
+            raise
+        ready = []
+        for r in restores.get("items", []):
+            meta = r.get("metadata", {})
+            if (meta.get("annotations") or {}).get(self.RESTART_AFTER_RESTORE) != "true":
+                continue
+            if not r.get("status", {}).get("complete"):
+                continue
+            ready.append({
+                "restore": meta.get("name"),
+                "vm": r.get("spec", {}).get("target", {}).get("name"),
+            })
+        return ready
+
+    def clear_restart_after_restore(self, restore_name: str, namespace: str = "default"):
+        """Снимает пометку, чтобы ВМ не поднимали второй раз.
+
+        null в merge-patch удаляет ключ. Если оставить аннотацию, следующий же
+        тик воркера снова вызовет start_vm — и ВМ, которую пользователь после
+        отката осознанно выключил, будет включаться сама раз в минуту.
+        """
+        return self.custom_api.patch_namespaced_custom_object(
+            "snapshot.kubevirt.io", "v1beta1", namespace, "virtualmachinerestores", restore_name,
+            {"metadata": {"annotations": {self.RESTART_AFTER_RESTORE: None}}},
         )
 
     def create_private_db(self, db_name: str, engine: str, db_user: str, db_password: str, vm_name: str = None, namespace: str = "default"):

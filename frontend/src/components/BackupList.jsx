@@ -151,7 +151,7 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
           {actionLoading === 'create' ? (
             <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px', borderColor: '#000' }} />
           ) : (
-            <Plus size={12} />
+            <Plus size={14} />
           )}
           Создать копию
         </button>
@@ -162,11 +162,15 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
           <div className="spinner"></div>
         </div>
       ) : backups.length === 0 ? (
-        <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: '15px', border: '1px dashed var(--border-color)', borderRadius: 'var(--radius-md)' }}>
+        <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem', padding: '28px', border: '1px dashed var(--border-default)', borderRadius: 'var(--radius-md)' }}>
           Нет сохраненных резервных копий.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
+        /* Блок был заметно мельче всего вокруг: строка 0.8rem против 0.9rem
+           в таблицах, и окно на 250px, в котором помещались две копии из
+           десяти. Список бэкапов — не подпись под графиком, читать его
+           приходится так же, как таблицу снимков рядом. */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '460px', overflowY: 'auto', paddingRight: '4px' }}>
           {backups.map((b) => (
             <div 
               key={b.name}
@@ -174,14 +178,14 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                padding: '10px 14px',
+                padding: '14px 18px',
                 borderRadius: 'var(--radius-md)',
                 /* Было rgba(0,0,0,0.2) — заливка чёрным поверх фона. В тёмной
                    теме сходило за подложку, а в светлой давало ровно ту серую
                    плашку, на которой не читались ни текст, ни кнопки. */
                 background: 'var(--bg-surface-hover)',
                 border: '1px solid var(--border-default)',
-                fontSize: '0.8rem'
+                fontSize: '0.9rem'
               }}
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -189,12 +193,12 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                   {getStatusIcon(b)}
                   <span>{b.name}</span>
                 </div>
-                <div style={{ display: 'flex', gap: '15px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                <div style={{ display: 'flex', gap: '16px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Calendar size={12} /> {formatTime(b.created_at)}
+                    <Calendar size={14} /> {formatTime(b.created_at)}
                   </span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <HardDrive size={12} /> {formatSize(b.size)}
+                    <HardDrive size={14} /> {formatSize(b.size)}
                   </span>
                   {/* Статус словами. Без него у незавершённой копии просто нет
                       кнопки «Восстановить», и непонятно, ждать её или это
@@ -209,10 +213,10 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                     {/* .progress-bar-bg/.progress-bar-fill в CSS нет —
                         полоса прогресса не рисовалась вовсе. Классы
                         дизайн-системы: .progress-track/.progress-fill. */}
-                    <div className="progress-track" style={{ height: '3px', width: '80px' }}>
+                    <div className="progress-track" style={{ height: '4px', width: '110px' }}>
                       <div className="progress-fill primary" style={{ width: b.progress }} />
                     </div>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 600 }}>{b.progress}</span>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--accent-primary)', fontWeight: 600 }}>{b.progress}</span>
                   </div>
                 )}
               </div>
@@ -233,18 +237,18 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                     : isBusy(b)
                       ? 'Копия ещё создаётся — восстановление будет доступно, когда она завершится'
                       : `Копия не готова (${statusLabel(b)}) — восстанавливать из неё нельзя`}
-                  style={{ fontSize: '0.75rem', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  style={{ fontSize: '0.82rem', padding: '7px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
                 >
-                  <RotateCcw size={12} />
+                  <RotateCcw size={14} />
                   {actionLoading === `restore-${b.name}` ? 'Восстановление...' : 'Восстановить'}
                 </button>
                 <button 
                   className="btn btn-danger btn-sm btn-icon-only"
                   onClick={() => handleDeleteBackup(b.name)}
                   disabled={actionLoading !== null}
-                  style={{ padding: '6px' }}
+                  style={{ padding: '8px' }}
                 >
-                  <Trash2 size={12} />
+                  <Trash2 size={14} />
                 </button>
               </div>
             </div>

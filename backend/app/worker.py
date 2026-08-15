@@ -549,6 +549,38 @@ def domains_autoverify_daemon():
         time.sleep(60)
 
 
+def snapshot_restart_daemon():
+    """Поднимает ВМ обратно после того, как откат на снимок завершился.
+
+    Откат требует выключенной ВМ, и панель гасит её сама (см. api/snapshots.py).
+    Включить её в том же запросе нельзя: VirtualMachineRestore идёт минутами, а
+    запущенная посреди отката ВМ его сломает. Поэтому запрос только помечает
+    объект отката аннотацией, а поднимает машину этот цикл — по факту
+    status.complete. Пометка живёт на объекте в кластере, поэтому переживает
+    перезапуск панели: иначе ВМ так и осталась бы выключенной, и выглядело бы
+    это как «откат погасил машину и бросил».
+    """
+    logger.info("Starting snapshot restart daemon thread...")
+    while True:
+        try:
+            for item in k8s.restores_awaiting_start():
+                vm_name = item.get("vm")
+                if not vm_name:
+                    continue
+                logger.info(f"Откат {item['restore']} завершён — включаю ВМ {vm_name}")
+                try:
+                    k8s.start_vm(vm_name)
+                except Exception as e:
+                    logger.error(f"Не удалось включить ВМ {vm_name} после отката: {e}")
+                    continue
+                # Снимаем пометку только после успешного старта: иначе сбой
+                # запуска означал бы, что ВМ никто больше не поднимет.
+                k8s.clear_restart_after_restore(item["restore"])
+        except Exception as e:
+            logger.error(f"Error in snapshot restart daemon loop: {e}")
+        time.sleep(20)
+
+
 def main():
     logger.info("Starting worker...")
 
@@ -585,6 +617,10 @@ def main():
     # Доперепроверка доменов: DNS расходится не мгновенно
     domains_thread = threading.Thread(target=domains_autoverify_daemon, daemon=True)
     domains_thread.start()
+
+    # Возврат ВМ в рабочее состояние после отката на снимок
+    snapshot_thread = threading.Thread(target=snapshot_restart_daemon, daemon=True)
+    snapshot_thread.start()
 
     while True:
         try:

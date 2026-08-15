@@ -115,23 +115,54 @@ def delete_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depend
 @router.post("/{vm_name}/{snapshot_name}/restore")
 def restore_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(vm_name, current_user)
-    
-    # Перед восстановлением проверим, выключена ли виртуальная машина
+
+    # KubeVirt требует, чтобы ВМ была выключена: пока жив VirtualMachineInstance,
+    # он отклонит VirtualMachineRestore. Раньше панель просто отдавала 400
+    # «остановите ВМ» и перекладывала это на пользователя — при том что кнопка
+    # отката всё равно перезагружает машину, и остановить её панель умеет сама.
+    # Ровно так же уже устроено восстановление из бэкапа.
+    was_running = False
     try:
         vm = client.get_vm(vm_name)
-        if vm.get("status") == "Running":
-            raise HTTPException(
-                status_code=400,
-                detail="Виртуальная машина должна быть остановлена перед восстановлением из снимка."
-            )
-    except HTTPException:
-        raise
+        was_running = vm.get("status") == "Running"
     except Exception as e:
+        # Статус не прочитался — откат всё равно пробуем. Если ВМ на самом деле
+        # запущена, откажет уже KubeVirt, и это попадёт в ответ ниже.
         logger.warning(f"Could not verify VM status: {e}")
 
+    if was_running:
+        logger.info(f"Авто-остановка ВМ {vm_name} перед откатом на снимок {snapshot_name}")
+        try:
+            client.stop_vm(vm_name)
+        except Exception as e:
+            logger.error(f"Не удалось остановить ВМ {vm_name} перед откатом: {e}")
+            raise HTTPException(status_code=500, detail=f"Не удалось остановить ВМ перед откатом: {e}")
+        if not client.wait_for_vm_stopped(vm_name):
+            # Гость не погасился за отведённое время. Создавать откат сейчас
+            # бессмысленно — KubeVirt его отклонит, а ВМ останется выключенной
+            # без объяснений.
+            raise HTTPException(
+                status_code=409,
+                detail="ВМ не успела выключиться за 2 минуты. Она остановлена — повторите откат.",
+            )
+
     try:
-        client.restore_vm_snapshot(vm_name, snapshot_name)
-        return {"status": "VM restore request sent successfully"}
+        # restart_after: ВМ гасили только ради отката, и поднять её обратно —
+        # обязанность панели. Откат идёт минутами, поэтому включает её воркер
+        # по завершении (см. snapshot_restart_daemon), а не этот запрос.
+        client.restore_vm_snapshot(vm_name, snapshot_name, restart_after=was_running)
+        return {
+            "status": "VM restore request sent successfully",
+            "vm_stopped": was_running,
+            "will_restart": was_running,
+        }
     except Exception as e:
         logger.error(f"Error restoring snapshot {snapshot_name}: {e}")
+        if was_running:
+            # Откат не создался, а ВМ уже выключена нами. Возвращаем как было:
+            # иначе пользователь получает ошибку И погашенную машину.
+            try:
+                client.start_vm(vm_name)
+            except Exception as start_err:
+                logger.error(f"ВМ {vm_name} осталась выключенной после неудачного отката: {start_err}")
         raise HTTPException(status_code=500, detail=f"Ошибка восстановления снимка в Kubernetes: {e}")
