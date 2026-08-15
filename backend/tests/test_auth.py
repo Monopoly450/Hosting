@@ -394,3 +394,38 @@ def test_menu_items_never_wrap_to_a_second_line():
     block = css[css.index(".nav-item {"):]
     block = block[:block.index("}")]
     assert "white-space: nowrap" in block
+
+
+def test_menu_items_are_not_squeezed_by_a_long_list():
+    """overflow у пункта меню и flex-shrink: 0 идут только в паре.
+    Автоматический минимальный размер flex-элемента (min-height: auto)
+    действует, пока overflow: visible; закрыли overflow — и колонка
+    .sidebar-nav получает право сжимать пункты, как только список перестаёт
+    влезать в высоту окна. Замерено: 40px → 26px на 1440x900, и тем сильнее,
+    чем ниже окно. Список должен прокручиваться, а не ужиматься."""
+    css = _without_comments(_frontend("index.css"))
+    block = css[css.index(".nav-item {"):]
+    block = block[:block.index("}")]
+    if "overflow:" in block and "overflow: visible" not in block:
+        assert "flex-shrink: 0" in block, "пункты меню снова будет сжимать длина списка"
+
+    nav = css[css.index(".sidebar-nav {"):]
+    nav = nav[:nav.index("}")]
+    assert "overflow-y: auto" in nav, "сжатие убрали, а прокрутки нет — список просто обрежется"
+
+
+def test_both_menu_lists_share_one_spacing():
+    """Нижний список («Сменить пароль», «Двухфакторная защита», «Выйти») держал
+    свой отступ в inline-стилях кнопок. Стоило поменять шаг верхнего — и в
+    одной колонке оказывались два разных ритма."""
+    css = _without_comments(_frontend("index.css"))
+    src = _frontend("App.jsx")
+
+    for rule in (".sidebar-nav {", ".sidebar-footer-nav {"):
+        block = css[css.index(rule):]
+        block = block[:block.index("}")]
+        assert "gap: var(--nav-gap)" in block, f"{rule} задаёт шаг своим числом"
+
+    tail = src[src.index('className="sidebar-footer-nav"'):]
+    tail = tail[:tail.index("</aside>")]
+    assert "marginBottom" not in tail, "отступ вернулся в inline-стиль кнопки"

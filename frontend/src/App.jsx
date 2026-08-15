@@ -883,30 +883,35 @@ const App = () => {
               <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>{username || 'Администратор'}</span>
             </div>
           </div>
-          <button
-            className="nav-item"
-            style={{ width: '100%', color: 'var(--text-secondary)', marginBottom: '4px' }}
-            onClick={() => setShowChangePasswordModal(true)}
-          >
-            <Key size={18} />
-            Сменить пароль
-          </button>
-          <button
-            className="nav-item"
-            style={{ width: '100%', color: 'var(--text-secondary)', marginBottom: '4px' }}
-            onClick={() => setShowTwoFactorModal(true)}
-          >
-            <ShieldCheck size={18} />
-            Двухфакторная защита
-          </button>
-          <button
-            className="nav-item"
-            style={{ width: '100%', color: 'var(--status-danger)' }}
-            onClick={handleLogout}
-          >
-            <LogOut size={18} />
-            Выйти
-          </button>
+          {/* Шаг задаёт .sidebar-footer-nav общим токеном. Раньше он жил в
+              marginBottom каждой кнопки, и стоило поменять отступ верхнего
+              списка — в одной колонке оказывались два разных ритма. */}
+          <div className="sidebar-footer-nav">
+            <button
+              className="nav-item"
+              style={{ width: '100%', color: 'var(--text-secondary)' }}
+              onClick={() => setShowChangePasswordModal(true)}
+            >
+              <Key size={18} />
+              Сменить пароль
+            </button>
+            <button
+              className="nav-item"
+              style={{ width: '100%', color: 'var(--text-secondary)' }}
+              onClick={() => setShowTwoFactorModal(true)}
+            >
+              <ShieldCheck size={18} />
+              Двухфакторная защита
+            </button>
+            <button
+              className="nav-item"
+              style={{ width: '100%', color: 'var(--status-danger)' }}
+              onClick={handleLogout}
+            >
+              <LogOut size={18} />
+              Выйти
+            </button>
+          </div>
         </div>
       </aside>
 

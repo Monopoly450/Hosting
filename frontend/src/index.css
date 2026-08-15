@@ -117,6 +117,11 @@
   --sidebar-width: 280px;
   --content-max: 2040px;
   --content-pad: 28px;
+  /* Расстояние между пунктами меню — одно на оба списка: верхний и нижний
+     («Сменить пароль», «Двухфакторная защита», «Выйти»). Нижний держал своё
+     число в inline-стилях кнопок, и при первой же правке верхнего списки
+     разъезжались: 8px против 4px в одной колонке. */
+  --nav-gap: 4px;
 }
 
 @media (min-width: 1600px) {
@@ -214,7 +219,7 @@ body {
 .sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--nav-gap);
   flex: 1;
   overflow-y: auto;
   margin-bottom: 16px;
@@ -229,6 +234,14 @@ body {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
 }
 .sidebar-nav::-webkit-scrollbar { width: 4px; }
+
+/* Нижний список панели. Отдельный контейнер, но шаг у него тот же — иначе в
+   одной колонке видно два разных ритма. */
+.sidebar-footer-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nav-gap);
+}
 
 .nav-item {
   display: flex;
@@ -249,6 +262,14 @@ body {
      подписи уходит под границу: высота строки остаётся одной и той же. */
   white-space: nowrap;
   overflow: hidden;
+  /* flex-shrink: 0 идёт В ПАРЕ с overflow выше и убирать его нельзя. У
+     flex-элемента автоматический минимальный размер (min-height: auto)
+     действует, только пока overflow: visible; стоит его закрыть — и
+     колонка .sidebar-nav получает право сжимать пункты, как только список
+     перестаёт влезать в высоту экрана. Замерено: 40px → 26px на 1440x900,
+     причём тем сильнее, чем ниже окно. Список должен прокручиваться
+     (overflow-y: auto у родителя уже есть), а не ужиматься. */
+  flex-shrink: 0;
   transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
 }
 
