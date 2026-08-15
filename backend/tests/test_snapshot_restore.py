@@ -287,3 +287,85 @@ def test_creation_names_the_actual_storage_class_in_the_error():
     assert "client.snapshot_support(vm_name)" in src
     assert "провизионер" in src
     assert "пересоздайте ВМ" in src, "диск существующей машины на другой класс не переедет"
+
+
+def _content(name, ready_flags):
+    return {"status": {"volumeSnapshotStatus": [
+        {"volumeSnapshotName": f"{name}-vol{i}", "readyToUse": r}
+        for i, r in enumerate(ready_flags)
+    ]}}
+
+
+class ProgressApi(SnapshotApi):
+    """Снимки вместе с их VirtualMachineSnapshotContent."""
+
+    def __init__(self, snapshots=(), contents=None):
+        super().__init__(snapshots=snapshots)
+        self.contents = contents or {}
+
+    def get_namespaced_custom_object(self, group, version, ns, plural, name):
+        if plural == "virtualmachinesnapshotcontents":
+            if name not in self.contents:
+                raise ApiException(status=404)
+            return self.contents[name]
+        return super().get_namespaced_custom_object(group, version, ns, plural, name)
+
+
+def _in_progress(name, included, content_name=None):
+    snap = _snapshot(name, included=included)
+    snap["status"]["phase"] = "InProgress"
+    snap["status"]["readyToUse"] = False
+    if content_name:
+        snap["status"]["virtualMachineSnapshotContentName"] = content_name
+    return snap
+
+
+def test_progress_counts_volumes_that_are_actually_ready():
+    """Тонкого процента у снимка ВМ нет: KubeVirt его не считает, а снимок
+    тома делается копированием при записи — промежуточным значениям взяться
+    неоткуда. Настоящая мера одна: сколько томов уже readyToUse."""
+    api = ProgressApi(
+        snapshots=[_in_progress("snap-multi", ["a", "b", "c"], content_name="c-multi")],
+        contents={"c-multi": _content("snap-multi", [True, True, False])},
+    )
+    snap = _client(api).list_vm_snapshots("vm1")[0]
+    assert snap["volumes_ready"] == 2
+    assert snap["volumes_total"] == 3
+    assert snap["progress_percent"] == 67
+
+
+def test_progress_is_zero_before_the_content_object_appears():
+    """KubeVirt только принял объект — считать ещё нечего, но строка уже
+    должна показывать, что дело пошло."""
+    api = ProgressApi(snapshots=[_in_progress("snap-new", ["a"])])
+    snap = _client(api).list_vm_snapshots("vm1")[0]
+    assert snap["progress_percent"] == 0
+    assert snap["volumes_ready"] == 0
+
+
+def test_ready_snapshot_reports_full_progress_without_extra_calls():
+    """У готового снимка контент запрашивать незачем — список снимков
+    опрашивается циклически, и лишний запрос на каждый снимок в каждом тике
+    ощутимо дороже одной проверки флага."""
+    class NoContent(ProgressApi):
+        def get_namespaced_custom_object(self, *a, **kw):
+            raise AssertionError("готовый снимок не должен ходить за контентом")
+
+    api = NoContent(snapshots=[_snapshot("snap-done", included=["a"])])
+    snap = _client(api).list_vm_snapshots("vm1")[0]
+    assert snap["progress_percent"] == 100
+    assert snap["volumes_ready"] == snap["volumes_total"] == 1
+
+
+def test_backup_progress_bar_shows_before_cdi_reports_a_number():
+    """Условие progress !== 'N/A' прятало полосу целиком в самом начале —
+    ровно тогда, когда смотришь, пошло ли дело: копия висела строкой без
+    единого признака движения."""
+    # Три уровня вверх: tests -> backend -> корень репозитория.
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "frontend", "src", "components", "BackupList.jsx"), encoding="utf-8") as f:
+        src = f.read()
+    assert "b.progress !== 'N/A' &&" not in src
+    assert "{isBusy(b) && (" in src
+    # Ноль означал бы «посчитано и ничего не сделано» — это не то же самое.
+    assert "'идёт…'" in src

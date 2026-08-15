@@ -1326,6 +1326,7 @@ class K8sClient:
                 volumes = status.get("snapshotVolumes") or {}
                 included = volumes.get("includedVolumes") or []
                 excluded = volumes.get("excludedVolumes") or []
+                progress = self._snapshot_progress(status, len(included), namespace)
                 filtered.append({
                     "name": item.get("metadata", {}).get("name"),
                     "creation_time": item.get("metadata", {}).get("creationTimestamp"),
@@ -1337,8 +1338,51 @@ class K8sClient:
                     # им нечего. Поле считаем здесь, чтобы одинаково думали и
                     # список, и проверка перед откатом.
                     "has_disk": bool(included) and not excluded,
+                    "error": (status.get("error") or {}).get("message"),
+                    **progress,
                 })
         return filtered
+
+    def _snapshot_progress(self, status: dict, included_count: int, namespace: str) -> dict:
+        """Готовность снимка в дисках: сколько томов снято из скольких.
+
+        Процента в привычном смысле у снимка ВМ нет и взяться ему неоткуда:
+        KubeVirt его не считает, а CSI-драйвер и подавно — снимок тома у LVM
+        делается копированием при записи, то есть почти мгновенно, и «45%»
+        там просто нечему соответствовать. В отличие от бэкапа, который
+        полностью копирует диск и честно отдаёт свой процент от CDI.
+
+        Единственная настоящая мера прогресса — сколько томов уже
+        readyToUse. Её печатает VirtualMachineSnapshotContent, по одной
+        записи на том. Для машины с единственным диском это 0% или 100%, и
+        это правда: промежуточных состояний у неё нет.
+        """
+        empty = {"volumes_ready": 0, "volumes_total": included_count, "progress_percent": None}
+        if status.get("readyToUse"):
+            return {"volumes_ready": included_count, "volumes_total": included_count,
+                    "progress_percent": 100}
+
+        content_name = status.get("virtualMachineSnapshotContentName")
+        if not content_name:
+            # Контента ещё нет — KubeVirt только принял объект.
+            return {**empty, "progress_percent": 0}
+        try:
+            content = self.custom_api.get_namespaced_custom_object(
+                "snapshot.kubevirt.io", "v1beta1", namespace,
+                "virtualmachinesnapshotcontents", content_name)
+        except ApiException as e:
+            if e.status == 404:
+                return {**empty, "progress_percent": 0}
+            raise
+
+        statuses = (content.get("status") or {}).get("volumeSnapshotStatus") or []
+        total = len(statuses) or included_count
+        ready = sum(1 for v in statuses if v.get("readyToUse"))
+        return {
+            "volumes_ready": ready,
+            "volumes_total": total,
+            "progress_percent": round(ready * 100 / total) if total else 0,
+        }
 
     def storage_class_provisioner(self, name: str):
         """Провизионер класса хранения (None, если класса нет)."""

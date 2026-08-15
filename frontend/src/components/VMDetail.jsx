@@ -1256,9 +1256,33 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                                                 Без диска
                                             </span>
                                         ) : (
-                                            <span className={`status-badge ${s.phase === 'Succeeded' ? 'status-active' : s.phase === 'Failed' ? 'status-danger' : 'status-pending'}`}>
-                                                {s.phase === 'Succeeded' ? 'Готов' : s.phase === 'InProgress' ? 'Создается' : s.phase}
-                                            </span>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                <span className={`status-badge ${s.phase === 'Succeeded' ? 'status-active' : s.phase === 'Failed' ? 'status-danger' : 'status-pending'}`}
+                                                      title={s.error || undefined}>
+                                                    {s.phase === 'Succeeded' ? 'Готов' : s.phase === 'InProgress' ? 'Создается' : s.phase}
+                                                </span>
+                                                {/* Пока снимок делается — сколько дисков уже снято.
+                                                    Тонкого процента у снимка ВМ нет: KubeVirt его не
+                                                    считает, а снимок тома делается копированием при
+                                                    записи, то есть почти мгновенно, и промежуточным
+                                                    значениям взяться неоткуда. Настоящая мера здесь
+                                                    одна — число готовых томов. */}
+                                                {s.phase !== 'Succeeded' && s.phase !== 'Failed' && s.progress_percent !== null && s.progress_percent !== undefined && (
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <div className="progress-track" style={{ height: '4px', width: '90px' }}>
+                                                            <div className="progress-fill primary" style={{ width: `${s.progress_percent}%` }} />
+                                                        </div>
+                                                        <span style={{ fontSize: '0.78rem', color: 'var(--accent-primary)', fontWeight: 600 }}>
+                                                            {s.progress_percent}%
+                                                        </span>
+                                                        {s.volumes_total > 1 && (
+                                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                                                {s.volumes_ready} из {s.volumes_total} дисков
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
                                         )}
                                     </td>
                                     <td>

@@ -2,7 +2,7 @@ import re
 import logging
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 from app.models.models import User
 from app.core.auth import get_current_user
 from app.core.k8s_client import K8sClient
@@ -27,6 +27,12 @@ class SnapshotResponse(BaseModel):
     # такой снимок как «Готов», хотя откатывать им нечего.
     has_disk: bool = True
     excluded_volumes: List[str] = []
+    # Ход создания. Процент у снимка грубый — по числу снятых томов, потому
+    # что тонкого KubeVirt не считает (см. K8sClient._snapshot_progress).
+    progress_percent: Optional[int] = None
+    volumes_ready: int = 0
+    volumes_total: int = 0
+    error: Optional[str] = None
 
 @router.get("/{vm_name}", response_model=List[SnapshotResponse])
 def list_snapshots(vm_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
@@ -47,6 +53,10 @@ def list_snapshots(vm_name: str, client: K8sClient = Depends(get_k8s_client), cu
                 ready_to_use=s["ready_to_use"],
                 has_disk=s.get("has_disk", True),
                 excluded_volumes=s.get("excluded_volumes", []),
+                progress_percent=s.get("progress_percent"),
+                volumes_ready=s.get("volumes_ready", 0),
+                volumes_total=s.get("volumes_total", 0),
+                error=s.get("error"),
             ))
         return res
     except Exception as e:
@@ -121,7 +131,8 @@ def create_snapshot(vm_name: str, req: SnapshotCreateRequest, client: K8sClient 
             name=full_snapshot_name,
             creation_time="Только что создается",
             phase="Pending",
-            ready_to_use=False
+            ready_to_use=False,
+            progress_percent=0,
         )
     except Exception as e:
         logger.error(f"Error creating snapshot for VM {vm_name}: {e}")

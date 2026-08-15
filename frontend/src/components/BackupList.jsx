@@ -112,6 +112,12 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
     Paused: 'Приостановлена',
   };
 
+  /* CDI отдаёт progress строкой — «43.2%», либо «N/A», пока считать нечего
+     (клон ещё не начался, или драйвер копирует снимком и промежуточных
+     значений не сообщает вовсе). */
+  const hasPercent = (raw) => typeof raw === 'string' && /^[\d.]+%$/.test(raw);
+  const percentOf = (raw) => (hasPercent(raw) ? raw : '0%');
+
   const isDone = (b) => b.status === 'Succeeded';
   const isBusy = (b) => IN_PROGRESS.includes(b.status);
 
@@ -207,16 +213,24 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                     {statusLabel(b)}
                   </span>
                 </div>
-                {/* Если бэкап клонируется, показываем прогресс */}
-                {b.status !== 'Succeeded' && b.progress !== 'N/A' && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                {/* Полоса нужна на всём времени копирования, а не только
+                    когда CDI уже посчитал процент. Условие progress !== 'N/A'
+                    прятало её целиком в самом начале — ровно тогда, когда
+                    смотришь, пошло ли дело: копия висела строкой без единого
+                    признака движения. Ширину в этот момент берём нулевой, а
+                    само число заменяем на «идёт» — врать про 0% не нужно,
+                    ноль означал бы «посчитано и ничего не сделано». */}
+                {isBusy(b) && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
                     {/* .progress-bar-bg/.progress-bar-fill в CSS нет —
                         полоса прогресса не рисовалась вовсе. Классы
                         дизайн-системы: .progress-track/.progress-fill. */}
                     <div className="progress-track" style={{ height: '4px', width: '110px' }}>
-                      <div className="progress-fill primary" style={{ width: b.progress }} />
+                      <div className="progress-fill primary" style={{ width: percentOf(b.progress) }} />
                     </div>
-                    <span style={{ fontSize: '0.78rem', color: 'var(--accent-primary)', fontWeight: 600 }}>{b.progress}</span>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--accent-primary)', fontWeight: 600 }}>
+                      {hasPercent(b.progress) ? b.progress : 'идёт…'}
+                    </span>
                   </div>
                 )}
               </div>
