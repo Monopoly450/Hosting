@@ -72,7 +72,10 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
         const err = await response.json();
         throw new Error(err.detail || 'Ошибка при восстановлении.');
       }
-      alert('Запущен процесс восстановления диска. Виртуалка запустится после копирования.');
+      const data = await response.json().catch(() => ({}));
+      alert(data.will_restart
+        ? 'Запущено восстановление диска. Виртуалка включится сама после копирования.'
+        : 'Запущено восстановление диска. Виртуалка останется выключенной, как и до восстановления.');
       if (onRestoreStarted) onRestoreStarted();
     } catch (err) {
       alert(`Ошибка восстановления: ${err.message}`);

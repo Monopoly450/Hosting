@@ -66,7 +66,15 @@ def prune_vm_backups(k8s, vm_name: str, retention: int):
     except Exception as e:
         logger.warning(f"prune vm backups: не удалось получить список для {vm_name}: {e}")
         return
-    ordered = sorted(backups, key=lambda b: _backup_timestamp(b.get("name", "")), reverse=True)
+    # Новая копия попадает в список сразу, ещё в Pending/CloneInProgress.
+    # Если считать её в retention, можно удалить последнюю исправную копию,
+    # а затем получить Failed у новой — и остаться без точки восстановления.
+    completed = [b for b in backups if b.get("status") == "Succeeded"]
+    ordered = sorted(
+        completed,
+        key=lambda b: _backup_timestamp(b.get("name", "")),
+        reverse=True,
+    )
     for b in ordered[retention:]:
         try:
             k8s.delete_vm_backup(b["name"])

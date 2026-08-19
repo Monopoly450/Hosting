@@ -57,6 +57,27 @@ def test_backup_timestamp_parsing():
     assert _backup_timestamp("garbage") == 0
 
 
+def test_retention_never_deletes_last_good_backup_for_pending_one():
+    from app.services.scheduled_backups import prune_vm_backups
+
+    class K8s:
+        deleted = []
+
+        def list_vm_backups(self, _name):
+            return [
+                {"name": "web-backup-3", "status": "CloneInProgress"},
+                {"name": "web-backup-2", "status": "Succeeded"},
+                {"name": "web-backup-1", "status": "Succeeded"},
+            ]
+
+        def delete_vm_backup(self, name):
+            self.deleted.append(name)
+
+    k8s = K8s()
+    prune_vm_backups(k8s, "web", retention=2)
+    assert k8s.deleted == []
+
+
 # ---------- снимки: без класса снимков томов они не работают вовсе ----------
 #
 # Живой случай: снимки «не создаются». На деле объект VirtualMachineSnapshot
@@ -99,19 +120,29 @@ def test_lvm_installer_creates_the_snapshot_class():
 
 
 def test_backup_picks_the_exact_disk_of_the_vm():
-    """startswith(name) цеплял диск чужой ВМ, если имя одной — начало имени
-    другой («web» и «web2»): бэкап создавался, но копировал не ту машину."""
-    import os
-    path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "app", "core", "k8s_client.py")
-    with open(path, encoding="utf-8") as f:
-        src = f.read()
+    """Windows имеет и системный HD, и установочный ISO. Порядок PVC не
+    должен превращать резервную копию системы в копию установочного диска."""
+    from app.core.k8s_client import _primary_disk_pvc_name
 
-    block = src[src.index("def create_vm_backup"):]
-    block = block[:block.index("def list_vm_backups")]
-    assert 'expected = f"{name}-disk"' in block
-    assert "pvc.metadata.name == expected" in block
+    vm = {
+        "spec": {
+            "template": {"spec": {
+                "domain": {"devices": {"disks": [
+                    {"name": "winiso", "cdrom": {"bus": "sata"}},
+                    {"name": "winhd", "disk": {"bus": "virtio"}},
+                ]}},
+                "volumes": [
+                    {"name": "winiso", "dataVolume": {"name": "demo-iso"}},
+                    {"name": "winhd", "dataVolume": {"name": "demo-hd"}},
+                ],
+            }},
+            "dataVolumeTemplates": [
+                {"metadata": {"name": "demo-hd"}},
+                {"metadata": {"name": "demo-iso"}},
+            ],
+        }
+    }
+    assert _primary_disk_pvc_name(vm) == "demo-hd"
 
 
 def _backup_list_jsx():

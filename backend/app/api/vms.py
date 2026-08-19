@@ -7,6 +7,7 @@ import paramiko
 import secrets
 import string
 import hashlib
+from kubernetes.client.rest import ApiException
 
 def generate_mac_address(name: str) -> str:
     h = hashlib.md5(name.encode('utf-8')).hexdigest()
@@ -1914,7 +1915,13 @@ def delete_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k
     """Удалить резервную копию"""
     check_vm_ownership(name, current_user)
     try:
-        return client.delete_vm_backup(backup_name)
+        return client.delete_vm_backup(backup_name, vm_name=name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ApiException as e:
+        if e.status == 404:
+            raise HTTPException(status_code=404, detail="Резервная копия не найдена")
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1923,6 +1930,12 @@ def restore_vm_backup(name: str, backup_name: str, client: K8sClient = Depends(g
     check_vm_ownership(name, current_user)
     try:
         return client.restore_vm_backup(name, backup_name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ApiException as e:
+        if e.status == 404:
+            raise HTTPException(status_code=404, detail="ВМ или резервная копия не найдена")
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

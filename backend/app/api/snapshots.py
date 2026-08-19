@@ -38,6 +38,17 @@ class SnapshotResponse(BaseModel):
     volumes_total: int = 0
     error: Optional[str] = None
 
+
+def _snapshot_for_vm(client: K8sClient, vm_name: str, snapshot_name: str) -> dict:
+    """Ищет снимок только среди снимков указанной ВМ."""
+    try:
+        return next(
+            s for s in client.list_vm_snapshots(vm_name)
+            if s["name"] == snapshot_name
+        )
+    except StopIteration:
+        raise HTTPException(status_code=404, detail="Снимок не найден")
+
 def _unsupported_reason(support: dict) -> str:
     """Почему снимки этой ВМ невозможны — одним текстом.
 
@@ -179,8 +190,11 @@ def create_snapshot(vm_name: str, req: SnapshotCreateRequest, client: K8sClient 
 def delete_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(vm_name, current_user)
     try:
+        _snapshot_for_vm(client, vm_name, snapshot_name)
         client.delete_vm_snapshot(snapshot_name)
         return {"status": "Snapshot deletion request sent"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting snapshot {snapshot_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -193,10 +207,15 @@ def restore_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depen
     # применит описание ВМ, ответит успехом — и на этом всё. Именно так и
     # выглядело «сделал откат, а приложение осталось». Лучше отказать, чем
     # выдать за откат то, что им не является.
-    try:
-        snap = next(s for s in client.list_vm_snapshots(vm_name) if s["name"] == snapshot_name)
-    except StopIteration:
-        raise HTTPException(status_code=404, detail="Снимок не найден")
+    snap = _snapshot_for_vm(client, vm_name, snapshot_name)
+    if not snap.get("ready_to_use") or snap.get("phase") != "Succeeded":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Снимок ещё не готов к откату "
+                f"(статус: {snap.get('phase') or 'Unknown'})."
+            ),
+        )
     if not snap.get("has_disk", True):
         excluded = ", ".join(snap.get("missing_volumes") or snap.get("excluded_volumes") or []) or "диск"
         raise HTTPException(
@@ -230,14 +249,13 @@ def restore_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depen
         except Exception as e:
             logger.error(f"Не удалось остановить ВМ {vm_name} перед откатом: {e}")
             raise HTTPException(status_code=500, detail=f"Не удалось остановить ВМ перед откатом: {e}")
-        if not client.wait_for_vm_stopped(vm_name):
-            # Гость не погасился за отведённое время. Создавать откат сейчас
-            # бессмысленно — KubeVirt его отклонит, а ВМ останется выключенной
-            # без объяснений.
-            raise HTTPException(
-                status_code=409,
-                detail="ВМ не успела выключиться за 2 минуты. Она остановлена — повторите откат.",
-            )
+    # Даже при stale-статусе get_vm VMI может ещё завершаться. Проверка нужна
+    # всегда: VirtualMachineRestore отклоняется, пока VMI существует.
+    if not client.wait_for_vm_stopped(vm_name):
+        raise HTTPException(
+            status_code=409,
+            detail="ВМ не успела выключиться за 2 минуты. Она остановлена — повторите откат.",
+        )
 
     try:
         # restart_after: ВМ гасили только ради отката, и поднять её обратно —

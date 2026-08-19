@@ -3,6 +3,7 @@ import json
 import os
 import time
 import base64
+import copy
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from app.core.config import settings
@@ -33,6 +34,46 @@ def _clone_target_modes(source_pvc) -> dict:
     if volume_mode:
         modes["volumeMode"] = volume_mode
     return modes
+
+
+def _primary_disk_pvc_name(vm: dict) -> str | None:
+    """Возвращает PVC/DataVolume загрузочного диска, а не первый том по имени.
+
+    У Windows рядом с ``<vm>-hd`` живёт установочный ``<vm>-iso``. Поиск по
+    префиксу зависел от порядка PVC в Kubernetes и иногда делал резервную
+    копию ISO вместо системного диска. Источником истины служит список дисков
+    домена: обычный ``disk`` берём, ``cdrom`` пропускаем.
+    """
+    template = vm.get("spec", {}).get("template", {}).get("spec", {})
+    volumes = {
+        volume.get("name"): volume
+        for volume in template.get("volumes", [])
+        if volume.get("name")
+    }
+    devices = (
+        template.get("domain", {})
+        .get("devices", {})
+        .get("disks", [])
+    )
+    for device in devices:
+        if "disk" not in device:
+            continue
+        volume = volumes.get(device.get("name"), {})
+        pvc_name = (
+            volume.get("dataVolume", {}).get("name")
+            or volume.get("persistentVolumeClaim", {}).get("claimName")
+        )
+        if pvc_name:
+            return pvc_name
+
+    # Совместимость со старыми манифестами, где devices могли быть неполными.
+    templates = vm.get("spec", {}).get("dataVolumeTemplates", [])
+    names = [t.get("metadata", {}).get("name") for t in templates]
+    for suffix in ("-disk", "-hd"):
+        match = next((name for name in names if name and name.endswith(suffix)), None)
+        if match:
+            return match
+    return None
 
 
 class K8sClient:
@@ -527,41 +568,32 @@ class K8sClient:
     def create_vm_backup(self, name: str, namespace="default"):
         """Создает бэкап диска (клонирует PVC)"""
         try:
-            # Находим системный PVC
-            pvc_list = self.core_api.list_namespaced_persistent_volume_claim(namespace)
-            orig_pvc_name = None
-            orig_pvc = None
-
-            # Диск ВМ называется ровно "{имя}-disk" (см. generate_linux_manifest).
-            # Ищем его по точному имени, а не по префиксу: startswith(name)
-            # цеплял чужой диск, если имя одной ВМ — начало имени другой
-            # («web» и «web2»). Бэкап при этом успешно создавался, только
-            # копировал не ту машину, и заметить это можно было лишь при
-            # восстановлении.
-            expected = f"{name}-disk"
-            for pvc in pvc_list.items:
-                if pvc.metadata.name == expected:
-                    orig_pvc_name, orig_pvc = pvc.metadata.name, pvc
-                    break
-
-            if not orig_pvc_name:
-                # Запасной путь для дисков, созданных до этого правила.
-                for pvc in pvc_list.items:
-                    pvc_name = pvc.metadata.name
-                    if pvc_name.startswith(f"{name}-") and "-backup-" not in pvc_name:
-                        orig_pvc_name, orig_pvc = pvc_name, pvc
-                        break
-
-
+            vm = self.custom_api.get_namespaced_custom_object(
+                "kubevirt.io", "v1", namespace, "virtualmachines", name
+            )
+            orig_pvc_name = _primary_disk_pvc_name(vm)
             if not orig_pvc_name:
                 raise Exception(f"Оригинальный PVC диска для VM {name} не найден")
+            orig_pvc = self.core_api.read_namespaced_persistent_volume_claim(
+                orig_pvc_name, namespace
+            )
                 
             # Размер копируемого диска
             storage_size = orig_pvc.spec.resources.requests["storage"]
+            storage_class = (
+                getattr(orig_pvc.spec, "storage_class_name", None)
+                or settings.STORAGE_CLASS
+            )
             
             # Уникальное имя резервной копии
-            timestamp = int(time.time())
-            backup_name = f"{name}-backup-{timestamp}"
+            # Секунды давали коллизию при двойном клике или одновременном
+            # ручном и плановом запуске. Наносекунды сохраняют сортируемое имя.
+            timestamp = str(time.time_ns())
+            suffix = f"-backup-{timestamp}"
+            # Kubernetes DNS-label ограничен 63 символами. В модели ВМ длина
+            # имени не ограничена, поэтому длинное имя раньше превращало
+            # корректный запрос в неочевидный 422 от API Kubernetes.
+            backup_name = f"{name[:63 - len(suffix)].rstrip('-')}{suffix}"
             
             # Создаем DataVolume с источником clone pvc
             dv_manifest = {
@@ -582,7 +614,7 @@ class K8sClient:
                         }
                     },
                     "storage": {
-                        "storageClassName": settings.STORAGE_CLASS,
+                        "storageClassName": storage_class,
                         # accessModes и volumeMode берём с исходного диска, а не
                         # оставляем CDI догадываться. Без них он идёт за ними в
                         # StorageProfile класса хранения, и на openebs-lvm
@@ -620,6 +652,20 @@ class K8sClient:
         except Exception as e:
             logger.error(f"Ошибка бэкапа VM {name}: {e}")
             raise e
+
+    def get_vm_backup(self, vm_name: str, backup_name: str, namespace="default") -> dict:
+        """Читает копию и гарантирует, что она принадлежит указанной ВМ."""
+        dv = self.custom_api.get_namespaced_custom_object(
+            "cdi.kubevirt.io", "v1beta1", namespace, "datavolumes", backup_name
+        )
+        source = (dv.get("metadata", {}).get("labels") or {}).get(
+            "hosting.antigravity.io/backup-source"
+        )
+        if source != vm_name:
+            raise ValueError(
+                f"Резервная копия {backup_name} не принадлежит ВМ {vm_name}"
+            )
+        return dv
 
     def list_vm_backups(self, name: str, namespace="default"):
         """Получить список всех бэкапов для конкретной VM"""
@@ -680,9 +726,11 @@ class K8sClient:
                 return message
         return None
 
-    def delete_vm_backup(self, backup_name: str, namespace="default"):
+    def delete_vm_backup(self, backup_name: str, namespace="default", vm_name: str = None):
         """Удаляет резервную копию (DataVolume и PVC)"""
         try:
+            if vm_name:
+                self.get_vm_backup(vm_name, backup_name, namespace)
             # Удаляем DataVolume
             self.custom_api.delete_namespaced_custom_object(
                 group="cdi.kubevirt.io",
@@ -708,7 +756,23 @@ class K8sClient:
     def restore_vm_backup(self, vm_name: str, backup_name: str, namespace="default"):
         """Заменяет текущий PVC жесткого диска ВМ на клон из выбранного бэкапа"""
         try:
-            # 1. Получаем манифест VM
+            # Копию проверяем ДО остановки и тем более удаления диска.
+            backup = self.get_vm_backup(vm_name, backup_name, namespace)
+            backup_phase = (backup.get("status") or {}).get("phase")
+            if backup_phase != "Succeeded":
+                raise ValueError(
+                    f"Резервная копия ещё не готова к восстановлению "
+                    f"(статус: {backup_phase or 'Unknown'})"
+                )
+            backup_pvc = self.core_api.read_namespaced_persistent_volume_claim(
+                backup_name, namespace
+            )
+            backup_size = backup_pvc.spec.resources.requests["storage"]
+            backup_storage_class = (
+                getattr(backup_pvc.spec, "storage_class_name", None)
+                or settings.STORAGE_CLASS
+            )
+
             vm = self.custom_api.get_namespaced_custom_object(
                 group="kubevirt.io",
                 version="v1",
@@ -716,54 +780,76 @@ class K8sClient:
                 plural="virtualmachines",
                 name=vm_name
             )
-            
-            # 2. Проверяем, что VM выключена. Иначе останавливаем.
-            running = vm.get("spec", {}).get("running", False)
-            if running:
-                logger.info(f"Авто-остановка VM {vm_name} перед восстановлением...")
-                self.stop_vm(vm_name, namespace)
-                # Ждем короткое время, чтобы VM выключилась
-                time.sleep(2)
-            
-            # 3. Находим оригинальное имя PVC
-            pvc_list = self.core_api.list_namespaced_persistent_volume_claim(namespace)
-            orig_pvc_name = None
-            for pvc in pvc_list.items:
-                if pvc.metadata.name.startswith(vm_name) and "-backup-" not in pvc.metadata.name:
-                    orig_pvc_name = pvc.metadata.name
-                    break
-                    
+            orig_pvc_name = _primary_disk_pvc_name(vm)
             if not orig_pvc_name:
                 raise Exception(f"Оригинальный системный диск (PVC) для VM {vm_name} не найден.")
-                
-            # 4. Удаляем старый PVC диска
+
+            # Фиксированных двух секунд недостаточно: гость с HDD выключается
+            # десятки секунд. До исчезновения VMI диск трогать нельзя.
+            was_running = bool(vm.get("spec", {}).get("running", False))
+            if was_running:
+                logger.info(f"Авто-остановка VM {vm_name} перед восстановлением...")
+                self.stop_vm(vm_name, namespace)
+            if not self.wait_for_vm_stopped(vm_name, namespace):
+                raise RuntimeError("ВМ не успела выключиться за 2 минуты; диск не изменён")
+
+            # ВМ обычно владеет одноимённым DataVolume. Удаление одного PVC
+            # оставляло DV на месте, и создание замены неизменно падало 409.
+            # Временно убираем шаблон, чтобы контроллер не пересоздал старый
+            # cloud-образ, пока освобождается имя диска.
+            original_templates = copy.deepcopy(
+                vm.get("spec", {}).get("dataVolumeTemplates", [])
+            )
+            kept_templates = [
+                t for t in original_templates
+                if t.get("metadata", {}).get("name") != orig_pvc_name
+            ]
+            managed_template = len(kept_templates) != len(original_templates)
+            if managed_template:
+                self.custom_api.patch_namespaced_custom_object(
+                    "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
+                    {"spec": {"dataVolumeTemplates": kept_templates}},
+                )
+
             try:
-                self.core_api.delete_namespaced_persistent_volume_claim(orig_pvc_name, namespace)
-                logger.info(f"Старый PVC {orig_pvc_name} удален для замены.")
+                self.custom_api.delete_namespaced_custom_object(
+                    "cdi.kubevirt.io", "v1beta1", namespace,
+                    "datavolumes", orig_pvc_name,
+                )
             except ApiException as e:
                 if e.status != 404:
-                    raise e
-                    
-            # Ждем пока PVC удалится
-            for _ in range(10):
+                    raise
+            try:
+                self.core_api.delete_namespaced_persistent_volume_claim(orig_pvc_name, namespace)
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+
+            # DV удаляет принадлежащий ему PVC не мгновенно. Если создать
+            # замену раньше, CDI может подхватить старые данные и объявить
+            # «восстановление» завершённым.
+            deadline = time.monotonic() + 120
+            while time.monotonic() < deadline:
                 try:
                     self.core_api.read_namespaced_persistent_volume_claim(orig_pvc_name, namespace)
-                    time.sleep(1)
                 except ApiException as e:
                     if e.status == 404:
                         break
-            
-            # 5. Считываем размер бэкапа
-            backup_pvc = self.core_api.read_namespaced_persistent_volume_claim(backup_name, namespace)
-            backup_size = backup_pvc.spec.resources.requests["storage"]
-            
-            # 6. Создаем новый DataVolume с оригинальным именем (orig_pvc_name), клонируя его из бэкапа
+                    raise
+                time.sleep(2)
+            else:
+                raise RuntimeError(f"Старый диск {orig_pvc_name} не удалился за 2 минуты")
+
             dv_manifest = {
                 "apiVersion": "cdi.kubevirt.io/v1beta1",
                 "kind": "DataVolume",
                 "metadata": {
                     "name": orig_pvc_name,
-                    "namespace": namespace
+                    "namespace": namespace,
+                    "labels": {
+                        "hosting.antigravity.io/restore-source": backup_name,
+                        "hosting.antigravity.io/restore-vm": vm_name,
+                    },
                 },
                 "spec": {
                     "source": {
@@ -773,7 +859,7 @@ class K8sClient:
                         }
                     },
                     "storage": {
-                        "storageClassName": settings.STORAGE_CLASS,
+                        "storageClassName": backup_storage_class,
                         # Та же причина, что и при создании копии: без явных
                         # режимов CDI идёт в StorageProfile, а у openebs-lvm он
                         # пуст — восстановление встало бы с ErrClaimNotValid,
@@ -788,16 +874,61 @@ class K8sClient:
                 }
             }
             
-            self.custom_api.create_namespaced_custom_object(
-                group="cdi.kubevirt.io",
-                version="v1beta1",
-                namespace=namespace,
-                plural="datavolumes",
-                body=dv_manifest
-            )
-            
+            # Возвращаем декларативный шаблон, теперь уже с источником-бэкапом.
+            # Последующие рестарты и операции снова видят канонический диск.
+            replacement = None
+            if managed_template:
+                replacement = next(
+                    t for t in original_templates
+                    if t.get("metadata", {}).get("name") == orig_pvc_name
+                )
+                replacement["spec"] = copy.deepcopy(dv_manifest["spec"])
+                replacement.setdefault("metadata", {}).setdefault("labels", {}).update(
+                    dv_manifest["metadata"]["labels"]
+                )
+
+            try:
+                self.custom_api.create_namespaced_custom_object(
+                    group="cdi.kubevirt.io",
+                    version="v1beta1",
+                    namespace=namespace,
+                    plural="datavolumes",
+                    body=dv_manifest
+                )
+            except Exception:
+                # Старый шаблон уже снят. Даже если прямое создание DV
+                # сорвалось, возвращаем его с безопасным backup-source: так
+                # ВМ не остаётся навсегда без декларации системного диска, а
+                # контроллер KubeVirt сможет повторить создание.
+                if replacement is not None:
+                    try:
+                        self.custom_api.patch_namespaced_custom_object(
+                            "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
+                            {"spec": {"dataVolumeTemplates": kept_templates + [replacement]}},
+                        )
+                    except Exception as patch_error:
+                        logger.error(
+                            f"Не удалось вернуть шаблон диска {orig_pvc_name}: "
+                            f"{patch_error}"
+                        )
+                raise
+
+            if replacement is not None:
+                self.custom_api.patch_namespaced_custom_object(
+                    "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
+                    {"spec": {"dataVolumeTemplates": kept_templates + [replacement]}},
+                )
+
+            # desired state можно вернуть сразу: KubeVirt дождётся Succeeded у
+            # DataVolume и только после этого создаст VMI.
+            if was_running:
+                self.start_vm(vm_name, namespace)
+
             logger.info(f"Восстановление ВМ {vm_name} запущено: {orig_pvc_name} клонируется из {backup_name}")
-            return {"status": "restoring", "vm": vm_name, "pvc": orig_pvc_name, "source": backup_name}
+            return {
+                "status": "restoring", "vm": vm_name, "pvc": orig_pvc_name,
+                "source": backup_name, "will_restart": was_running,
+            }
         except Exception as e:
             logger.error(f"Ошибка восстановления VM {vm_name} из {backup_name}: {e}")
             raise e
@@ -2227,4 +2358,3 @@ class K8sClient:
                 tty=False
             )
             return resp
-
