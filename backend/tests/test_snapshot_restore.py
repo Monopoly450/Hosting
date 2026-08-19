@@ -139,6 +139,22 @@ def test_api_stops_the_vm_instead_of_refusing():
     assert "client.start_vm(vm_name)" in restore
 
 
+def test_frontend_uses_ready_to_use_and_refreshes_pending_snapshots():
+    """Succeeded без readyToUse — не точка отката. Интерфейс
+    раньше писал «Готов» и включал кнопку, хотя API верно отказывал.
+    Кроме того, Pending обновлялся только после перезагрузки страницы."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(root, "frontend", "src", "components", "VMDetail.jsx"), encoding="utf-8") as f:
+        src = f.read()
+
+    assert "snapshot.ready_to_use === true" in src
+    assert "disabled={restoring !== null || !snapshotReady(s)}" in src
+    assert "Недоступен" in src
+    assert "setInterval(() => fetchSnapshots({ silent: true }), 3000)" in src
+    assert "cache: 'no-store'" in src
+    assert "'indeterminate'" in src
+
+
 def test_worker_runs_the_restart_daemon():
     """Без регистрации потока пометка на объекте отката никого не разбудит."""
     src = _source("app", "worker.py")
@@ -373,6 +389,8 @@ def test_backup_progress_bar_shows_before_cdi_reports_a_number():
     assert "{isBusy(b) && (" in src
     # Ноль означал бы «посчитано и ничего не сделано» — это не то же самое.
     assert "'идёт…'" in src
+    assert "'indeterminate'" in src
+    assert "cache: 'no-store'" in src
 
 
 def test_backup_surfaces_why_it_is_stuck():

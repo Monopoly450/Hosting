@@ -843,6 +843,14 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
 .progress-fill.success { background-color: var(--status-success); }
 .progress-fill.warning { background-color: var(--status-warning); }
 .progress-fill.danger { background-color: var(--status-danger); }
+/* CSI clone и VirtualMachineSnapshot не обязаны отдавать побайтовый
+   процент. В этом случае нужен честный индикатор активности, а не
+   застывшая на 0% полоса и не выдуманные цифры. */
+.progress-fill.indeterminate {
+  width: 36%;
+  transition: none;
+  animation: progressIndeterminate 1.25s ease-in-out infinite;
+}
 
 /* =========================== Grids =========================== */
 .grid-cols-3 {
@@ -1329,6 +1337,10 @@ input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.18); box-sh
 @keyframes modalPop { from { opacity: 0; transform: scale(0.94) translateY(12px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 @keyframes modal-appear { from { opacity: 0; transform: scale(0.95) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes progressIndeterminate {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(310%); }
+}
 @keyframes growBar { from { transform: scaleY(0); } to { transform: scaleY(1); } }
 @keyframes floaty { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
 @keyframes pulseRing { 0% { transform: scale(0.8); opacity: 0.5; } 100% { transform: scale(2.4); opacity: 0; } }

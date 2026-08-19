@@ -1101,6 +1101,16 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
     const [snapName, setSnapName] = useState('');
     const [creating, setCreating] = useState(false);
 
+    // phase=Succeeded означает, что операция снимка завершилась,
+    // но не что из него всё ещё можно восстановить. KubeVirt специально
+    // отдаёт readyToUse: он становится false, например, если базовый
+    // VolumeSnapshot исчез. Кнопка и бэкенд должны смотреть на одно условие.
+    const snapshotReady = (snapshot) => (
+        snapshot.phase === 'Succeeded'
+        && snapshot.ready_to_use === true
+        && snapshot.has_disk !== false
+    );
+
     const getHeaders = () => {
         const token = localStorage.getItem('aegis_admin_token') || '';
         return {
@@ -1108,10 +1118,13 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
         };
     };
 
-    const fetchSnapshots = async () => {
-        setLoading(true);
+    const fetchSnapshots = async ({ silent = false } = {}) => {
+        if (!silent) setLoading(true);
         try {
-            const res = await fetch(`/api/snapshots/${vmName}`, getHeaders());
+            const res = await fetch(`/api/snapshots/${vmName}`, {
+                ...getHeaders(),
+                cache: 'no-store'
+            });
             if (res.ok) {
                 const data = await res.json();
                 setSnapshots(data);
@@ -1119,13 +1132,25 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
         } catch (err) {
             console.error(err);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     };
 
     useEffect(() => {
         fetchSnapshots();
     }, [vmName]);
+
+    // После создания первый ответ обычно Pending/InProgress. Раньше
+    // строка больше не обновлялась до перезагрузки страницы. Опрашиваем
+    // только незавершённые операции и не мигаем всей таблицей.
+    const hasPendingSnapshot = snapshots.some(
+        s => s.phase !== 'Succeeded' && s.phase !== 'Failed'
+    );
+    useEffect(() => {
+        if (!hasPendingSnapshot) return undefined;
+        const timer = setInterval(() => fetchSnapshots({ silent: true }), 3000);
+        return () => clearInterval(timer);
+    }, [vmName, hasPendingSnapshot]);
 
     /* Спрашиваем ДО того, как пользователь нажмёт «Создать снимок». Иначе он
        видел ноль процентов, которому нечем двигаться — тома в снимке нет, —
@@ -1283,6 +1308,10 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                                             <span className="status-badge status-danger" title={`Хранилище диска не умеет делать снимки, поэтому в снимок попал только конфиг ВМ${(s.missing_volumes || []).length ? ` (не снято: ${s.missing_volumes.join(', ')})` : ''}. Откатить им нельзя.`}>
                                                 Без диска
                                             </span>
+                                        ) : s.phase === 'Succeeded' && s.ready_to_use !== true ? (
+                                            <span className="status-badge status-danger" title={s.error || 'Снимок завершён, но KubeVirt пометил его как недоступный для отката.'}>
+                                                Недоступен
+                                            </span>
                                         ) : (
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                                 <span className={`status-badge ${s.phase === 'Succeeded' ? 'status-active' : s.phase === 'Failed' ? 'status-danger' : 'status-pending'}`}
@@ -1298,10 +1327,13 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                                                 {s.phase !== 'Succeeded' && s.phase !== 'Failed' && s.progress_percent !== null && s.progress_percent !== undefined && (
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                         <div className="progress-track" style={{ height: '4px', width: '90px' }}>
-                                                            <div className="progress-fill primary" style={{ width: `${s.progress_percent}%` }} />
+                                                            <div
+                                                                className={`progress-fill primary ${Number(s.progress_percent) > 0 ? '' : 'indeterminate'}`}
+                                                                style={Number(s.progress_percent) > 0 ? { width: `${s.progress_percent}%` } : undefined}
+                                                            />
                                                         </div>
                                                         <span style={{ fontSize: '0.78rem', color: 'var(--accent-primary)', fontWeight: 600 }}>
-                                                            {s.progress_percent}%
+                                                            {Number(s.progress_percent) > 0 ? `${s.progress_percent}%` : 'идёт…'}
                                                         </span>
                                                         {s.volumes_total > 1 && (
                                                             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -1318,9 +1350,11 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                                             <button
                                                 className="btn btn-secondary btn-sm"
                                                 onClick={() => handleRestoreSnapshot(s.name)}
-                                                disabled={restoring !== null || s.phase !== 'Succeeded' || s.has_disk === false}
+                                                disabled={restoring !== null || !snapshotReady(s)}
                                                 title={s.has_disk === false
                                                     ? 'В снимке нет диска — откатывать нечего'
+                                                    : s.phase === 'Succeeded' && s.ready_to_use !== true
+                                                        ? 'Снимок завершён, но хранилище не подтверждает готовность к откату'
                                                     : s.phase !== 'Succeeded'
                                                         ? 'Снимок ещё не готов'
                                                         : vmStatus === 'Running'

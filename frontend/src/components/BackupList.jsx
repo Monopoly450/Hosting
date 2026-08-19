@@ -8,7 +8,7 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
 
   const fetchBackups = async () => {
     try {
-      const response = await fetch(`/api/vms/${vmName}/backups`);
+      const response = await fetch(`/api/vms/${vmName}/backups`, { cache: 'no-store' });
       if (!response.ok) throw new Error('Failed to fetch backups');
       const data = await response.json();
       setBackups(data);
@@ -240,7 +240,10 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                         полоса прогресса не рисовалась вовсе. Классы
                         дизайн-системы: .progress-track/.progress-fill. */}
                     <div className="progress-track" style={{ height: '4px', width: '110px' }}>
-                      <div className="progress-fill primary" style={{ width: percentOf(b.progress) }} />
+                      <div
+                        className={`progress-fill primary ${hasPercent(b.progress) ? '' : 'indeterminate'}`}
+                        style={hasPercent(b.progress) ? { width: percentOf(b.progress) } : undefined}
+                      />
                     </div>
                     <span style={{ fontSize: '0.78rem', color: 'var(--accent-primary)', fontWeight: 600 }}>
                       {hasPercent(b.progress) ? b.progress : 'идёт…'}

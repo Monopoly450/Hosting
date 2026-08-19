@@ -208,12 +208,21 @@ def restore_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depen
     # выглядело «сделал откат, а приложение осталось». Лучше отказать, чем
     # выдать за откат то, что им не является.
     snap = _snapshot_for_vm(client, vm_name, snapshot_name)
-    if not snap.get("ready_to_use") or snap.get("phase") != "Succeeded":
+    if snap.get("phase") != "Succeeded":
         raise HTTPException(
             status_code=409,
             detail=(
                 "Снимок ещё не готов к откату "
                 f"(статус: {snap.get('phase') or 'Unknown'})."
+            ),
+        )
+    if not snap.get("ready_to_use"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Снимок завершён, но недоступен для отката. "
+                "Kubernetes не подтверждает готовность его дискового снимка; "
+                "возможно, связанный VolumeSnapshot был удалён или повреждён."
             ),
         )
     if not snap.get("has_disk", True):
