@@ -1,5 +1,6 @@
 import re
 import logging
+import time
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -57,9 +58,25 @@ def _unsupported_reason(support: dict) -> str:
     """
     if not support["storage_classes"]:
         return "Не удалось определить класс хранения дисков этой ВМ."
+    thin = [
+        u["storage_class"] for u in support["unsupported"]
+        if u.get("reason") == "thin_required"
+    ]
+    wrong_driver = [
+        u for u in support["unsupported"]
+        if u.get("reason") != "thin_required"
+    ]
+    if thin and not wrong_driver:
+        return (
+            f"Класс {', '.join(thin)} создаёт thick LVM-тома. OpenEBS "
+            "может снять такой том, но не может восстановить его из "
+            "снимка. Пересоздайте LVM и ВМ через обновлённый "
+            "scripts/install-openebs-lvm.sh: он включает thinProvision."
+        )
+
     bad = ", ".join(
         f"{u['storage_class']} (провизионер {u['provisioner'] or 'неизвестен'})"
-        for u in support["unsupported"]
+        for u in wrong_driver
     )
     drivers = ", ".join(support["snapshot_drivers"]) or "нет ни одного"
     return (
@@ -131,6 +148,10 @@ def list_snapshots(vm_name: str, client: K8sClient = Depends(get_k8s_client), cu
 @router.post("/{vm_name}", response_model=SnapshotResponse, status_code=status.HTTP_201_CREATED)
 def create_snapshot(vm_name: str, req: SnapshotCreateRequest, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(vm_name, current_user)
+    try:
+        client.ensure_no_backup_operation(vm_name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     
     if not re.match(r"^[a-z0-9-]{3,32}$", req.name):
         raise HTTPException(
@@ -153,7 +174,7 @@ def create_snapshot(vm_name: str, req: SnapshotCreateRequest, client: K8sClient 
     db = SessionLocal()
     try:
         lock_host_capacity(db)
-        ensure_any_storage_headroom(db)
+        ensure_any_storage_headroom(db, k8s=client)
     finally:
         db.close()
 
@@ -190,11 +211,14 @@ def create_snapshot(vm_name: str, req: SnapshotCreateRequest, client: K8sClient 
 def delete_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(vm_name, current_user)
     try:
+        client.ensure_no_backup_operation(vm_name)
         _snapshot_for_vm(client, vm_name, snapshot_name)
         client.delete_vm_snapshot(snapshot_name)
         return {"status": "Snapshot deletion request sent"}
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.error(f"Error deleting snapshot {snapshot_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -202,6 +226,10 @@ def delete_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depend
 @router.post("/{vm_name}/{snapshot_name}/restore")
 def restore_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(vm_name, current_user)
+    try:
+        client.ensure_no_backup_operation(vm_name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
     # Откат снимком без диска не возвращает ничего заметного: KubeVirt честно
     # применит описание ВМ, ответит успехом — и на этом всё. Именно так и
@@ -237,40 +265,65 @@ def restore_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depen
             ),
         )
 
-    # KubeVirt требует, чтобы ВМ была выключена: пока жив VirtualMachineInstance,
-    # он отклонит VirtualMachineRestore. Раньше панель просто отдавала 400
-    # «остановите ВМ» и перекладывала это на пользователя — при том что кнопка
-    # отката всё равно перезагружает машину, и остановить её панель умеет сама.
-    # Ровно так же уже устроено восстановление из бэкапа.
-    was_running = False
-    try:
-        vm = client.get_vm(vm_name)
-        was_running = vm.get("status") == "Running"
-    except Exception as e:
-        # Статус не прочитался — откат всё равно пробуем. Если ВМ на самом деле
-        # запущена, откажет уже KubeVirt, и это попадёт в ответ ниже.
-        logger.warning(f"Could not verify VM status: {e}")
-
-    if was_running:
-        logger.info(f"Авто-остановка ВМ {vm_name} перед откатом на снимок {snapshot_name}")
-        try:
-            client.stop_vm(vm_name)
-        except Exception as e:
-            logger.error(f"Не удалось остановить ВМ {vm_name} перед откатом: {e}")
-            raise HTTPException(status_code=500, detail=f"Не удалось остановить ВМ перед откатом: {e}")
-    # Даже при stale-статусе get_vm VMI может ещё завершаться. Проверка нужна
-    # всегда: VirtualMachineRestore отклоняется, пока VMI существует.
-    if not client.wait_for_vm_stopped(vm_name):
+    # Старый снимок мог быть создан до перехода openebs-lvm на thin. Его
+    # статус всё равно выглядит успешным, но OpenEBS не умеет восстановить
+    # thick-снимок. Проверяем реальный PV повторно непосредственно перед
+    # разрушительной операцией и возвращаем понятную причину вместо 500.
+    support = client.snapshot_support(vm_name)
+    if not support["supported"]:
         raise HTTPException(
-            status_code=409,
-            detail="ВМ не успела выключиться за 2 минуты. Она остановлена — повторите откат.",
+            status_code=400,
+            detail="Откат недоступен: " + _unsupported_reason(support),
         )
 
+    # targetReadinessPolicy=StopTarget позволяет сначала записать durable
+    # VirtualMachineRestore, а уже затем безопасно остановить ВМ контроллером.
+    # Поэтому crash/timeout HTTP-процесса больше не оставляет машину погашенной
+    # в окне между ручным stop и созданием restore.
+    try:
+        vm = client.get_vm(vm_name)
+    except Exception as e:
+        # StopTarget действительно остановит target. Без надёжно прочитанного
+        # desired state нельзя решить, ставить ли durable restart-аннотацию:
+        # продолжение здесь могло навсегда погасить работающую ВМ.
+        logger.error(f"Could not read VM power state before restore: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Не удалось определить желаемое состояние ВМ перед откатом: {e}",
+        )
+
+    desired_state = vm.get("desired_state")
+    if desired_state is not None:
+        was_running = desired_state == "Running"
+    else:
+        # Совместимость с клиентами старой версии: переходные VMI-фазы тоже
+        # означают, что пользователь оставил desired state включённым.
+        was_running = vm.get("status") in {
+            "Running", "Starting", "Scheduled", "Pending", "Paused",
+        }
+
+    restore_name = f"restore-{snapshot_name}-{time.time_ns()}"
+    try:
+        action_guard = client.acquire_vm_action_guard(
+            vm_name, "snapshot-restore"
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     try:
         # restart_after: ВМ гасили только ради отката, и поднять её обратно —
         # обязанность панели. Откат идёт минутами, поэтому включает её воркер
         # по завершении (см. snapshot_restart_daemon), а не этот запрос.
-        client.restore_vm_snapshot(vm_name, snapshot_name, restart_after=was_running)
+        client.restore_vm_snapshot(
+            vm_name, snapshot_name, restart_after=was_running,
+            restore_name=restore_name,
+        )
+        try:
+            client.clear_vm_action_guard(vm_name, action_guard)
+        except Exception as clear_error:
+            logger.warning(
+                f"Restore {restore_name} создан, но временный guard не снят: "
+                f"{clear_error}"
+            )
         return {
             "status": "VM restore request sent successfully",
             "vm_stopped": was_running,
@@ -278,11 +331,36 @@ def restore_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depen
         }
     except Exception as e:
         logger.error(f"Error restoring snapshot {snapshot_name}: {e}")
-        if was_running:
-            # Откат не создался, а ВМ уже выключена нами. Возвращаем как было:
-            # иначе пользователь получает ошибку И погашенную машину.
+        # Потерянный ответ create неоднозначен. Если объект уже есть, операция
+        # реально идёт — не сообщаем пользователю ложную ошибку и не запускаем
+        # target посреди отката.
+        try:
+            existing = client.get_vm_snapshot_restore(restore_name)
             try:
-                client.start_vm(vm_name)
-            except Exception as start_err:
-                logger.error(f"ВМ {vm_name} осталась выключенной после неудачного отката: {start_err}")
+                client.clear_vm_action_guard(vm_name, action_guard)
+            except Exception as clear_error:
+                logger.warning(
+                    f"Не удалось снять guard найденного restore {restore_name}: "
+                    f"{clear_error}"
+                )
+            return {
+                "status": "VM restore request accepted",
+                "vm_stopped": was_running,
+                "will_restart": was_running,
+                "reconciled": True,
+                "complete": bool((existing.get("status") or {}).get("complete")),
+            }
+        except Exception as read_error:
+            if getattr(read_error, "status", None) == 404:
+                try:
+                    client.clear_vm_action_guard(vm_name, action_guard)
+                except Exception as clear_error:
+                    logger.warning(
+                        f"Не удалось снять guard не созданного restore "
+                        f"{restore_name}: {clear_error}"
+                    )
+            else:
+                logger.error(
+                    f"Не удалось проверить создание restore {restore_name}: {read_error}"
+                )
         raise HTTPException(status_code=500, detail=f"Ошибка восстановления снимка в Kubernetes: {e}")

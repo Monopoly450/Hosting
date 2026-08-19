@@ -33,6 +33,7 @@ def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_c
         from app.core.quotas import enforce_quota
         from app.core.ratelimit import check_rate_limit
         from app.core.capacity import lock_host_capacity, ensure_host_capacity
+        from app.core.k8s_client import K8sClient
         check_rate_limit(current_user, "create_cluster")
 
         # Та же проверка «шаблон + ОС», что и при одиночном создании ВМ.
@@ -71,7 +72,8 @@ def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_c
         # параллельных создания кластера не прочитали одно и то же состояние.
         lock_host_capacity(db)
         ensure_host_capacity(db, cpu_cores=total_vcpus,
-                             memory_gb=total_ram, disk_gb=total_disk)
+                             memory_gb=total_ram, disk_gb=total_disk,
+                             k8s=K8sClient())
 
         cluster = Cluster(name=req.name, network_name=f"{req.name}-net", owner_id=current_user.id)
         db.add(cluster)

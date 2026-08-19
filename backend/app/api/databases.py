@@ -97,15 +97,14 @@ def create_database(req: DatabaseCreateRequest, current_user: User = Depends(get
         # под неё не проверялось вообще — база создавалась, даже если
         # хранилищу (LVM-пулу или корневому диску хоста) уже нечего было ей
         # предложить.
-        from app.core.k8s_client import DB_PVC_SIZE_GB
+        from app.core.k8s_client import DB_PVC_SIZE_GB, K8sClient
         from app.core.capacity import lock_host_capacity, ensure_storage_capacity
+        k8s = K8sClient()
         lock_host_capacity(db)
-        ensure_storage_capacity(db, extra_gb=DB_PVC_SIZE_GB)
+        ensure_storage_capacity(db, extra_gb=DB_PVC_SIZE_GB, k8s=k8s)
 
         # Выделение ресурсов (под) СУБД в Kubernetes
         try:
-            from app.core.k8s_client import K8sClient
-            k8s = K8sClient()
             k8s.create_private_db(
                 db_name=req.name,
                 engine=req.engine,

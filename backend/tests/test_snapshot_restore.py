@@ -9,8 +9,10 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@lo
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
+from fastapi import HTTPException
 from kubernetes.client.rest import ApiException
 
+from app.api import snapshots as snapshot_api
 from app.core.k8s_client import K8sClient
 
 
@@ -79,6 +81,7 @@ def test_restore_marks_the_vm_for_restart_only_when_it_was_running():
     plural, body = api.created[-1]
     assert plural == "virtualmachinerestores"
     assert body["metadata"]["annotations"][K8sClient.RESTART_AFTER_RESTORE] == "true"
+    assert body["spec"]["targetReadinessPolicy"] == "StopTarget"
 
     c.restore_vm_snapshot("vm1", "snap1", restart_after=False)
     _, body = api.created[-1]
@@ -97,6 +100,98 @@ def test_only_finished_restores_are_picked_up_for_restart():
     ]})
     ready = _client(api).restores_awaiting_start()
     assert [r["vm"] for r in ready] == ["vm-done"]
+
+
+def test_failed_restore_stops_blocking_after_restart_marker_is_cleared():
+    restore = {
+        "metadata": {"name": "r-failed", "annotations": {}},
+        "spec": {"target": {"name": "vm1"}},
+        "status": {
+            "complete": False,
+            "conditions": [{"type": "Failure", "status": "True"}],
+        },
+    }
+    client = _client(FakeCustomApi(restores={"items": [restore]}))
+
+    assert client.active_snapshot_restore("vm1") is None
+
+    restore["metadata"]["annotations"] = {
+        K8sClient.RESTART_AFTER_RESTORE: "true"
+    }
+    assert client.active_snapshot_restore("vm1") == "r-failed"
+
+
+class SnapshotRestoreRouteClient:
+    def __init__(self, vm=None, vm_error=None):
+        self.vm = vm or {"status": "Starting", "desired_state": "Running"}
+        self.vm_error = vm_error
+        self.restart_after = None
+
+    def ensure_no_backup_operation(self, _name):
+        return None
+
+    def list_vm_snapshots(self, _name):
+        return [{
+            "name": "snap-vm1-x", "phase": "Succeeded",
+            "ready_to_use": True, "has_disk": True,
+        }]
+
+    def snapshot_support(self, _name):
+        return {"supported": True}
+
+    def get_vm(self, _name):
+        if self.vm_error:
+            raise self.vm_error
+        return self.vm
+
+    def acquire_vm_action_guard(self, *_args):
+        return "guard"
+
+    def restore_vm_snapshot(
+        self, _vm, _snapshot, restart_after=False, restore_name=None,
+    ):
+        self.restart_after = restart_after
+
+    def clear_vm_action_guard(self, *_args):
+        return None
+
+
+def test_snapshot_restore_preserves_desired_running_state(monkeypatch):
+    monkeypatch.setattr(snapshot_api, "check_vm_ownership", lambda *_args: None)
+    client = SnapshotRestoreRouteClient()
+
+    snapshot_api.restore_snapshot("vm1", "snap-vm1-x", client, object())
+
+    assert client.restart_after is True
+
+
+def test_snapshot_restore_aborts_when_power_state_cannot_be_read(monkeypatch):
+    monkeypatch.setattr(snapshot_api, "check_vm_ownership", lambda *_args: None)
+    client = SnapshotRestoreRouteClient(vm_error=RuntimeError("read failed"))
+
+    with pytest.raises(HTTPException) as exc:
+        snapshot_api.restore_snapshot("vm1", "snap-vm1-x", client, object())
+
+    assert exc.value.status_code == 500
+    assert client.restart_after is None
+
+
+def test_get_vm_exposes_snapshot_restore_operation_lock():
+    class VmApi(FakeCustomApi):
+        def get_namespaced_custom_object(self, *args, **kwargs):
+            plural = kwargs.get("plural", args[3] if len(args) > 3 else None)
+            name = kwargs.get("name", args[4] if len(args) > 4 else None)
+            if plural == "virtualmachines":
+                return {"metadata": {"name": name}}
+            raise ApiException(status=404)
+
+    client = _client(VmApi())
+    client._parse_vm_object = lambda *_args: {"backup_operation": None}
+    client.active_snapshot_restore = lambda *_args: "restore-snap-vm1-x"
+
+    vm = client.get_vm("vm1")
+
+    assert vm["backup_operation"] == "snapshot-restore:restore-snap-vm1-x"
 
 
 def test_missing_snapshot_crd_is_not_an_error_for_the_worker():
@@ -126,17 +221,19 @@ def _source(*parts):
         return f.read()
 
 
-def test_api_stops_the_vm_instead_of_refusing():
+def test_api_lets_kubevirt_stop_the_vm_durably_instead_of_refusing():
     """Панель отдавала 400 «остановите ВМ» — при том что кнопка отката всё
     равно перезагружает машину, а гасить её панель умеет и делает это при
     восстановлении из бэкапа."""
     src = _source("app", "api", "snapshots.py")
     assert "должна быть остановлена перед восстановлением" not in src
-    assert "client.stop_vm(vm_name)" in src
-    assert "wait_for_vm_stopped" in src
-    # Неудачный откат не должен оставлять пользователя с ошибкой И погашенной ВМ.
-    restore = src[src.index("def restore_snapshot"):]
-    assert "client.start_vm(vm_name)" in restore
+    assert "client.stop_vm(vm_name)" not in src
+    assert '"targetReadinessPolicy": "StopTarget"' in _source("app", "core", "k8s_client.py")
+    assert "wait_for_vm_stopped" not in src
+    # Неудачный durable restore обрабатывает worker по условию Failure; API не
+    # должен запускать target посреди неоднозначного create.
+    core = _source("app", "core", "k8s_client.py")
+    assert 'condition.get("type") == "Failure"' in core
 
 
 def test_frontend_uses_ready_to_use_and_refreshes_pending_snapshots():
@@ -148,49 +245,71 @@ def test_frontend_uses_ready_to_use_and_refreshes_pending_snapshots():
         src = f.read()
 
     assert "snapshot.ready_to_use === true" in src
-    assert "disabled={restoring !== null || !snapshotReady(s)}" in src
+    assert "disabled={restoring !== null || operationLocked || !snapshotReady(s)}" in src
     assert "Недоступен" in src
-    assert "setInterval(() => fetchSnapshots({ silent: true }), 3000)" in src
+    assert "const intervalMs = hasPendingSnapshot ? 3000 : 30000" in src
+    assert "setInterval(() => fetchSnapshots({ silent: true }), intervalMs)" in src
     assert "cache: 'no-store'" in src
     assert "'indeterminate'" in src
+    assert "snapshot-restore:" in src
+    assert "actionLoading !== null || backupLocked" in src
 
 
 def test_worker_runs_the_restart_daemon():
     """Без регистрации потока пометка на объекте отката никого не разбудит."""
     src = _source("app", "worker.py")
     assert "def snapshot_restart_daemon" in src
+    assert "restart_vms_after_finished_snapshot_restores(k8s, logger)" in src
     assert "target=snapshot_restart_daemon" in src
 
 
+def test_worker_runs_the_backup_restart_daemon():
+    """Terminal DataVolume не включит ВМ, если тик не
+    зарегистрирован в main как фоновый поток."""
+    src = _source("app", "worker.py")
+    assert "def backup_restart_daemon" in src
+    assert "restart_vms_after_finished_backups(k8s, logger)" in src
+    assert "target=backup_restart_daemon" in src
+
+
 class FakeStorageApi:
-    def __init__(self, provisioners):
+    def __init__(self, provisioners, parameters=None):
         self.provisioners = provisioners
+        self.parameters = parameters or {}
 
     def read_storage_class(self, name):
         if name not in self.provisioners:
             raise ApiException(status=404)
-        return type("SC", (), {"provisioner": self.provisioners[name]})()
+        return type("SC", (), {
+            "provisioner": self.provisioners[name],
+            "parameters": self.parameters.get(name, {}),
+        })()
 
 
 class FakeCoreApi:
-    def __init__(self, pvc_classes):
+    def __init__(self, pvc_classes, pv_names=None):
         self.pvc_classes = pvc_classes
+        self.pv_names = pv_names or {}
 
     def read_namespaced_persistent_volume_claim(self, name, ns):
         if name not in self.pvc_classes:
             raise ApiException(status=404)
-        spec = type("Spec", (), {"storage_class_name": self.pvc_classes[name]})()
+        spec = type("Spec", (), {
+            "storage_class_name": self.pvc_classes[name],
+            "volume_name": self.pv_names.get(name),
+        })()
         return type("PVC", (), {"spec": spec})()
 
 
 class SnapshotApi(FakeCustomApi):
     """custom-objects API со снимками ВМ и классами снимков томов."""
 
-    def __init__(self, snapshots=(), drivers=(), vm_volumes=()):
+    def __init__(self, snapshots=(), drivers=(), vm_volumes=(), lvm_volumes=()):
         super().__init__()
         self.snapshots = list(snapshots)
         self.drivers = list(drivers)
         self.vm_volumes = list(vm_volumes)
+        self.lvm_volumes = list(lvm_volumes)
 
     def list_namespaced_custom_object(self, group, version, ns, plural):
         if plural == "virtualmachinesnapshots":
@@ -198,6 +317,8 @@ class SnapshotApi(FakeCustomApi):
         return {"items": []}
 
     def list_cluster_custom_object(self, group, version, plural):
+        if plural == "lvmvolumes":
+            return {"items": self.lvm_volumes}
         return {"items": [{"driver": d} for d in self.drivers]}
 
     def get_namespaced_custom_object(self, group, version, ns, plural, name):
@@ -258,7 +379,11 @@ def test_support_check_matches_the_driver_to_the_vm_disk():
     support = c.snapshot_support("vm1")
     assert support["supported"] is False
     assert support["unsupported"] == [
-        {"storage_class": "local-path", "provisioner": "rancher.io/local-path"}
+        {
+            "storage_class": "local-path",
+            "provisioner": "rancher.io/local-path",
+            "reason": "snapshot_driver_missing",
+        }
     ]
 
 
@@ -266,12 +391,53 @@ def test_support_check_passes_when_the_driver_matches():
     api = SnapshotApi(drivers=["local.csi.openebs.io"], vm_volumes=["vm1-disk"])
     c = _client(api)
     c.core_api = FakeCoreApi({"vm1-disk": "openebs-lvm"})
-    c.storage_api = FakeStorageApi({"openebs-lvm": "local.csi.openebs.io"})
+    c.storage_api = FakeStorageApi(
+        {"openebs-lvm": "local.csi.openebs.io"},
+        {"openebs-lvm": {"thinProvision": "yes"}},
+    )
 
     assert _client(api) is not None
     support = c.snapshot_support("vm1")
     assert support["supported"] is True
     assert support["unsupported"] == []
+
+
+def test_support_check_rejects_thick_openebs_lvm():
+    api = SnapshotApi(drivers=["local.csi.openebs.io"], vm_volumes=["vm1-disk"])
+    c = _client(api)
+    c.core_api = FakeCoreApi({"vm1-disk": "openebs-lvm"})
+    c.storage_api = FakeStorageApi(
+        {"openebs-lvm": "local.csi.openebs.io"},
+        {"openebs-lvm": {"thinProvision": "no"}},
+    )
+
+    support = c.snapshot_support("vm1")
+    assert support["supported"] is False
+    assert support["unsupported"][0]["reason"] == "thin_required"
+
+
+def test_real_thick_pv_is_not_misreported_by_a_recreated_thin_storageclass():
+    """Пересоздание SC под тем же именем не превращает старый PV в thin."""
+    api = SnapshotApi(
+        drivers=["local.csi.openebs.io"],
+        vm_volumes=["vm1-disk"],
+        lvm_volumes=[{
+            "metadata": {"name": "pvc-old"},
+            "spec": {"thinProvision": "no"},
+        }],
+    )
+    c = _client(api)
+    c.core_api = FakeCoreApi(
+        {"vm1-disk": "openebs-lvm"}, {"vm1-disk": "pvc-old"},
+    )
+    c.storage_api = FakeStorageApi(
+        {"openebs-lvm": "local.csi.openebs.io"},
+        {"openebs-lvm": {"thinProvision": "yes"}},
+    )
+
+    support = c.snapshot_support("vm1")
+    assert support["supported"] is False
+    assert support["unsupported"][0]["reason"] == "thin_required"
 
 
 def test_disk_classes_come_from_real_pvcs_not_the_template():
@@ -292,8 +458,9 @@ def test_rollback_from_an_empty_snapshot_is_refused():
     restore = src[src.index("def restore_snapshot"):]
     assert 'if not snap.get("has_disk", True):' in restore
     assert "Откат невозможен" in restore
-    # Проверка должна стоять ДО остановки ВМ: иначе машину гасят зря.
-    assert restore.index("has_disk") < restore.index("client.stop_vm")
+    # Проверка должна стоять ДО создания durable restore: иначе контроллер
+    # зря остановит target через StopTarget.
+    assert restore.index("has_disk") < restore.index("client.restore_vm_snapshot")
 
 
 def test_creation_names_the_actual_storage_class_in_the_error():
@@ -421,7 +588,7 @@ def test_panel_is_told_about_broken_snapshots_before_creating_one():
     assert '@router.get("/{vm_name}/support")' in src
     # Один и тот же текст у отказа и у предупреждения: две формулировки
     # неизбежно разойдутся.
-    assert src.count("_unsupported_reason(support)") == 2
+    assert src.count("_unsupported_reason(support)") == 3
 
 
 def test_support_check_failure_does_not_block_the_panel():
@@ -523,8 +690,7 @@ def test_backup_clone_carries_the_modes_of_the_source_disk():
 
 
 def test_both_clone_paths_set_the_modes():
-    """Восстановление удаляет старый диск ВМ ПЕРЕД созданием нового. Встать с
-    ErrClaimNotValid на этом месте — значит остаться без диска вообще."""
+    """И backup, и staged-restore обязаны повторять режим исходного PVC."""
     src = _source("app", "core", "k8s_client.py")
     assert src.count("**_clone_target_modes(") == 2
 
@@ -536,5 +702,5 @@ def test_installer_fills_the_storage_profile():
     with open(os.path.join(root, "scripts", "install-openebs-lvm.sh"), encoding="utf-8") as f:
         sh = f.read()
     assert "kubectl patch storageprofile openebs-lvm" in sh
-    assert '"volumeMode": "Block"' in sh, "LVM отдаёт сырое блочное устройство"
+    assert '"volumeMode": "Filesystem"' in sh
     assert "|| log" in sh, "падение патча не должно ронять установку под set -e"

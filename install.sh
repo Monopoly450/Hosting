@@ -117,7 +117,7 @@ log "Активный сетевой интерфейс хоста: $ACTIVE_IFAC
 
 step "Установка системных пакетов"
 apt-get update
-apt-get install -y curl iptables bridge-utils jq net-tools openssl nginx fail2ban whiptail
+apt-get install -y curl iptables bridge-utils jq net-tools openssl nginx fail2ban whiptail lvm2 thin-provisioning-tools
 
 # Nginx нужен только как балансировщик (aegis_balancer_*.conf). Его дефолтный
 # сайт занимает порт 80, а он нужен Caddy для HTTP-01 проверки доменов.
@@ -196,17 +196,17 @@ ask_secret() {
     echo "${input:-$generated}"
 }
 
-# 60% свободного места на разделе с /var/lib, но не меньше 40 ГБ: на меньшем
-# пуле не поместится даже пара типовых ВМ, и LVM тогда только мешает.
+# 60% свободного места на разделе с /var/lib. Не увеличиваем значение выше
+# реально доступного: sparse image создастся, но позже заполнит backing FS и
+# уронит записи работающих ВМ с ENOSPC.
 default_lvm_pool_gb() {
     local avail
     avail=$(df -BG --output=avail /var/lib 2>/dev/null | tail -n1 | tr -dc '0-9')
     if [ -z "$avail" ] || [ "$avail" -lt 1 ]; then
-        echo 40
+        echo 0
         return
     fi
     local pool=$(( avail * 60 / 100 ))
-    [ "$pool" -lt 40 ] && pool=40
     echo "$pool"
 }
 
@@ -673,18 +673,25 @@ step "Настройка блочного хранилища LVM (снимки �
 STORAGE_CLASS=$(grep -E '^STORAGE_CLASS=' "${PROJECT_DIR}/.env" 2>/dev/null | tail -n1 | cut -d= -f2-)
 [ -z "$LVM_POOL_GB" ] && LVM_POOL_GB=$(default_lvm_pool_gb)
 log "Пул LVM: ${LVM_POOL_GB} ГБ, класс дисков ВМ: ${STORAGE_CLASS:-<не задан>}"
+EXPECTED_LVM_CHART_VERSION="${OPEN_EBS_LVM_CHART_VERSION:-1.9.0}"
+LVM_SETUP_OK=false
 if [ -f "${PROJECT_DIR}/scripts/install-openebs-lvm.sh" ]; then
-    AEGIS_LVM_POOL_GB="${LVM_POOL_GB}" \
-        bash "${PROJECT_DIR}/scripts/install-openebs-lvm.sh" \
-        || warn "Настройка LVM завершилась с ошибкой — можно перезапустить позже: sudo bash scripts/install-openebs-lvm.sh"
+    if AEGIS_LVM_POOL_GB="${LVM_POOL_GB}" \
+       OPEN_EBS_LVM_CHART_VERSION="${EXPECTED_LVM_CHART_VERSION}" \
+       bash "${PROJECT_DIR}/scripts/install-openebs-lvm.sh"; then
+        LVM_SETUP_OK=true
+    else
+        warn "Настройка LVM завершилась с ошибкой."
+    fi
+else
+    warn "scripts/install-openebs-lvm.sh не найден."
 fi
 
-# Проверяем результат, а не верим коду возврата. У скрипта LVM стоит set -e:
-# упади он на создании группы томов или на установке чарта — StorageClass и
-# VolumeSnapshotClass в конце файла просто не выполнятся, а install.sh об
-# этом узнает только по warn выше и пойдёт дальше. Дальше панель поднимется
-# с STORAGE_CLASS=openebs-lvm, которого в кластере нет, и НИ ОДНА ВМ не
-# создастся: PVC навсегда останется Pending.
+# Проверяем весь результат, а не только наличие объектов. При upgrade старые
+# StorageClass/VolumeSnapshotClass остаются в кластере даже после неудачного
+# Helm upgrade и раньше маскировали ошибку: установщик объявлял snapshots
+# готовыми, хотя контроллер оставался на версии без restore или в частично
+# обновлённом состоянии.
 if [ "$STORAGE_CLASS" = "openebs-lvm" ]; then
     if ! kubectl get storageclass openebs-lvm >/dev/null 2>&1; then
         warn "Класс хранения openebs-lvm в кластере не появился — возвращаю local-path,"
@@ -693,14 +700,39 @@ if [ "$STORAGE_CLASS" = "openebs-lvm" ]; then
         warn "STORAGE_CLASS=openebs-lvm и docker compose up -d --build backend worker"
         sed -i 's/^STORAGE_CLASS=.*/STORAGE_CLASS=local-path/' "${PROJECT_DIR}/.env"
         STORAGE_CLASS="local-path"
-    elif ! kubectl get volumesnapshotclass >/dev/null 2>&1 \
-         || [ -z "$(kubectl get volumesnapshotclass -o name 2>/dev/null)" ]; then
-        # Диски создавать есть на чём, а снимать с них снимки — нечем.
-        # На работу панели не влияет, поэтому класс не откатываем.
-        warn "Класс снимков VolumeSnapshotClass не создан — диски ВМ работать будут, снимки нет."
-        warn "Починить: sudo bash scripts/install-openebs-lvm.sh"
+    elif [ "$(kubectl get storageclass openebs-lvm -o jsonpath='{.parameters.thinProvision}' 2>/dev/null)" != "yes" ]; then
+        error "StorageClass openebs-lvm остался thick: откат снимков на нём не поддерживается. Удалите старое хранилище по docs/LVM_RESET.md и повторите установку."
     else
-        log "Хранилище openebs-lvm и класс снимков готовы — снимки ВМ доступны."
+        LVM_VERIFY_OK=true
+        CURRENT_SC=$(kubectl get storageclass openebs-lvm \
+            -o jsonpath='{.provisioner}|{.volumeBindingMode}|{.parameters.storage}|{.parameters.volgroup}|{.parameters.thinProvision}' \
+            2>/dev/null || true)
+        [ "$CURRENT_SC" = 'local.csi.openebs.io|WaitForFirstConsumer|lvm|vg-aegis|yes' ] \
+            || LVM_VERIFY_OK=false
+
+        CURRENT_VSC=$(kubectl get volumesnapshotclass openebs-lvm-snapshot \
+            -o jsonpath='{.driver}|{.deletionPolicy}' 2>/dev/null || true)
+        [ "$CURRENT_VSC" = 'local.csi.openebs.io|Delete' ] || LVM_VERIFY_OK=false
+
+        HELM_RELEASE=$(helm list -n openebs-lvm --all --filter '^openebs-lvm$' \
+            -o json 2>/dev/null | jq -r '.[0] | (.status + "|" + .chart)' 2>/dev/null || true)
+        [ "$HELM_RELEASE" = "deployed|lvm-localpv-${EXPECTED_LVM_CHART_VERSION}" ] \
+            || LVM_VERIFY_OK=false
+
+        kubectl rollout status deployment --all -n openebs-lvm --timeout=30s >/dev/null 2>&1 \
+            || LVM_VERIFY_OK=false
+        kubectl rollout status daemonset --all -n openebs-lvm --timeout=30s >/dev/null 2>&1 \
+            || LVM_VERIFY_OK=false
+        kubectl wait --for=condition=Ready pod --all -n openebs-lvm --timeout=30s >/dev/null 2>&1 \
+            || LVM_VERIFY_OK=false
+        systemctl is-active --quiet aegis-lvm-loop.service || LVM_VERIFY_OK=false
+        systemctl is-active --quiet aegis-lvm-thin-monitor.timer || LVM_VERIFY_OK=false
+        [ -f /etc/lvm/profile/aegis-thinpool.profile ] || LVM_VERIFY_OK=false
+
+        if [ "$LVM_SETUP_OK" != true ] || [ "$LVM_VERIFY_OK" != true ]; then
+            error "OpenEBS LVM не прошёл полную проверку после установки/обновления. Исправьте ошибку выше и повторите: sudo bash scripts/install-openebs-lvm.sh"
+        fi
+        log "OpenEBS LVM ${EXPECTED_LVM_CHART_VERSION}, thin StorageClass и точный класс снимков готовы."
     fi
 fi
 

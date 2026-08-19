@@ -176,10 +176,145 @@ class K8sClient:
                 if e.status != 404:
                     raise e
                     
-            return self._parse_vm_object(vm, vmi)
+            result = self._parse_vm_object(vm, vmi)
+            if not result.get("backup_operation"):
+                try:
+                    snapshot_restore = self.active_snapshot_restore(name, namespace)
+                except Exception as error:
+                    # Диагностический lock не должен превращать обычный GET ВМ
+                    # в 500. API самой storage-операции всё равно повторно
+                    # проверяет конфликт перед изменением состояния.
+                    logger.warning(
+                        f"Не удалось проверить snapshot-restore ВМ {name}: {error}"
+                    )
+                else:
+                    if snapshot_restore:
+                        result["backup_operation"] = (
+                            f"snapshot-restore:{snapshot_restore}"
+                        )
+            return result
         except ApiException as e:
             logger.error(f"Ошибка получения VM {name}: {e}")
             raise e
+
+    def active_backup_operation(self, name: str, namespace="default") -> str | None:
+        """Имя offline-бэкапа, ради которого ВМ должна оставаться выключенной."""
+        vm = self.custom_api.get_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines", name,
+        )
+        return (
+            (vm.get("metadata") or {}).get("annotations") or {}
+        ).get(self.BACKUP_OPERATION)
+
+    def ensure_no_backup_operation(self, name: str, namespace="default"):
+        operation = self.active_backup_operation(name, namespace)
+        if operation:
+            raise ValueError(
+                f"ВМ временно выключена для бэкапа {operation}. "
+                "Дождитесь завершения или отмените бэкап."
+            )
+        restore_operation = self.active_backup_restore_operation(name, namespace)
+        if restore_operation:
+            raise ValueError(
+                f"Для ВМ уже выполняется восстановление из бэкапа "
+                f"{restore_operation}. Дождитесь завершения операции."
+            )
+        restore = self.active_backup_restore(name, namespace)
+        if restore:
+            raise ValueError(
+                f"Для ВМ выполняется восстановление диска {restore}. "
+                "Дождитесь завершения операции."
+            )
+        snapshot_restore = self.active_snapshot_restore(name, namespace)
+        if snapshot_restore:
+            raise ValueError(
+                f"Для ВМ выполняется откат на снимок {snapshot_restore}. "
+                "Дождитесь завершения операции."
+            )
+
+    @staticmethod
+    def _snapshot_restore_failed(status: dict) -> bool:
+        return bool(status.get("failureReason")) or any(
+            condition.get("type") == "Failure"
+            and condition.get("status") == "True"
+            for condition in status.get("conditions") or []
+        )
+
+    def active_snapshot_restore(self, vm_name: str,
+                                namespace="default") -> str | None:
+        try:
+            result = self.custom_api.list_namespaced_custom_object(
+                "snapshot.kubevirt.io", "v1beta1", namespace,
+                "virtualmachinerestores",
+            )
+        except ApiException as error:
+            if error.status == 404:
+                return None
+            raise
+        for restore in result.get("items", []):
+            meta = restore.get("metadata") or {}
+            spec = restore.get("spec") or {}
+            annotations = meta.get("annotations") or {}
+            target = (spec.get("target") or {}).get("name")
+            # Пока restart-аннотация не снята, worker ещё не вернул исходное
+            # power-state; все операции с диском и ручной Start блокируются.
+            pending_restart = annotations.get(self.RESTART_AFTER_RESTORE) == "true"
+            restore_status = restore.get("status") or {}
+            complete = bool(restore_status.get("complete"))
+            failed = self._snapshot_restore_failed(restore_status)
+            if target == vm_name and ((not complete and not failed) or pending_restart):
+                return meta.get("name") or "текущий откат"
+        return None
+
+    def active_backup_restore_operation(self, name: str,
+                                        namespace="default") -> str | None:
+        vm = self.custom_api.get_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines", name,
+        )
+        return (
+            (vm.get("metadata") or {}).get("annotations") or {}
+        ).get(self.BACKUP_RESTORE_SOURCE)
+
+    def active_backup_restore(self, vm_name: str,
+                              namespace="default") -> str | None:
+        """Незавершённый target DataVolume восстановления из бэкапа."""
+        result = self.custom_api.list_namespaced_custom_object(
+            "cdi.kubevirt.io", "v1beta1", namespace, "datavolumes",
+            label_selector=f"hosting.antigravity.io/restore-vm={vm_name}",
+        )
+        for dv in result.get("items", []):
+            phase = (dv.get("status") or {}).get("phase") or "Pending"
+            if phase not in {"Succeeded", "Failed"}:
+                return (dv.get("metadata") or {}).get("name") or "диска"
+        return None
+
+    def ensure_backup_not_used_for_restore(self, backup_name: str,
+                                           namespace="default"):
+        vm_result = self.custom_api.list_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines",
+        )
+        for vm in vm_result.get("items", []):
+            annotations = (vm.get("metadata") or {}).get("annotations") or {}
+            if annotations.get(self.BACKUP_RESTORE_SOURCE) == backup_name:
+                raise ValueError(
+                    f"Бэкап {backup_name} зарезервирован незавершённым "
+                    "восстановлением диска"
+                )
+        result = self.custom_api.list_namespaced_custom_object(
+            "cdi.kubevirt.io", "v1beta1", namespace, "datavolumes",
+            label_selector="hosting.antigravity.io/restore-vm",
+        )
+        for dv in result.get("items", []):
+            phase = (dv.get("status") or {}).get("phase") or "Pending"
+            source = self._backup_source_pvc(dv)
+            # Failed target тоже защищает последнюю исправную копию: повторный
+            # restore сначала удалит неудачный target и только затем сможет
+            # безопасно использовать source снова.
+            if source == backup_name and phase != "Succeeded":
+                raise ValueError(
+                    f"Бэкап {backup_name} сейчас используется для "
+                    f"восстановления диска (статус: {phase})"
+                )
 
     def create_vm_from_manifest(self, manifest: dict, namespace="default"):
         """Создать VM из готового словаря-манифеста"""
@@ -565,12 +700,590 @@ class K8sClient:
 
     # --- РЕЗЕРВНОЕ КОПИРОВАНИЕ И ВОССТАНОВЛЕНИЕ (BACKUPS) ---
 
+    RESTART_AFTER_BACKUP = "hosting.antigravity.io/restart-after-backup"
+    BACKUP_OPERATION = "hosting.antigravity.io/offline-backup"
+    BACKUP_OPERATION_STARTED_AT = "hosting.antigravity.io/offline-backup-started-at"
+    BACKUP_RESTART_VM = "hosting.antigravity.io/offline-backup-restart-vm"
+    BACKUP_SOURCE_PVC = "hosting.antigravity.io/offline-backup-source-pvc"
+    BACKUP_RESTORE_OPERATION = "hosting.antigravity.io/backup-restore-operation"
+    BACKUP_RESTORE_STARTED_AT = "hosting.antigravity.io/backup-restore-started-at"
+    BACKUP_RESTORE_SOURCE = "hosting.antigravity.io/backup-restore-source"
+    BACKUP_RESTORE_TARGET = "hosting.antigravity.io/backup-restore-target"
+    BACKUP_RESTORE_OLD_PVC = "hosting.antigravity.io/backup-restore-old-pvc"
+    BACKUP_RESTORE_RESTART_VM = "hosting.antigravity.io/backup-restore-restart-vm"
+    VM_ACTION_GUARD = "hosting.antigravity.io/vm-action-guard"
+    VM_ACTION_GUARD_SECONDS = 180
+    BACKUP_ORPHAN_GRACE_SECONDS = 180
+    BACKUP_MAX_RUNTIME_SECONDS = 6 * 60 * 60
+    BACKUP_RESTORE_ORPHAN_GRACE_SECONDS = 180
+    BACKUP_RESTORE_MAX_RUNTIME_SECONDS = 6 * 60 * 60
+
+    @staticmethod
+    def _annotation_json_path(key: str) -> str:
+        return "/metadata/annotations/" + key.replace("~", "~0").replace("/", "~1")
+
+    def acquire_backup_operation(self, vm: dict, backup_name: str,
+                                 restart_vm: bool,
+                                 source_pvc: str,
+                                 namespace="default"):
+        """Атомарно ставит per-VM lock через resourceVersion CAS."""
+        meta = vm.get("metadata") or {}
+        name = meta.get("name")
+        resource_version = meta.get("resourceVersion")
+        annotations = meta.get("annotations")
+        if not name or not resource_version:
+            raise RuntimeError("Kubernetes не вернул name/resourceVersion ВМ")
+        if (annotations or {}).get(self.BACKUP_OPERATION):
+            raise ValueError(
+                f"Бэкап {(annotations or {})[self.BACKUP_OPERATION]} уже выполняется"
+            )
+        if (annotations or {}).get(self.BACKUP_RESTORE_OPERATION):
+            raise ValueError("Для ВМ уже выполняется восстановление из бэкапа")
+        if self.active_snapshot_restore(name, namespace):
+            raise ValueError("Для ВМ уже выполняется откат на снимок")
+        guard = (annotations or {}).get(self.VM_ACTION_GUARD)
+        if guard:
+            try:
+                guard_started = float(guard.rsplit(":", 1)[-1])
+            except (TypeError, ValueError):
+                guard_started = time.time()
+            if time.time() - guard_started < self.VM_ACTION_GUARD_SECONDS:
+                raise ValueError(
+                    "Для ВМ уже выполняется операция запуска или перезапуска. "
+                    "Повторите создание бэкапа через несколько секунд."
+                )
+
+        operations = [{
+            "op": "test", "path": "/metadata/resourceVersion",
+            "value": resource_version,
+        }]
+        values = {
+            self.BACKUP_OPERATION: backup_name,
+            self.BACKUP_OPERATION_STARTED_AT: str(time.time()),
+            self.BACKUP_RESTART_VM: "true" if restart_vm else "false",
+            self.BACKUP_SOURCE_PVC: source_pvc,
+        }
+        if annotations is None:
+            operations.append({
+                "op": "add", "path": "/metadata/annotations", "value": values,
+            })
+        else:
+            # resourceVersion делает две конкурирующие попытки взаимоисключающими:
+            # после первого patch второй получит 409 и не выключит ВМ.
+            for key, value in values.items():
+                operations.append({
+                    "op": "add", "path": self._annotation_json_path(key),
+                    "value": value,
+                })
+            # Оставшийся после аварийного завершения старый guard можно снять
+            # тем же CAS-patch: свежий guard выше всегда блокирует бэкап.
+            if guard:
+                operations.append({
+                    "op": "remove",
+                    "path": self._annotation_json_path(self.VM_ACTION_GUARD),
+                })
+        try:
+            return self.custom_api.patch_namespaced_custom_object(
+                "kubevirt.io", "v1", namespace, "virtualmachines", name,
+                operations, _content_type="application/json-patch+json",
+            )
+        except ApiException as error:
+            if error.status in {409, 422}:
+                raise ValueError(
+                    "Состояние ВМ изменилось одновременно с запуском бэкапа. "
+                    "Повторите запрос."
+                )
+            raise
+
+    def acquire_vm_action_guard(self, name: str, action: str,
+                                namespace="default") -> str:
+        """Сериализует Start/Reboot с постановкой offline-backup lock."""
+        vm = self.custom_api.get_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines", name,
+        )
+        meta = vm.get("metadata") or {}
+        annotations = meta.get("annotations")
+        active_backup = (annotations or {}).get(self.BACKUP_OPERATION)
+        if active_backup:
+            raise ValueError(
+                f"ВМ временно выключена для бэкапа {active_backup}. "
+                "Дождитесь завершения или отмените бэкап."
+            )
+        active_restore = (annotations or {}).get(self.BACKUP_RESTORE_OPERATION)
+        if active_restore:
+            raise ValueError(
+                "ВМ временно заблокирована для восстановления диска из бэкапа"
+            )
+        if self.active_snapshot_restore(name, namespace):
+            raise ValueError("ВМ временно заблокирована для отката на снимок")
+        current_guard = (annotations or {}).get(self.VM_ACTION_GUARD)
+        if current_guard:
+            try:
+                started = float(current_guard.rsplit(":", 1)[-1])
+            except (TypeError, ValueError):
+                started = time.time()
+            if time.time() - started < self.VM_ACTION_GUARD_SECONDS:
+                raise ValueError("Для ВМ уже выполняется другая операция")
+
+        token = f"{action}:{time.time()}"
+        operations = [{
+            "op": "test", "path": "/metadata/resourceVersion",
+            "value": meta.get("resourceVersion"),
+        }]
+        if annotations is None:
+            operations.append({
+                "op": "add", "path": "/metadata/annotations",
+                "value": {self.VM_ACTION_GUARD: token},
+            })
+        else:
+            operations.append({
+                "op": "add", "path": self._annotation_json_path(
+                    self.VM_ACTION_GUARD
+                ), "value": token,
+            })
+        try:
+            self.custom_api.patch_namespaced_custom_object(
+                "kubevirt.io", "v1", namespace, "virtualmachines", name,
+                operations, _content_type="application/json-patch+json",
+            )
+        except ApiException as error:
+            if error.status in {409, 422}:
+                raise ValueError(
+                    "Состояние ВМ изменилось одновременно с операцией. "
+                    "Повторите запрос."
+                )
+            raise
+        return token
+
+    def acquire_backup_restore_operation(
+        self, vm: dict, operation_name: str, backup_name: str,
+        target_pvc: str, restart_vm: bool, namespace="default",
+        old_pvc: str = None,
+    ):
+        """CAS-lock до остановки ВМ и удаления её текущего диска."""
+        meta = vm.get("metadata") or {}
+        annotations = meta.get("annotations")
+        if (annotations or {}).get(self.BACKUP_OPERATION):
+            raise ValueError("Сначала дождитесь завершения текущего бэкапа")
+        if (annotations or {}).get(self.BACKUP_RESTORE_OPERATION):
+            raise ValueError("Восстановление диска уже выполняется")
+        if self.active_snapshot_restore(meta.get("name"), namespace):
+            raise ValueError("Для ВМ уже выполняется откат на снимок")
+        if (annotations or {}).get(self.VM_ACTION_GUARD):
+            raise ValueError("Для ВМ выполняется операция запуска или перезапуска")
+        values = {
+            self.BACKUP_RESTORE_OPERATION: operation_name,
+            self.BACKUP_RESTORE_STARTED_AT: str(time.time()),
+            self.BACKUP_RESTORE_SOURCE: backup_name,
+            self.BACKUP_RESTORE_TARGET: target_pvc,
+            self.BACKUP_RESTORE_OLD_PVC: old_pvc or target_pvc,
+            self.BACKUP_RESTORE_RESTART_VM: "true" if restart_vm else "false",
+        }
+        operations = [{
+            "op": "test", "path": "/metadata/resourceVersion",
+            "value": meta.get("resourceVersion"),
+        }]
+        if annotations is None:
+            operations.append({
+                "op": "add", "path": "/metadata/annotations", "value": values,
+            })
+        else:
+            operations.extend({
+                "op": "add", "path": self._annotation_json_path(key),
+                "value": value,
+            } for key, value in values.items())
+        try:
+            return self.custom_api.patch_namespaced_custom_object(
+                "kubevirt.io", "v1", namespace, "virtualmachines",
+                meta.get("name"), operations,
+                _content_type="application/json-patch+json",
+            )
+        except ApiException as error:
+            if error.status in {409, 422}:
+                raise ValueError(
+                    "Состояние ВМ изменилось одновременно с восстановлением. "
+                    "Повторите запрос."
+                )
+            raise
+
+    def clear_backup_restore_operation(self, vm_name: str, operation_name: str,
+                                       namespace="default"):
+        vm = self.custom_api.get_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
+        )
+        meta = vm.get("metadata") or {}
+        annotations = meta.get("annotations") or {}
+        current = annotations.get(self.BACKUP_RESTORE_OPERATION)
+        if current is None:
+            return None
+        if current != operation_name:
+            raise ValueError(f"На ВМ уже другая restore-операция: {current}")
+        keys = [
+            self.BACKUP_RESTORE_OPERATION, self.BACKUP_RESTORE_STARTED_AT,
+            self.BACKUP_RESTORE_SOURCE,
+            self.BACKUP_RESTORE_TARGET, self.BACKUP_RESTORE_OLD_PVC,
+            self.BACKUP_RESTORE_RESTART_VM,
+        ]
+        operations = [
+            {"op": "test", "path": "/metadata/resourceVersion",
+             "value": meta.get("resourceVersion")},
+            {"op": "test", "path": self._annotation_json_path(
+                self.BACKUP_RESTORE_OPERATION), "value": operation_name},
+        ]
+        operations.extend({
+            "op": "remove", "path": self._annotation_json_path(key),
+        } for key in keys if key in annotations)
+        return self.custom_api.patch_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
+            operations, _content_type="application/json-patch+json",
+        )
+
+    def clear_vm_action_guard(self, name: str, token: str,
+                              namespace="default"):
+        vm = self.custom_api.get_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines", name,
+        )
+        meta = vm.get("metadata") or {}
+        annotations = meta.get("annotations") or {}
+        if annotations.get(self.VM_ACTION_GUARD) != token:
+            return None
+        return self.custom_api.patch_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines", name,
+            [
+                {"op": "test", "path": "/metadata/resourceVersion",
+                 "value": meta.get("resourceVersion")},
+                {"op": "test", "path": self._annotation_json_path(
+                    self.VM_ACTION_GUARD), "value": token},
+                {"op": "remove", "path": self._annotation_json_path(
+                    self.VM_ACTION_GUARD)},
+            ],
+            _content_type="application/json-patch+json",
+        )
+
+    def backup_restores_awaiting_finish(self, namespace="default") -> list:
+        """Restore-операции, которые worker может безопасно завершить.
+
+        Marker ставится до создания staged DataVolume. Поэтому после падения
+        API marker может остаться без target-DV; сам DV также может навсегда
+        зависнуть в нетерминальной фазе. В обоих случаях старый диск ВМ ещё не
+        тронут, и после grace/timeout операцию можно безопасно отменить.
+        """
+        dv_result = self.custom_api.list_namespaced_custom_object(
+            "cdi.kubevirt.io", "v1beta1", namespace, "datavolumes",
+            label_selector="hosting.antigravity.io/restore-operation",
+        )
+        by_operation = {}
+        for dv in dv_result.get("items", []):
+            operation = ((dv.get("metadata") or {}).get("labels") or {}).get(
+                "hosting.antigravity.io/restore-operation"
+            )
+            if operation:
+                by_operation[operation] = dv
+        vm_result = self.custom_api.list_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines",
+        )
+        now = time.time()
+        ready = []
+        for vm in vm_result.get("items", []):
+            meta = vm.get("metadata") or {}
+            annotations = meta.get("annotations") or {}
+            operation = annotations.get(self.BACKUP_RESTORE_OPERATION)
+            if not operation:
+                continue
+            try:
+                started_at = float(annotations.get(
+                    self.BACKUP_RESTORE_STARTED_AT, "0"
+                ))
+            except (TypeError, ValueError):
+                started_at = 0
+            age = now - started_at
+            target = by_operation.get(operation)
+            target_name = annotations.get(self.BACKUP_RESTORE_TARGET) or operation
+            if not target and target_name:
+                # После успешного switch transient labels снимаются до
+                # restart/clear-marker. Если patch сработал, а ответ потерялся
+                # или следующий шаг упал, durable VM marker всё ещё знает
+                # точное имя target. Находим его напрямую, иначе живой диск
+                # ошибочно выглядел бы Orphaned.
+                try:
+                    target = self.custom_api.get_namespaced_custom_object(
+                        "cdi.kubevirt.io", "v1beta1", namespace,
+                        "datavolumes", target_name,
+                    )
+                except ApiException as error:
+                    if error.status != 404:
+                        raise
+            if not target:
+                if age >= self.BACKUP_RESTORE_ORPHAN_GRACE_SECONDS:
+                    ready.append({
+                        "operation": operation,
+                        "vm": meta.get("name"),
+                        "backup": annotations.get(self.BACKUP_RESTORE_SOURCE),
+                        "target": annotations.get(self.BACKUP_RESTORE_TARGET),
+                        "old_pvc": annotations.get(self.BACKUP_RESTORE_OLD_PVC),
+                        "restart_vm": False,
+                        "phase": "Orphaned",
+                    })
+                continue
+            phase = (target.get("status") or {}).get("phase") or "Pending"
+            if phase not in {"Succeeded", "Failed"}:
+                if age >= self.BACKUP_RESTORE_MAX_RUNTIME_SECONDS:
+                    ready.append({
+                        "operation": operation,
+                        "vm": meta.get("name"),
+                        "backup": annotations.get(self.BACKUP_RESTORE_SOURCE),
+                        "target": annotations.get(self.BACKUP_RESTORE_TARGET),
+                        "old_pvc": annotations.get(self.BACKUP_RESTORE_OLD_PVC),
+                        "restart_vm": False,
+                        "phase": "TimedOut",
+                    })
+                continue
+            ready.append({
+                "operation": operation,
+                "vm": meta.get("name"),
+                "backup": annotations.get(self.BACKUP_RESTORE_SOURCE),
+                "target": annotations.get(self.BACKUP_RESTORE_TARGET),
+                "old_pvc": annotations.get(self.BACKUP_RESTORE_OLD_PVC),
+                "restart_vm": annotations.get(
+                    self.BACKUP_RESTORE_RESTART_VM, "false"
+                ) == "true",
+                "phase": phase,
+            })
+        return ready
+
+    def finish_backup_restore(self, item: dict, namespace="default") -> dict:
+        """Переключает ВМ на уже готовый staged-DV без delete-old-first."""
+        operation = item["operation"]
+        vm_name = item["vm"]
+        target = item["target"]
+        old_pvc = item.get("old_pvc")
+        if item.get("phase") in {"Failed", "Orphaned", "TimedOut"}:
+            # Старый диск не менялся, поэтому неудачный staging можно удалить
+            # и безопасно разрешить повтор. Source backup остаётся целым.
+            # Защита от частичного success: если VM spec уже переключился на
+            # target, удалять его нельзя ни при каком stale/Orphaned статусе.
+            try:
+                vm = self.custom_api.get_namespaced_custom_object(
+                    "kubevirt.io", "v1", namespace,
+                    "virtualmachines", vm_name,
+                )
+            except ApiException as error:
+                if error.status != 404:
+                    raise
+                vm = None
+            if vm is not None and _primary_disk_pvc_name(vm) == target:
+                raise RuntimeError(
+                    f"Target {target} уже является системным диском ВМ "
+                    f"{vm_name}; отказ от небезопасного удаления"
+                )
+            try:
+                self.custom_api.delete_namespaced_custom_object(
+                    "cdi.kubevirt.io", "v1beta1", namespace,
+                    "datavolumes", target,
+                )
+            except ApiException as error:
+                if error.status != 404:
+                    raise
+            try:
+                self.core_api.delete_namespaced_persistent_volume_claim(
+                    target, namespace
+                )
+            except ApiException as error:
+                if error.status != 404:
+                    raise
+            self.clear_backup_restore_operation(vm_name, operation, namespace)
+            result = {"status": "failed", "vm": vm_name, "target": target}
+            if item.get("phase") != "Failed":
+                result["reason"] = item.get("phase")
+            return result
+
+        vm = self.custom_api.get_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
+        )
+        current_pvc = _primary_disk_pvc_name(vm)
+        if current_pvc != target:
+            if not old_pvc or current_pvc != old_pvc:
+                raise RuntimeError(
+                    f"Системный диск ВМ изменился: ожидался {old_pvc}, "
+                    f"получен {current_pvc}"
+                )
+            if bool((vm.get("spec") or {}).get("running")):
+                self.stop_vm(vm_name, namespace)
+            if not self.wait_for_vm_stopped(vm_name, namespace):
+                raise RuntimeError(
+                    "ВМ не успела выключиться перед переключением готового диска"
+                )
+
+            target_dv = self.custom_api.get_namespaced_custom_object(
+                "cdi.kubevirt.io", "v1beta1", namespace,
+                "datavolumes", target,
+            )
+            volumes = copy.deepcopy(
+                (vm.get("spec") or {}).get("template", {}).get("spec", {}).get("volumes", [])
+            )
+            replaced = False
+            for volume in volumes:
+                if (volume.get("dataVolume") or {}).get("name") == old_pvc:
+                    volume["dataVolume"]["name"] = target
+                    replaced = True
+                    break
+                if (volume.get("persistentVolumeClaim") or {}).get("claimName") == old_pvc:
+                    volume["persistentVolumeClaim"]["claimName"] = target
+                    replaced = True
+                    break
+            if not replaced:
+                raise RuntimeError(f"Том {old_pvc} не найден в шаблоне ВМ")
+
+            templates = copy.deepcopy(
+                (vm.get("spec") or {}).get("dataVolumeTemplates", [])
+            )
+            had_template = any(
+                (template.get("metadata") or {}).get("name") == old_pvc
+                for template in templates
+            )
+            templates = [
+                template for template in templates
+                if (template.get("metadata") or {}).get("name") not in {old_pvc, target}
+            ]
+            if had_template:
+                durable_labels = {
+                    key: value
+                    for key, value in (
+                        (target_dv.get("metadata") or {}).get("labels") or {}
+                    ).items()
+                    if key not in {
+                        "hosting.antigravity.io/restore-source",
+                        "hosting.antigravity.io/restore-vm",
+                        "hosting.antigravity.io/restore-operation",
+                        "hosting.antigravity.io/restore-old-pvc",
+                    }
+                }
+                templates.append({
+                    "metadata": {
+                        "name": target,
+                        "labels": durable_labels,
+                    },
+                    "spec": copy.deepcopy(target_dv.get("spec") or {}),
+                })
+
+            self.custom_api.patch_namespaced_custom_object(
+                "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
+                {"spec": {
+                    "template": {"spec": {"volumes": volumes}},
+                    "dataVolumeTemplates": templates,
+                }},
+            )
+
+            # Старый диск удаляем только ПОСЛЕ успешного переключения VM spec.
+            try:
+                self.custom_api.delete_namespaced_custom_object(
+                    "cdi.kubevirt.io", "v1beta1", namespace,
+                    "datavolumes", old_pvc,
+                )
+            except ApiException as error:
+                if error.status != 404:
+                    raise
+            try:
+                self.core_api.delete_namespaced_persistent_volume_claim(
+                    old_pvc, namespace
+                )
+            except ApiException as error:
+                if error.status != 404:
+                    raise
+
+        # Если предыдущий тик успел переключить VM spec, но упал на cleanup,
+        # повторяем только безопасное удаление уже неиспользуемого старого DV.
+        if current_pvc == target and old_pvc and old_pvc != target:
+            try:
+                self.custom_api.delete_namespaced_custom_object(
+                    "cdi.kubevirt.io", "v1beta1", namespace,
+                    "datavolumes", old_pvc,
+                )
+            except ApiException as error:
+                if error.status != 404:
+                    raise
+            try:
+                self.core_api.delete_namespaced_persistent_volume_claim(
+                    old_pvc, namespace
+                )
+            except ApiException as error:
+                if error.status != 404:
+                    raise
+
+        # С этого момента staged-DV стал единственным рабочим диском и уже
+        # учтён записью VMTask. Убираем временные labels, чтобы capacity guard
+        # не считал его вторым полным клоном. Если patch не прошёл, durable
+        # restore-marker остаётся и следующий тик безопасно повторит cleanup.
+        self.custom_api.patch_namespaced_custom_object(
+            "cdi.kubevirt.io", "v1beta1", namespace,
+            "datavolumes", target,
+            {"metadata": {"labels": {
+                "hosting.antigravity.io/restore-source": None,
+                "hosting.antigravity.io/restore-vm": None,
+                "hosting.antigravity.io/restore-operation": None,
+                "hosting.antigravity.io/restore-old-pvc": None,
+            }}},
+        )
+
+        if item.get("restart_vm"):
+            current = self.get_vm(vm_name, namespace)
+            if current.get("status") != "Running":
+                self.start_vm(vm_name, namespace)
+        self.clear_backup_restore_operation(vm_name, operation, namespace)
+        return {"status": "succeeded", "vm": vm_name, "target": target}
+
+    def guarded_power_action(self, action: str, name: str,
+                             namespace="default"):
+        """Выполняет power action без гонки с началом клонирования диска."""
+        token = self.acquire_vm_action_guard(name, action, namespace)
+        try:
+            result = self._call_vms_subresource(action, name, namespace)
+        except Exception:
+            # Ошибка subresource неоднозначна: сервер мог выполнить Start, но
+            # потерять ответ. Оставляем короткий guard, чтобы backup не начал
+            # clone в этом окне; старый guard сам протухает через три минуты.
+            raise
+        else:
+            self.clear_vm_action_guard(name, token, namespace)
+            return result
+
+    def _assert_no_backup_in_progress(self, name: str, namespace="default"):
+        """Не допускает двух offline-клонов одного диска одновременно.
+
+        Первый завершившийся клон иначе включит ВМ, пока второй ещё читает
+        исходный PVC, и CDI снова увидит смонтированный источник.
+        """
+        result = self.custom_api.list_namespaced_custom_object(
+            "cdi.kubevirt.io", "v1beta1", namespace, "datavolumes",
+            label_selector=f"hosting.antigravity.io/backup-source={name}",
+        )
+        for dv in result.get("items", []):
+            phase = (dv.get("status") or {}).get("phase") or "Pending"
+            annotations = (dv.get("metadata") or {}).get("annotations") or {}
+            restart_pending = annotations.get(self.RESTART_AFTER_BACKUP) == "true"
+            if phase not in {"Succeeded", "Failed"} or restart_pending:
+                backup_name = (dv.get("metadata") or {}).get("name") or "текущий бэкап"
+                raise ValueError(
+                    f"Бэкап {backup_name} ещё не завершён (статус: {phase}). "
+                    "Дождитесь завершения и включения ВМ."
+                )
+
     def create_vm_backup(self, name: str, namespace="default"):
         """Создает бэкап диска (клонирует PVC)"""
         try:
+            self.ensure_no_backup_operation(name, namespace)
+            self._assert_no_backup_in_progress(name, namespace)
             vm = self.custom_api.get_namespaced_custom_object(
                 "kubevirt.io", "v1", namespace, "virtualmachines", name
             )
+            active_operation = (
+                (vm.get("metadata") or {}).get("annotations") or {}
+            ).get(self.BACKUP_OPERATION)
+            if active_operation:
+                raise ValueError(
+                    f"Бэкап {active_operation} ещё завершает offline-операцию. "
+                    "Дождитесь включения ВМ."
+                )
             orig_pvc_name = _primary_disk_pvc_name(vm)
             if not orig_pvc_name:
                 raise Exception(f"Оригинальный PVC диска для VM {name} не найден")
@@ -594,6 +1307,33 @@ class K8sClient:
             # имени не ограничена, поэтому длинное имя раньше превращало
             # корректный запрос в неочевидный 422 от API Kubernetes.
             backup_name = f"{name[:63 - len(suffix)].rstrip('-')}{suffix}"
+
+            # CDI не клонирует PVC, пока он смонтирован в Pod.
+            # У запущенной ВМ системный PVC держит virt-launcher, и
+            # «бэкап» вечно висит в CloneScheduled. Гасим ВМ и храним
+            # намерение запуска на самом DV: воркер поднимет ВМ после
+            # Succeeded/Failed, даже если панель за это время перезапустилась.
+            was_running = bool(vm.get("spec", {}).get("running", False))
+            # Блокировка нужна и для уже выключенной ВМ: иначе пользователь
+            # сможет включить её во время clone и снова смонтировать source
+            # PVC. Заодно CAS не допускает два параллельных backup-запроса.
+            self.acquire_backup_operation(
+                vm, backup_name, restart_vm=was_running,
+                source_pvc=orig_pvc_name, namespace=namespace,
+            )
+            if was_running:
+                # Durable-маркер ставится ДО stop. Если backend/worker упадёт
+                # между остановкой и созданием DataVolume, фоновый reconciler
+                # увидит осиротевшую операцию и включит ВМ обратно.
+                self.stop_vm(name, namespace)
+                if not self.wait_for_vm_stopped(name, namespace):
+                    raise RuntimeError("ВМ не успела выключиться; бэкап не запущен")
+
+            annotations = {
+                "cdi.kubevirt.io/storage.bind.immediate.requested": "true",
+            }
+            if was_running:
+                annotations[self.RESTART_AFTER_BACKUP] = "true"
             
             # Создаем DataVolume с источником clone pvc
             dv_manifest = {
@@ -602,6 +1342,11 @@ class K8sClient:
                 "metadata": {
                     "name": backup_name,
                     "namespace": namespace,
+                    "annotations": annotations,
+                    #
+                    # Бэкап — автономный DV, его не подключает Pod/VMI.
+                    # На SC с WaitForFirstConsumer без immediate binding PVC
+                    # никогда не выделится и клон зависнет на 0/N/A.
                     "labels": {
                         "hosting.antigravity.io/backup-source": name
                     }
@@ -628,8 +1373,8 @@ class K8sClient:
                         # при этом создавался объектом и вечно висел в Unknown.
                         #
                         # Копия обязана повторять исходник ещё и потому, что
-                        # клон между Block и Filesystem CDI не делает: диск ВМ
-                        # на LVM — блочный, и копия должна быть блочной.
+                        # клон между Block и Filesystem CDI не делает. Новые
+                        # диски панели — Filesystem, но старые могли быть Block.
                         **_clone_target_modes(orig_pvc),
                         "resources": {
                             "requests": {
@@ -640,15 +1385,60 @@ class K8sClient:
                 }
             }
             
-            self.custom_api.create_namespaced_custom_object(
-                group="cdi.kubevirt.io",
-                version="v1beta1",
-                namespace=namespace,
-                plural="datavolumes",
-                body=dv_manifest
-            )
+            try:
+                self.custom_api.create_namespaced_custom_object(
+                    group="cdi.kubevirt.io",
+                    version="v1beta1",
+                    namespace=namespace,
+                    plural="datavolumes",
+                    body=dv_manifest
+                )
+            except Exception as create_error:
+                # Ошибка create может быть неоднозначной: API-сервер мог
+                # создать DV и потерять ответ. Сначала читаем объект по
+                # имени; снимать lock (и включать ВМ) можно только при
+                # подтверждённом 404. Это важно и для изначально выключенной
+                # ВМ: lock не должен оставаться до orphan-timeout без причины.
+                try:
+                    existing = self.custom_api.get_namespaced_custom_object(
+                        "cdi.kubevirt.io", "v1beta1", namespace,
+                        "datavolumes", backup_name,
+                    )
+                    logger.warning(
+                        f"Создание бэкапа {backup_name} вернуло ошибку, "
+                        "но объект найден в Kubernetes; продолжаю "
+                        f"reconciliation: {create_error}"
+                    )
+                    return {
+                        "status": "creating", "backup_name": backup_name,
+                        "source": orig_pvc_name, "will_restart": was_running,
+                        "reconciled": True,
+                        "phase": (existing.get("status") or {}).get("phase") or "Pending",
+                    }
+                except ApiException as read_error:
+                    if read_error.status == 404:
+                        try:
+                            if was_running:
+                                self.start_vm(name, namespace)
+                            self.clear_backup_operation(
+                                name, backup_name, namespace
+                            )
+                        except Exception as recovery_error:
+                            logger.error(
+                                f"Не удалось завершить восстановление ВМ {name} "
+                                f"после ошибки бэкапа: {recovery_error}"
+                            )
+                except Exception as read_error:
+                    logger.error(
+                        f"Не удалось проверить, был ли создан бэкап "
+                        f"{backup_name}: {read_error}"
+                    )
+                raise
             logger.info(f"Запущен процесс клонирования бэкапа {backup_name} для VM {name}")
-            return {"status": "creating", "backup_name": backup_name, "source": orig_pvc_name}
+            return {
+                "status": "creating", "backup_name": backup_name,
+                "source": orig_pvc_name, "will_restart": was_running,
+            }
         except Exception as e:
             logger.error(f"Ошибка бэкапа VM {name}: {e}")
             raise e
@@ -667,6 +1457,261 @@ class K8sClient:
             )
         return dv
 
+    @staticmethod
+    def _backup_source_pvc(dv: dict) -> str | None:
+        return (
+            (dv.get("spec") or {}).get("source", {}).get("pvc", {}).get("name")
+        )
+
+    def wait_for_pvc_unused(self, pvc_name: str, namespace="default",
+                            timeout: float = 120.0, interval: float = 2.0) -> bool:
+        """Ждёт, пока ни один Pod больше не ссылается на исходный PVC."""
+        if not pvc_name:
+            return True
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            pods = self.core_api.list_namespaced_pod(namespace)
+            in_use = False
+            for pod in pods.items:
+                phase = getattr(getattr(pod, "status", None), "phase", None)
+                if phase in {"Succeeded", "Failed"}:
+                    continue
+                volumes = getattr(getattr(pod, "spec", None), "volumes", None) or []
+                for volume in volumes:
+                    claim = getattr(volume, "persistent_volume_claim", None)
+                    if claim and getattr(claim, "claim_name", None) == pvc_name:
+                        in_use = True
+                        break
+                if in_use:
+                    break
+            if not in_use:
+                return True
+            time.sleep(interval)
+        return False
+
+    def cancel_backup_datavolume(self, backup_name: str, namespace="default") -> str | None:
+        """Удаляет зависший clone и ждёт освобождения его исходного PVC."""
+        try:
+            dv = self.custom_api.get_namespaced_custom_object(
+                "cdi.kubevirt.io", "v1beta1", namespace,
+                "datavolumes", backup_name,
+            )
+            source_pvc = self._backup_source_pvc(dv)
+        except ApiException as error:
+            if error.status != 404:
+                raise
+            source_pvc = None
+
+        try:
+            self.custom_api.delete_namespaced_custom_object(
+                "cdi.kubevirt.io", "v1beta1", namespace,
+                "datavolumes", backup_name,
+            )
+        except ApiException as error:
+            if error.status != 404:
+                raise
+        try:
+            self.core_api.delete_namespaced_persistent_volume_claim(
+                backup_name, namespace
+            )
+        except ApiException as error:
+            if error.status != 404:
+                raise
+
+        if source_pvc and not self.wait_for_pvc_unused(source_pvc, namespace):
+            raise RuntimeError(
+                f"Исходный диск {source_pvc} не освободился после отмены бэкапа"
+            )
+        return source_pvc
+
+    def cancel_vm_backup(self, vm_name: str, backup_name: str,
+                         namespace="default") -> dict:
+        """Отменяет offline-бэкап и безопасно возвращает ВМ в работу."""
+        backup = self.get_vm_backup(vm_name, backup_name, namespace)
+        annotations = (backup.get("metadata") or {}).get("annotations") or {}
+        restart = annotations.get(self.RESTART_AFTER_BACKUP) == "true"
+        self.cancel_backup_datavolume(backup_name, namespace)
+        try:
+            already_running = self.get_vm(vm_name, namespace).get("status") == "Running"
+        except ApiException as error:
+            if error.status == 404:
+                return {"status": "cancelled", "backup_name": backup_name}
+            raise
+        if restart:
+            if not already_running:
+                self.start_vm(vm_name, namespace)
+        self.clear_backup_operation(vm_name, backup_name, namespace)
+        return {"status": "cancelled", "backup_name": backup_name}
+
+    def backups_awaiting_start(self, namespace="default") -> list:
+        """Завершённые и осиротевшие offline-бэкапы для reconciliation."""
+        result = self.custom_api.list_namespaced_custom_object(
+            "cdi.kubevirt.io", "v1beta1", namespace, "datavolumes",
+            label_selector="hosting.antigravity.io/backup-source",
+        )
+        dvs = result.get("items", [])
+        by_name = {
+            (dv.get("metadata") or {}).get("name"): dv
+            for dv in dvs if (dv.get("metadata") or {}).get("name")
+        }
+        active_vms = {
+            ((dv.get("metadata") or {}).get("labels") or {}).get(
+                "hosting.antigravity.io/backup-source"
+            )
+            for dv in dvs
+            if ((dv.get("status") or {}).get("phase") or "Pending")
+            not in {"Succeeded", "Failed"}
+        }
+        ready = []
+        seen = set()
+        for dv in dvs:
+            meta = dv.get("metadata", {})
+            annotations = meta.get("annotations") or {}
+            if annotations.get(self.RESTART_AFTER_BACKUP) != "true":
+                continue
+            phase = (dv.get("status") or {}).get("phase")
+            if phase not in {"Succeeded", "Failed"}:
+                continue
+            vm_name = (meta.get("labels") or {}).get(
+                "hosting.antigravity.io/backup-source"
+            )
+            if vm_name and vm_name not in active_vms:
+                ready.append({
+                    "backup": meta.get("name"), "vm": vm_name, "phase": phase,
+                    "backup_exists": True,
+                    "cancel_backup": False,
+                    "source_pvc": self._backup_source_pvc(dv),
+                    "restart_vm": True,
+                })
+                seen.add((meta.get("name"), vm_name))
+
+        # Маркер на ВМ закрывает окно между stop и созданием DV. Даём обычному
+        # запросу три минуты (stop ждёт максимум две), затем возвращаем
+        # осиротевшую ВМ в работу. Если DV существует, ждём его terminal phase.
+        try:
+            vm_result = self.custom_api.list_namespaced_custom_object(
+                "kubevirt.io", "v1", namespace, "virtualmachines",
+            )
+        except ApiException as error:
+            if error.status == 404:
+                vm_result = {"items": []}
+            else:
+                raise
+        now = time.time()
+        for vm in vm_result.get("items", []):
+            meta = vm.get("metadata") or {}
+            annotations = meta.get("annotations") or {}
+            backup_name = annotations.get(self.BACKUP_OPERATION)
+            vm_name = meta.get("name")
+            if not backup_name or not vm_name:
+                continue
+            try:
+                started_at = float(annotations.get(
+                    self.BACKUP_OPERATION_STARTED_AT, "0"
+                ))
+            except (TypeError, ValueError):
+                started_at = 0
+            age = now - started_at
+            restart_vm = annotations.get(self.BACKUP_RESTART_VM, "true") == "true"
+            marker_source_pvc = annotations.get(self.BACKUP_SOURCE_PVC)
+            matching = by_name.get(backup_name)
+            if matching:
+                phase = (matching.get("status") or {}).get("phase") or "Pending"
+                key = (backup_name, vm_name)
+                if (
+                    phase in {"Succeeded", "Failed"}
+                    and vm_name not in active_vms
+                    and key not in seen
+                ):
+                    ready.append({
+                        "backup": backup_name, "vm": vm_name, "phase": phase,
+                        "backup_exists": True, "cancel_backup": False,
+                        "source_pvc": self._backup_source_pvc(matching),
+                        "restart_vm": restart_vm,
+                    })
+                    seen.add(key)
+                elif (
+                    phase not in {"Succeeded", "Failed"}
+                    and age >= self.BACKUP_MAX_RUNTIME_SECONDS
+                ):
+                    ready.append({
+                        "backup": backup_name, "vm": vm_name,
+                        "phase": "TimedOut", "backup_exists": True,
+                        "cancel_backup": True,
+                        "source_pvc": self._backup_source_pvc(matching),
+                        "restart_vm": restart_vm,
+                    })
+                continue
+            if age >= self.BACKUP_ORPHAN_GRACE_SECONDS:
+                ready.append({
+                    "backup": backup_name, "vm": vm_name,
+                    "phase": "Orphaned", "backup_exists": False,
+                    "cancel_backup": False,
+                    "source_pvc": marker_source_pvc,
+                    "restart_vm": restart_vm,
+                })
+        return ready
+
+    def clear_restart_after_backup(self, backup_name: str, namespace="default"):
+        return self.custom_api.patch_namespaced_custom_object(
+            "cdi.kubevirt.io", "v1beta1", namespace, "datavolumes", backup_name,
+            {"metadata": {"annotations": {self.RESTART_AFTER_BACKUP: None}}},
+        )
+
+    def clear_backup_operation(self, vm_name: str, backup_name: str,
+                               namespace="default"):
+        """CAS-снятие marker: более новую операцию удалить нельзя."""
+        vm = self.custom_api.get_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
+        )
+        meta = vm.get("metadata") or {}
+        annotations = meta.get("annotations") or {}
+        current = annotations.get(self.BACKUP_OPERATION)
+        if current is None:
+            return None
+        if current != backup_name:
+            raise ValueError(
+                f"На ВМ уже другая backup-операция: {current}"
+            )
+        operations = [
+            {
+                "op": "test", "path": "/metadata/resourceVersion",
+                "value": meta.get("resourceVersion"),
+            },
+            {
+                "op": "test", "path": self._annotation_json_path(
+                    self.BACKUP_OPERATION
+                ), "value": backup_name,
+            },
+            {
+                "op": "remove", "path": self._annotation_json_path(
+                    self.BACKUP_OPERATION
+                ),
+            },
+        ]
+        if self.BACKUP_OPERATION_STARTED_AT in annotations:
+            operations.append({
+                "op": "remove", "path": self._annotation_json_path(
+                    self.BACKUP_OPERATION_STARTED_AT
+                ),
+            })
+        if self.BACKUP_RESTART_VM in annotations:
+            operations.append({
+                "op": "remove", "path": self._annotation_json_path(
+                    self.BACKUP_RESTART_VM
+                ),
+            })
+        if self.BACKUP_SOURCE_PVC in annotations:
+            operations.append({
+                "op": "remove", "path": self._annotation_json_path(
+                    self.BACKUP_SOURCE_PVC
+                ),
+            })
+        return self.custom_api.patch_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
+            operations, _content_type="application/json-patch+json",
+        )
+
     def list_vm_backups(self, name: str, namespace="default"):
         """Получить список всех бэкапов для конкретной VM"""
         try:
@@ -684,7 +1729,9 @@ class K8sClient:
                 
                 # Статус клонирования
                 dv_status = dv.get("status", {})
-                status = dv_status.get("phase", "Unknown")
+                # У только что созданного DV status ещё отсутствует целиком.
+                # Это нормальная Pending-стадия, а не красная «Unknown» ошибка.
+                status = dv_status.get("phase") or "Pending"
                 progress = dv_status.get("progress", "N/A")
 
                 size = dv.get("spec", {}).get("storage", {}).get("resources", {}).get("requests", {}).get("storage", "N/A")
@@ -731,6 +1778,7 @@ class K8sClient:
         try:
             if vm_name:
                 self.get_vm_backup(vm_name, backup_name, namespace)
+            self.ensure_backup_not_used_for_restore(backup_name, namespace)
             # Удаляем DataVolume
             self.custom_api.delete_namespaced_custom_object(
                 group="cdi.kubevirt.io",
@@ -755,7 +1803,11 @@ class K8sClient:
 
     def restore_vm_backup(self, vm_name: str, backup_name: str, namespace="default"):
         """Заменяет текущий PVC жесткого диска ВМ на клон из выбранного бэкапа"""
+        operation_name = None
+        preserve_operation = False
+        was_running = False
         try:
+            self.ensure_no_backup_operation(vm_name, namespace)
             # Копию проверяем ДО остановки и тем более удаления диска.
             backup = self.get_vm_backup(vm_name, backup_name, namespace)
             backup_phase = (backup.get("status") or {}).get("phase")
@@ -784,152 +1836,94 @@ class K8sClient:
             if not orig_pvc_name:
                 raise Exception(f"Оригинальный системный диск (PVC) для VM {vm_name} не найден.")
 
-            # Фиксированных двух секунд недостаточно: гость с HDD выключается
-            # десятки секунд. До исчезновения VMI диск трогать нельзя.
             was_running = bool(vm.get("spec", {}).get("running", False))
-            if was_running:
-                logger.info(f"Авто-остановка VM {vm_name} перед восстановлением...")
-                self.stop_vm(vm_name, namespace)
-            if not self.wait_for_vm_stopped(vm_name, namespace):
-                raise RuntimeError("ВМ не успела выключиться за 2 минуты; диск не изменён")
-
-            # ВМ обычно владеет одноимённым DataVolume. Удаление одного PVC
-            # оставляло DV на месте, и создание замены неизменно падало 409.
-            # Временно убираем шаблон, чтобы контроллер не пересоздал старый
-            # cloud-образ, пока освобождается имя диска.
-            original_templates = copy.deepcopy(
-                vm.get("spec", {}).get("dataVolumeTemplates", [])
+            suffix = f"-restore-{time.time_ns()}"
+            operation_name = f"{vm_name[:63 - len(suffix)].rstrip('-')}{suffix}"
+            self.acquire_backup_restore_operation(
+                vm, operation_name, backup_name, operation_name,
+                restart_vm=was_running, namespace=namespace,
+                old_pvc=orig_pvc_name,
             )
-            kept_templates = [
-                t for t in original_templates
-                if t.get("metadata", {}).get("name") != orig_pvc_name
-            ]
-            managed_template = len(kept_templates) != len(original_templates)
-            if managed_template:
-                self.custom_api.patch_namespaced_custom_object(
-                    "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
-                    {"spec": {"dataVolumeTemplates": kept_templates}},
-                )
 
-            try:
-                self.custom_api.delete_namespaced_custom_object(
-                    "cdi.kubevirt.io", "v1beta1", namespace,
-                    "datavolumes", orig_pvc_name,
-                )
-            except ApiException as e:
-                if e.status != 404:
-                    raise
-            try:
-                self.core_api.delete_namespaced_persistent_volume_claim(orig_pvc_name, namespace)
-            except ApiException as e:
-                if e.status != 404:
-                    raise
-
-            # DV удаляет принадлежащий ему PVC не мгновенно. Если создать
-            # замену раньше, CDI может подхватить старые данные и объявить
-            # «восстановление» завершённым.
-            deadline = time.monotonic() + 120
-            while time.monotonic() < deadline:
-                try:
-                    self.core_api.read_namespaced_persistent_volume_claim(orig_pvc_name, namespace)
-                except ApiException as e:
-                    if e.status == 404:
-                        break
-                    raise
-                time.sleep(2)
-            else:
-                raise RuntimeError(f"Старый диск {orig_pvc_name} не удалился за 2 минуты")
-
-            dv_manifest = {
+            # Сначала полностью клонируем backup в НОВЫЙ DataVolume. Старый
+            # системный диск и работающая ВМ остаются нетронутыми; switch
+            # выполнит worker только после Succeeded. Поэтому crash/timeout
+            # здесь больше не оставляет машину без диска.
+            staged_manifest = {
                 "apiVersion": "cdi.kubevirt.io/v1beta1",
                 "kind": "DataVolume",
                 "metadata": {
-                    "name": orig_pvc_name,
+                    "name": operation_name,
                     "namespace": namespace,
+                    "annotations": {
+                        "cdi.kubevirt.io/storage.bind.immediate.requested": "true",
+                    },
                     "labels": {
                         "hosting.antigravity.io/restore-source": backup_name,
                         "hosting.antigravity.io/restore-vm": vm_name,
+                        "hosting.antigravity.io/restore-operation": operation_name,
+                        "hosting.antigravity.io/restore-old-pvc": orig_pvc_name,
                     },
                 },
                 "spec": {
-                    "source": {
-                        "pvc": {
-                            "name": backup_name,
-                            "namespace": namespace
-                        }
-                    },
+                    "source": {"pvc": {
+                        "name": backup_name, "namespace": namespace,
+                    }},
                     "storage": {
                         "storageClassName": backup_storage_class,
-                        # Та же причина, что и при создании копии: без явных
-                        # режимов CDI идёт в StorageProfile, а у openebs-lvm он
-                        # пуст — восстановление встало бы с ErrClaimNotValid,
-                        # уже удалив старый диск ВМ.
                         **_clone_target_modes(backup_pvc),
-                        "resources": {
-                            "requests": {
-                                "storage": backup_size
-                            }
-                        }
-                    }
-                }
+                        "resources": {"requests": {"storage": backup_size}},
+                    },
+                },
             }
-            
-            # Возвращаем декларативный шаблон, теперь уже с источником-бэкапом.
-            # Последующие рестарты и операции снова видят канонический диск.
-            replacement = None
-            if managed_template:
-                replacement = next(
-                    t for t in original_templates
-                    if t.get("metadata", {}).get("name") == orig_pvc_name
-                )
-                replacement["spec"] = copy.deepcopy(dv_manifest["spec"])
-                replacement.setdefault("metadata", {}).setdefault("labels", {}).update(
-                    dv_manifest["metadata"]["labels"]
-                )
-
             try:
                 self.custom_api.create_namespaced_custom_object(
-                    group="cdi.kubevirt.io",
-                    version="v1beta1",
-                    namespace=namespace,
-                    plural="datavolumes",
-                    body=dv_manifest
+                    "cdi.kubevirt.io", "v1beta1", namespace,
+                    "datavolumes", staged_manifest,
                 )
-            except Exception:
-                # Старый шаблон уже снят. Даже если прямое создание DV
-                # сорвалось, возвращаем его с безопасным backup-source: так
-                # ВМ не остаётся навсегда без декларации системного диска, а
-                # контроллер KubeVirt сможет повторить создание.
-                if replacement is not None:
-                    try:
-                        self.custom_api.patch_namespaced_custom_object(
-                            "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
-                            {"spec": {"dataVolumeTemplates": kept_templates + [replacement]}},
-                        )
-                    except Exception as patch_error:
-                        logger.error(
-                            f"Не удалось вернуть шаблон диска {orig_pvc_name}: "
-                            f"{patch_error}"
-                        )
-                raise
+            except Exception as create_error:
+                try:
+                    existing = self.custom_api.get_namespaced_custom_object(
+                        "cdi.kubevirt.io", "v1beta1", namespace,
+                        "datavolumes", operation_name,
+                    )
+                    return {
+                        "status": "restoring", "vm": vm_name,
+                        "pvc": operation_name, "source": backup_name,
+                        "will_restart": was_running,
+                        "operation": operation_name, "reconciled": True,
+                        "phase": (existing.get("status") or {}).get("phase") or "Pending",
+                    }
+                except ApiException as read_error:
+                    if read_error.status != 404:
+                        # Create мог успеть записать DV, а оба ответа потеряться.
+                        # Marker обязан остаться durable: worker либо увидит DV,
+                        # либо снимет осиротевшую операцию после grace-period.
+                        preserve_operation = True
+                        raise create_error
+                except Exception:
+                    preserve_operation = True
+                    raise create_error
+                raise create_error
 
-            if replacement is not None:
-                self.custom_api.patch_namespaced_custom_object(
-                    "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
-                    {"spec": {"dataVolumeTemplates": kept_templates + [replacement]}},
-                )
-
-            # desired state можно вернуть сразу: KubeVirt дождётся Succeeded у
-            # DataVolume и только после этого создаст VMI.
-            if was_running:
-                self.start_vm(vm_name, namespace)
-
-            logger.info(f"Восстановление ВМ {vm_name} запущено: {orig_pvc_name} клонируется из {backup_name}")
             return {
-                "status": "restoring", "vm": vm_name, "pvc": orig_pvc_name,
-                "source": backup_name, "will_restart": was_running,
+                "status": "restoring", "vm": vm_name,
+                "pvc": operation_name, "source": backup_name,
+                "will_restart": was_running, "operation": operation_name,
             }
         except Exception as e:
+            # Staging не трогает текущий диск и не останавливает ВМ. Если новый
+            # DV не был создан, достаточно снять CAS-marker и разрешить повтор.
+            if operation_name and not preserve_operation:
+                try:
+                    self.clear_backup_restore_operation(
+                        vm_name, operation_name, namespace
+                    )
+                except Exception as recovery_error:
+                    logger.error(
+                        f"Не удалось снять restore-lock ВМ {vm_name}: "
+                        f"{recovery_error}"
+                    )
             logger.error(f"Ошибка восстановления VM {vm_name} из {backup_name}: {e}")
             raise e
 
@@ -1171,7 +2165,19 @@ class K8sClient:
             "app_int_port": app_int_port,
             "node": node_name,
             "created_at": creation_timestamp,
-            "credentials": credentials
+            "credentials": credentials,
+            "backup_operation": (
+                vm.get("metadata", {}).get("annotations") or {}
+            ).get(self.BACKUP_OPERATION) or (
+                "restore:" + (
+                    (vm.get("metadata", {}).get("annotations") or {}).get(
+                        self.BACKUP_RESTORE_SOURCE, ""
+                    )
+                )
+                if (vm.get("metadata", {}).get("annotations") or {}).get(
+                    self.BACKUP_RESTORE_OPERATION
+                ) else None
+            ),
         }
 
     def ensure_network_isolation(self):
@@ -1625,19 +2631,31 @@ class K8sClient:
                 return None
             raise
 
-    def vm_disk_storage_classes(self, vm_name: str, namespace: str = "default") -> list:
-        """Классы хранения, на которых лежат диски ВМ.
+    def storage_class_parameters(self, name: str) -> dict:
+        """Параметры StorageClass (пусто, если класса нет)."""
+        if not name:
+            return {}
+        try:
+            storage_class = self.storage_api.read_storage_class(name)
+            return dict(getattr(storage_class, "parameters", None) or {})
+        except ApiException as e:
+            if e.status == 404:
+                return {}
+            raise
+
+    def vm_disk_claims(self, vm_name: str, namespace: str = "default") -> list:
+        """Реальные PVC/PV и классы хранения дисков ВМ.
 
         Берём с реальных PVC, а не из dataVolumeTemplates: шаблон говорит, что
         просили при создании, а снимать придётся то, что получилось. Диск,
         добавленный горячей заменой позже, в шаблоне не значится вовсе.
         """
-        classes = []
+        claims = []
         try:
             vm = self.custom_api.get_namespaced_custom_object(
                 "kubevirt.io", "v1", namespace, "virtualmachines", vm_name)
         except ApiException:
-            return []
+            return claims
         volumes = vm.get("spec", {}).get("template", {}).get("spec", {}).get("volumes", [])
         names = [
             v.get("dataVolume", {}).get("name") or v.get("persistentVolumeClaim", {}).get("claimName")
@@ -1648,8 +2666,20 @@ class K8sClient:
                 pvc = self.core_api.read_namespaced_persistent_volume_claim(pvc_name, namespace)
             except ApiException:
                 continue
-            sc = pvc.spec.storage_class_name
-            if sc and sc not in classes:
+            sc = getattr(pvc.spec, "storage_class_name", None)
+            if sc:
+                claims.append({
+                    "pvc": pvc_name,
+                    "pv": getattr(pvc.spec, "volume_name", None),
+                    "storage_class": sc,
+                })
+        return claims
+
+    def vm_disk_storage_classes(self, vm_name: str, namespace: str = "default") -> list:
+        classes = []
+        for claim in self.vm_disk_claims(vm_name, namespace):
+            sc = claim["storage_class"]
+            if sc not in classes:
                 classes.append(sc)
         return classes
 
@@ -1672,12 +2702,67 @@ class K8sClient:
             logger.warning(f"Не удалось получить список VolumeSnapshotClass: {e}")
             drivers = set()
 
-        classes = self.vm_disk_storage_classes(vm_name, namespace)
+        claims = self.vm_disk_claims(vm_name, namespace)
+        classes = []
+        for claim in claims:
+            if claim["storage_class"] not in classes:
+                classes.append(claim["storage_class"])
+
+        # При пересоздании StorageClass под тем же именем старый thick PV не
+        # становится thin. Источник истины — LVMVolume конкретного PV, а SC
+        # используется только как fallback для ещё не привязанного/старого CR.
+        actual_thin = {}
+        try:
+            lvm_volumes = self.custom_api.list_cluster_custom_object(
+                "local.openebs.io", "v1alpha1", "lvmvolumes"
+            )
+            actual_thin = {
+                (item.get("metadata") or {}).get("name"):
+                    str((item.get("spec") or {}).get("thinProvision", "")).lower()
+                for item in lvm_volumes.get("items", [])
+                if (item.get("metadata") or {}).get("name")
+            }
+        except Exception as error:
+            logger.warning(f"Не удалось прочитать LVMVolume: {error}")
         unsupported = []
         for sc in classes:
             provisioner = self.storage_class_provisioner(sc)
             if provisioner not in drivers:
-                unsupported.append({"storage_class": sc, "provisioner": provisioner})
+                unsupported.append({
+                    "storage_class": sc,
+                    "provisioner": provisioner,
+                    "reason": "snapshot_driver_missing",
+                })
+                continue
+
+            # OpenEBS LVM умеет снять thick-том, но restore из
+            # такого snapshot не поддерживает. Снимок выглядит
+            # готовым, а откат падает — ровно живой случай.
+            if provisioner == "local.csi.openebs.io":
+                pv_modes = [
+                    actual_thin.get(claim.get("pv"))
+                    for claim in claims
+                    if claim["storage_class"] == sc and claim.get("pv")
+                ]
+                known_modes = [mode for mode in pv_modes if mode]
+                if any(mode in {"no", "false"} for mode in known_modes):
+                    thin = "no"
+                elif known_modes and all(
+                    mode in {"yes", "true"} for mode in known_modes
+                ):
+                    thin = "yes"
+                else:
+                    thin = str(
+                        self.storage_class_parameters(sc).get(
+                            "thinProvision", "no"
+                        )
+                    ).lower()
+                if thin not in {"yes", "true"}:
+                    unsupported.append({
+                        "storage_class": sc,
+                        "provisioner": provisioner,
+                        "reason": "thin_required",
+                    })
 
         return {
             "supported": bool(classes) and not unsupported,
@@ -1722,10 +2807,10 @@ class K8sClient:
         return False
 
     def restore_vm_snapshot(self, vm_name: str, snapshot_name: str, namespace: str = "default",
-                            restart_after: bool = False):
-        """Восстанавливает виртуальную машину из снимка (ВМ должна быть выключена)"""
-        # Имя ретора должно быть уникальным
-        restore_name = f"restore-{snapshot_name}-{int(time.time())}"
+                            restart_after: bool = False,
+                            restore_name: str = None):
+        """Создаёт durable restore; KubeVirt сам безопасно остановит target."""
+        restore_name = restore_name or f"restore-{snapshot_name}-{time.time_ns()}"
         body = {
             "apiVersion": "snapshot.kubevirt.io/v1beta1",
             "kind": "VirtualMachineRestore",
@@ -1734,6 +2819,10 @@ class K8sClient:
                 "annotations": {self.RESTART_AFTER_RESTORE: "true"} if restart_after else {},
             },
             "spec": {
+                # Сначала создаём durable объект, а уже контроллер KubeVirt
+                # останавливает ВМ. Это устраняет окно stop -> crash -> no
+                # restore, после которого ВМ оставалась выключенной навсегда.
+                "targetReadinessPolicy": "StopTarget",
                 "target": {
                     "apiGroup": "kubevirt.io",
                     "kind": "VirtualMachine",
@@ -1744,6 +2833,13 @@ class K8sClient:
         }
         return self.custom_api.create_namespaced_custom_object(
             "snapshot.kubevirt.io", "v1beta1", namespace, "virtualmachinerestores", body
+        )
+
+    def get_vm_snapshot_restore(self, restore_name: str,
+                                namespace: str = "default") -> dict:
+        return self.custom_api.get_namespaced_custom_object(
+            "snapshot.kubevirt.io", "v1beta1", namespace,
+            "virtualmachinerestores", restore_name,
         )
 
     def restores_awaiting_start(self, namespace: str = "default") -> list:
@@ -1763,11 +2859,14 @@ class K8sClient:
             meta = r.get("metadata", {})
             if (meta.get("annotations") or {}).get(self.RESTART_AFTER_RESTORE) != "true":
                 continue
-            if not r.get("status", {}).get("complete"):
+            status = r.get("status") or {}
+            failure = self._snapshot_restore_failed(status)
+            if not status.get("complete") and not failure:
                 continue
             ready.append({
                 "restore": meta.get("name"),
                 "vm": r.get("spec", {}).get("target", {}).get("name"),
+                "failed": failure,
             })
         return ready
 

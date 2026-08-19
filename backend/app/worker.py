@@ -485,6 +485,29 @@ def scheduled_backup_daemon():
         time.sleep(60)
 
 
+def backup_restart_daemon():
+    """Возвращает ВМ в работу после offline-бэкапа.
+
+    Запущенную ВМ нужно погасить, чтобы CDI мог клонировать её PVC.
+    create_vm_backup ставит на DataVolume долгоживущую пометку, а
+    этот цикл ждёт Succeeded или Failed и включает машину. Пометка
+    живёт в Kubernetes, поэтому перезапуск панели не оставит ВМ
+    выключенной.
+    """
+    logger.info("Starting backup restart daemon thread...")
+    from .services.backup_lifecycle import (
+        finish_backup_restores,
+        restart_vms_after_finished_backups,
+    )
+    while True:
+        try:
+            restart_vms_after_finished_backups(k8s, logger)
+            finish_backup_restores(k8s, logger)
+        except Exception as e:
+            logger.error(f"Error in backup restart daemon loop: {e}")
+        time.sleep(20)
+
+
 def stuck_tasks_daemon():
     """Разбирает задачи, зависшие в Pending: очередь могла быть недоступна в
     момент постановки, либо воркер перезапустился после подтверждения
@@ -561,21 +584,12 @@ def snapshot_restart_daemon():
     это как «откат погасил машину и бросил».
     """
     logger.info("Starting snapshot restart daemon thread...")
+    from .services.snapshot_lifecycle import (
+        restart_vms_after_finished_snapshot_restores,
+    )
     while True:
         try:
-            for item in k8s.restores_awaiting_start():
-                vm_name = item.get("vm")
-                if not vm_name:
-                    continue
-                logger.info(f"Откат {item['restore']} завершён — включаю ВМ {vm_name}")
-                try:
-                    k8s.start_vm(vm_name)
-                except Exception as e:
-                    logger.error(f"Не удалось включить ВМ {vm_name} после отката: {e}")
-                    continue
-                # Снимаем пометку только после успешного старта: иначе сбой
-                # запуска означал бы, что ВМ никто больше не поднимет.
-                k8s.clear_restart_after_restore(item["restore"])
+            restart_vms_after_finished_snapshot_restores(k8s, logger)
         except Exception as e:
             logger.error(f"Error in snapshot restart daemon loop: {e}")
         time.sleep(20)
@@ -601,6 +615,10 @@ def main():
     # Планировщик запланированных бэкапов
     backup_thread = threading.Thread(target=scheduled_backup_daemon, daemon=True)
     backup_thread.start()
+
+    # Возврат ВМ в работу после offline-бэкапа
+    backup_restart_thread = threading.Thread(target=backup_restart_daemon, daemon=True)
+    backup_restart_thread.start()
 
     # Движок алертов и уведомлений
     alerts_thread = threading.Thread(target=alerts_daemon, daemon=True)

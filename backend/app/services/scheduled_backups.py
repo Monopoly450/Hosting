@@ -149,6 +149,14 @@ def _execute_one(k8s, db, schedule):
             vm = db.query(VMTask).filter(VMTask.id == schedule.target_id).first()
             if not vm:
                 raise RuntimeError("ВМ не найдена")
+            # Плановый backup создаёт такой же полный clone-PVC, как ручной.
+            # Advisory lock держим до появления DataVolume, чтобы два due
+            # schedule не прошли проверку по одному и тому же снимку ёмкости.
+            from app.core.capacity import lock_host_capacity, ensure_storage_capacity
+            lock_host_capacity(db)
+            ensure_storage_capacity(
+                db, extra_gb=vm.disk_gb or 0, k8s=k8s,
+            )
             run_vm_backup(k8s, vm.name)
             prune_vm_backups(k8s, vm.name, schedule.retention)
         elif schedule.target_type == "database":

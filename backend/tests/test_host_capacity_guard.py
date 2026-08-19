@@ -98,6 +98,7 @@ def test_every_creation_path_checks_host_capacity(module, func):
     src = inspect.getsource(fn)
     assert "ensure_host_capacity" in src, f"{module}.{func} не проверяет ресурсы хоста"
     assert "lock_host_capacity" in src, f"{module}.{func} проверяет без блокировки"
+    assert "k8s=" in src, f"{module}.{func} не учитывает backup DataVolume"
 
 
 def test_vm_creation_endpoint_still_checks_capacity():
@@ -105,6 +106,8 @@ def test_vm_creation_endpoint_still_checks_capacity():
 
     src = inspect.getsource(vms.create_vm)
     assert "lock_host_capacity" in src
+    assert "ensure_storage_capacity" in src
+    assert "k8s=client" in src
 
 
 # --------- дашборд: "доступно" обязано учитывать резерв, а не только ---------

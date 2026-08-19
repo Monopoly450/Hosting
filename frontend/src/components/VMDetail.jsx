@@ -446,6 +446,9 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const sshIp = getSshIp();
   const bridgeIp = getBridgeIp();
   const currentDiskLimit = vm.disks && vm.disks[0] ? parseInt(vm.disks[0].size) || 20 : 20;
+  const backupLocked = Boolean(vm.backup_operation);
+  const restoreLocked = vm.backup_operation?.startsWith('restore:');
+  const snapshotRestoreLocked = vm.backup_operation?.startsWith('snapshot-restore:');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -486,15 +489,21 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {vm.status !== 'Running' ? (
-              <button className="btn btn-primary" onClick={() => handlePowerAction('start')} disabled={actionLoading !== null}>
+              <button className="btn btn-primary" onClick={() => handlePowerAction('start')}
+                      disabled={actionLoading !== null || backupLocked}
+                      title={backupLocked ? 'Дождитесь завершения текущей операции с диском' : undefined}>
                 {actionLoading === 'start' ? <span className="spinner"/> : <><Play size={14} /> Start</>}
               </button>
             ) : (
               <>
-                <button className="btn btn-secondary" onClick={() => handlePowerAction('stop')} disabled={actionLoading !== null}>
+                <button className="btn btn-secondary" onClick={() => handlePowerAction('stop')}
+                        disabled={actionLoading !== null || backupLocked}
+                        title={backupLocked ? 'Дождитесь завершения текущей операции с диском' : undefined}>
                   {actionLoading === 'stop' ? <span className="spinner"/> : <><Square size={14} /> Stop</>}
                 </button>
-                <button className="btn btn-secondary" onClick={() => handlePowerAction('restart')} disabled={actionLoading !== null}>
+                <button className="btn btn-secondary" onClick={() => handlePowerAction('restart')}
+                        disabled={actionLoading !== null || backupLocked}
+                        title={backupLocked ? 'Дождитесь завершения текущей операции с диском' : undefined}>
                   {actionLoading === 'restart' ? <span className="spinner"/> : <><RotateCw size={14} /> Reboot</>}
                 </button>
               </>
@@ -523,12 +532,24 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
               <Settings size={14} /> Настройки
             </button>
             <div style={{ width: '1px', background: 'var(--border-subtle)', margin: '0 8px' }}></div>
-            <button className="btn btn-secondary" onClick={() => { setShowMigrateModal(true); fetchExternalServersForMigration(); }}>
+            <button className="btn btn-secondary" onClick={() => { setShowMigrateModal(true); fetchExternalServersForMigration(); }}
+                    disabled={backupLocked}
+                    title={backupLocked ? 'Миграция недоступна во время операции с диском' : undefined}>
               <Send size={14} /> Перенести
             </button>
           </div>
         </div>
       </div>
+
+      {backupLocked && (
+        <div className="alert alert-info">
+          {snapshotRestoreLocked
+            ? `Идёт откат на снимок ${vm.backup_operation.slice('snapshot-restore:'.length)}. Операции с диском заблокированы до завершения; исходное состояние питания будет восстановлено автоматически.`
+            : restoreLocked
+            ? `Идёт восстановление диска из ${vm.backup_operation.slice('restore:'.length)}. Операции с диском заблокированы до завершения; исходное состояние питания будет восстановлено автоматически.`
+            : `Идёт offline-бэкап ${vm.backup_operation}. До его завершения ВМ нельзя запускать; если она была запущена, панель включит её автоматически. Отменить копирование можно на вкладке «Бэкапы».`}
+        </div>
+      )}
 
       {activeTab === 'vnc' && (
         <div className="glass-card" style={{ padding: 0, overflow: 'hidden', background: '#000', borderRadius: 'var(--radius-lg)' }}>
@@ -545,7 +566,10 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
       {activeTab === 'backups' && (
         <div className="glass-card">
-          <BackupList vmName={vmName} vmStatus={vm.status} onRestoreStarted={fetchVmDetails} />
+          <BackupList vmName={vmName} vmStatus={vm.status}
+                      operationLocked={backupLocked}
+                      deletionLocked={restoreLocked || snapshotRestoreLocked}
+                      onRestoreStarted={fetchVmDetails} />
         </div>
       )}
 
@@ -553,7 +577,9 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
         <div className="glass-card">
           {/* onVmChanged: откат гасит ВМ, и карточка выше должна
               перестать показывать её запущенной. */}
-          <VMSnapshotsList vmName={vmName} vmStatus={vm.status} onVmChanged={fetchVmDetails} />
+          <VMSnapshotsList vmName={vmName} vmStatus={vm.status}
+                           operationLocked={backupLocked}
+                           onVmChanged={fetchVmDetails} />
         </div>
       )}
 
@@ -589,7 +615,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                 </div>
                 <div className="modal-actions">
                   <button className="btn btn-secondary" onClick={() => setShowMigrateModal(false)} disabled={migrating}>Отмена</button>
-                  <button className="btn btn-primary" onClick={handleMigrate} disabled={migrating || externalServers.length === 0}>
+                  <button className="btn btn-primary" onClick={handleMigrate} disabled={migrating || backupLocked || externalServers.length === 0}>
                     {migrating ? <span className="spinner" /> : <><Send size={16} /> Начать миграцию</>}
                   </button>
                 </div>
@@ -1006,7 +1032,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                 <input type="range" min="0" max="5000" step="100" value={diskWriteIops} onChange={(e) => setDiskWriteIops(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingSettings} />
               </div>
 
-              <button type="submit" className="btn btn-primary" disabled={savingSettings}>
+              <button type="submit" className="btn btn-primary" disabled={savingSettings || backupLocked}>
                 {savingSettings ? <span className="spinner" /> : 'Сохранить настройки ресурсов'}
               </button>
             </form>
@@ -1080,7 +1106,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                 </table>
               </div>
 
-              <button className="btn btn-primary" onClick={handleSaveSettings} disabled={savingSettings} style={{ marginTop: '10px' }}>
+              <button className="btn btn-primary" onClick={handleSaveSettings} disabled={savingSettings || backupLocked} style={{ marginTop: '10px' }}>
                 {savingSettings ? <span className="spinner" /> : 'Применить правила проброса и фаервола'}
               </button>
             </div>
@@ -1091,15 +1117,17 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   );
 };
 
-function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
+function VMSnapshotsList({ vmName, vmStatus, onVmChanged, operationLocked = false }) {
     const [snapshots, setSnapshots] = useState([]);
     const [restoring, setRestoring] = useState(null);
     /* null = ещё не спросили. Пока не знаем — не мешаем: запрет должен
        появляться по факту, а не по умолчанию. */
     const [support, setSupport] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [listError, setListError] = useState('');
     const [snapName, setSnapName] = useState('');
     const [creating, setCreating] = useState(false);
+    const terminalPollDeadlines = useRef(new Map());
 
     // phase=Succeeded означает, что операция снимка завершилась,
     // но не что из него всё ещё можно восстановить. KubeVirt специально
@@ -1125,32 +1153,71 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                 ...getHeaders(),
                 cache: 'no-store'
             });
-            if (res.ok) {
-                const data = await res.json();
-                setSnapshots(data);
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error(body.detail || `API вернул ${res.status}`);
             }
+            const data = await res.json();
+            const finalizingNames = new Set(data.filter(s => (
+                s.phase === 'Succeeded'
+                && s.ready_to_use !== true
+                && s.has_disk !== false
+            )).map(s => s.name));
+            const now = Date.now();
+            finalizingNames.forEach(name => {
+                if (!terminalPollDeadlines.current.has(name)) {
+                    // KubeVirt иногда выставляет Succeeded раньше readyToUse.
+                    // Даём контроллерам две минуты, но не опрашиваем заведомо
+                    // повреждённый terminal snapshot бесконечно.
+                    terminalPollDeadlines.current.set(name, now + 120000);
+                }
+            });
+            [...terminalPollDeadlines.current.keys()].forEach(name => {
+                if (!finalizingNames.has(name)) terminalPollDeadlines.current.delete(name);
+            });
+            setSnapshots(data);
+            setListError('');
         } catch (err) {
             console.error(err);
+            setListError(err.message || 'Не удалось обновить снимки');
         } finally {
             if (!silent) setLoading(false);
         }
     };
 
     useEffect(() => {
+        terminalPollDeadlines.current.clear();
         fetchSnapshots();
     }, [vmName]);
 
     // После создания первый ответ обычно Pending/InProgress. Раньше
     // строка больше не обновлялась до перезагрузки страницы. Опрашиваем
     // только незавершённые операции и не мигаем всей таблицей.
+    const snapshotWithinFinalizingGrace = (snapshot) => (
+        (terminalPollDeadlines.current.get(snapshot.name) || 0) > Date.now()
+    );
     const hasPendingSnapshot = snapshots.some(
         s => s.phase !== 'Succeeded' && s.phase !== 'Failed'
-    );
+    ) || snapshots.some(s => (
+            s.phase === 'Succeeded'
+            && s.ready_to_use !== true
+            && s.has_disk !== false
+            && snapshotWithinFinalizingGrace(s)
+        ));
+    const hasTerminalUnreadySnapshot = snapshots.some(s => (
+        s.phase === 'Succeeded'
+        && s.ready_to_use !== true
+        && s.has_disk !== false
+    ));
     useEffect(() => {
-        if (!hasPendingSnapshot) return undefined;
-        const timer = setInterval(() => fetchSnapshots({ silent: true }), 3000);
+        if (!hasPendingSnapshot && !hasTerminalUnreadySnapshot) return undefined;
+        // Первые две минуты контроллеры догоняем быстро. Если terminal-снимок
+        // всё ещё не readyToUse, продолжаем редкий refresh: статус не должен
+        // обновляться только после переключения вкладки.
+        const intervalMs = hasPendingSnapshot ? 3000 : 30000;
+        const timer = setInterval(() => fetchSnapshots({ silent: true }), intervalMs);
         return () => clearInterval(timer);
-    }, [vmName, hasPendingSnapshot]);
+    }, [vmName, hasPendingSnapshot, hasTerminalUnreadySnapshot]);
 
     /* Спрашиваем ДО того, как пользователь нажмёт «Создать снимок». Иначе он
        видел ноль процентов, которому нечем двигаться — тома в снимке нет, —
@@ -1231,7 +1298,7 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                     ? 'Откат запущен. ВМ выключена и включится сама, когда откат завершится.'
                     : 'Откат запущен.');
                 fetchSnapshots();
-                if (onVmChanged) onVmChanged();
+                if (onVmChanged) await onVmChanged();
             } else {
                 const errData = await res.json();
                 alert(errData.detail || 'Ошибка восстановления снимка');
@@ -1262,6 +1329,12 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                 </div>
             )}
 
+            {listError && (
+                <div className="alert alert-danger" style={{ marginBottom: '16px' }}>
+                    Не удалось обновить снимки: {listError}
+                </div>
+            )}
+
             <form onSubmit={handleCreateSnapshot} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
                 <input
                     type="text"
@@ -1270,12 +1343,14 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                     value={snapName}
                     onChange={e => setSnapName(e.target.value)}
                     required
-                    disabled={support ? support.supported === false : false}
+                    disabled={restoring !== null || operationLocked || (support ? support.supported === false : false)}
                     style={{ flex: 1 }}
                 />
                 <button type="submit" className="btn btn-primary"
-                        disabled={creating || (support ? support.supported === false : false)}
-                        title={support && support.supported === false ? support.reason : undefined}>
+                        disabled={creating || restoring !== null || operationLocked || (support ? support.supported === false : false)}
+                        title={operationLocked
+                            ? 'Дождитесь завершения текущей операции с диском'
+                            : support && support.supported === false ? support.reason : undefined}>
                     {creating ? 'Создание...' : 'Создать снимок'}
                 </button>
             </form>
@@ -1309,8 +1384,11 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                                                 Без диска
                                             </span>
                                         ) : s.phase === 'Succeeded' && s.ready_to_use !== true ? (
-                                            <span className="status-badge status-danger" title={s.error || 'Снимок завершён, но KubeVirt пометил его как недоступный для отката.'}>
-                                                Недоступен
+                                            <span
+                                                className={`status-badge ${snapshotWithinFinalizingGrace(s) ? 'status-pending' : 'status-danger'}`}
+                                                title={s.error || 'KubeVirt ещё не подтвердил готовность дискового снимка.'}
+                                            >
+                                                {snapshotWithinFinalizingGrace(s) ? 'Завершается' : 'Недоступен'}
                                             </span>
                                         ) : (
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1350,8 +1428,10 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                                             <button
                                                 className="btn btn-secondary btn-sm"
                                                 onClick={() => handleRestoreSnapshot(s.name)}
-                                                disabled={restoring !== null || !snapshotReady(s)}
-                                                title={s.has_disk === false
+                                                disabled={restoring !== null || operationLocked || !snapshotReady(s)}
+                                                title={operationLocked
+                                                    ? 'Дождитесь завершения текущей операции с диском'
+                                                    : s.has_disk === false
                                                     ? 'В снимке нет диска — откатывать нечего'
                                                     : s.phase === 'Succeeded' && s.ready_to_use !== true
                                                         ? 'Снимок завершён, но хранилище не подтверждает готовность к откату'
@@ -1366,6 +1446,8 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged }) {
                                             <button 
                                                 className="btn btn-danger btn-sm" 
                                                 onClick={() => handleDeleteSnapshot(s.name)}
+                                                disabled={restoring !== null || operationLocked}
+                                                title={operationLocked ? 'Дождитесь завершения текущей операции с диском' : undefined}
                                             >
                                                 Удалить
                                             </button>

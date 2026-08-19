@@ -1375,20 +1375,15 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         # Блокировку берём ДО подсчёта: иначе десять параллельных запросов
         # прочитают одно и то же состояние и пройдут проверку все сразу, а
         # зависнут потом — уже на планировании (см. app.core.capacity).
-        from app.core.capacity import lock_host_capacity, available_disk_gb
+        from app.core.capacity import lock_host_capacity, ensure_storage_capacity
         lock_host_capacity(db)
 
         db_vms = db.query(VMTask).all()
         reserved_cpu = sum(vm.cpu_cores for vm in db_vms)
         reserved_stopped_ram = sum(vm.memory_gb for vm in db_vms if vm.status != "Running")
-        reserved_disk = sum(vm.disk_gb or 0 for vm in db_vms)
 
         available_cpu = max(0, host_cpu - reserved_cpu)
         available_ram = max(0.0, round(host_ram_gb - current_ram_usage_gb - reserved_stopped_ram, 2))
-        # Диски тонкие: сразу после создания ВМ свободное место почти не
-        # уменьшается, поэтому одного shutil.disk_usage мало — надо вычесть
-        # уже обещанное другим ВМ.
-        available_disk = available_disk_gb(host_disk_gb, host_disk_free_gb, reserved_disk)
 
         if req.cpu_cores > available_cpu:
             db.close()
@@ -1396,9 +1391,10 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         if req.memory_gb > available_ram:
             db.close()
             raise HTTPException(status_code=400, detail=f"Недостаточно свободной оперативной памяти на хосте. Запрошено: {req.memory_gb} ГБ, доступно для выделения: {available_ram} ГБ (всего на хосте: {host_ram_gb} ГБ).")
-        if req.disk_gb > available_disk:
-            db.close()
-            raise HTTPException(status_code=400, detail=f"Недостаточно свободного дискового пространства на хосте. Запрошено: {req.disk_gb} ГБ, доступно для выделения: {available_disk} ГБ (всего на хосте: {host_disk_gb} ГБ, уже зарезервировано другими ВМ: {reserved_disk} ГБ).")
+        # Диски ВМ, бэкапы, сетевые диски и приватные БД делят один
+        # STORAGE_CLASS. Общая проверка учитывает реальный LVM backend,
+        # backing filesystem sparse-образа и все backup DataVolume.
+        ensure_storage_capacity(db, extra_gb=req.disk_gb, k8s=client)
 
         # Проверяем лимиты квот для обычных пользователей (студентов)
         # Квота проверяется под блокировкой строки пользователя и в той же
@@ -1646,6 +1642,10 @@ def delete_vm(name: str, force: bool = False, client: K8sClient = Depends(get_k8
 @router.post("/{name}/start")
 def start_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(name, current_user)
+    try:
+        client.ensure_no_backup_operation(name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     from app.db import SessionLocal
     from app.models.models import VMTask
     db = SessionLocal()
@@ -1659,13 +1659,19 @@ def start_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_use
     finally:
         db.close()
     try:
-        return client.start_vm(name)
+        return client.guarded_power_action("start", name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{name}/stop")
 def stop_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(name, current_user)
+    try:
+        client.ensure_no_backup_operation(name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     from app.db import SessionLocal
     from app.models.models import VMTask
     db = SessionLocal()
@@ -1686,6 +1692,10 @@ def stop_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user
 @router.post("/{name}/restart")
 def restart_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(name, current_user)
+    try:
+        client.ensure_no_backup_operation(name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     from app.db import SessionLocal
     from app.models.models import VMTask
     db = SessionLocal()
@@ -1699,7 +1709,9 @@ def restart_vm(name: str, client: K8sClient = Depends(get_k8s_client), current_u
     finally:
         db.close()
     try:
-        return client.restart_vm(name)
+        return client.guarded_power_action("restart", name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1717,6 +1729,10 @@ def get_vm_metrics(name: str, client: K8sClient = Depends(get_k8s_client), curre
 def resize_vm(name: str, req: VMResizeRequest, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Изменение лимитов CPU, RAM и расширение HDD"""
     check_vm_ownership(name, current_user)
+    try:
+        client.ensure_no_backup_operation(name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     from app.db import SessionLocal
     from app.models.models import VMTask
     
@@ -1757,6 +1773,10 @@ def resize_vm(name: str, req: VMResizeRequest, client: K8sClient = Depends(get_k
 def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Обновление настроек ВМ (ресурсы, лимиты диска, проброс портов, фаервол)"""
     check_vm_ownership(name, current_user)
+    try:
+        client.ensure_no_backup_operation(name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     from app.db import SessionLocal
     from app.models.models import VMTask
     import json
@@ -1892,14 +1912,18 @@ def create_backup(name: str, client: K8sClient = Depends(get_k8s_client), curren
         vm = db.query(VMTask).filter(VMTask.name == name).first()
         if vm and vm.disk_gb:
             lock_host_capacity(db)
-            ensure_storage_capacity(db, extra_gb=vm.disk_gb)
+            ensure_storage_capacity(db, extra_gb=vm.disk_gb, k8s=client)
+        # Держим advisory lock до появления DataVolume в Kubernetes. Иначе два
+        # параллельных запроса отпускали lock сразу после проверки и оба
+        # резервировали полный размер одного диска из одного состояния пула.
+        try:
+            return client.create_vm_backup(name)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
-
-    try:
-        return client.create_vm_backup(name)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{name}/backups")
 def list_backups(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
@@ -1915,7 +1939,19 @@ def delete_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k
     """Удалить резервную копию"""
     check_vm_ownership(name, current_user)
     try:
+        backup = client.get_vm_backup(name, backup_name)
+        annotations = (backup.get("metadata") or {}).get("annotations") or {}
+        active_operation = client.active_backup_operation(name)
+        # DELETE незавершённого offline-бэкапа означает безопасную отмену:
+        # сначала убираем clone и ждём освобождения PVC, затем включаем ВМ.
+        if (
+            annotations.get(K8sClient.RESTART_AFTER_BACKUP) == "true"
+            or active_operation == backup_name
+        ):
+            return client.cancel_vm_backup(name, backup_name)
         return client.delete_vm_backup(backup_name, vm_name=name)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except ApiException as e:
@@ -1928,16 +1964,31 @@ def delete_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k
 @router.post("/{name}/restore/{backup_name}")
 def restore_vm_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(name, current_user)
+    # Crash-safe restore сначала клонирует backup в новый DataVolume и только
+    # после Succeeded переключает VM/удаляет старый диск. На время staging в
+    # пуле живёт ещё один полный PVC, поэтому он обязан проходить ту же
+    # вместимость и тот же advisory lock, что ручной/плановый backup.
+    from app.db import SessionLocal
+    from app.models.models import VMTask
+    from app.core.capacity import lock_host_capacity, ensure_storage_capacity
+    db = SessionLocal()
     try:
-        return client.restore_vm_backup(name, backup_name)
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except ApiException as e:
-        if e.status == 404:
-            raise HTTPException(status_code=404, detail="ВМ или резервная копия не найдена")
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        vm = db.query(VMTask).filter(VMTask.name == name).first()
+        if vm and vm.disk_gb:
+            lock_host_capacity(db)
+            ensure_storage_capacity(db, extra_gb=vm.disk_gb, k8s=client)
+        try:
+            return client.restore_vm_backup(name, backup_name)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except ApiException as e:
+            if e.status == 404:
+                raise HTTPException(status_code=404, detail="ВМ или резервная копия не найдена")
+            raise HTTPException(status_code=500, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
 
 
 def resolve_vm_ip(ips: list) -> Optional[str]:
@@ -2075,6 +2126,11 @@ async def migrate_vm(name: str, target_server_id: str = Query(...), k8s: K8sClie
     import uuid
     import random
     import subprocess
+
+    try:
+        k8s.ensure_no_backup_operation(name)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     
     # 1. Получаем внешний сервер асинхронно
     res = await db.execute(select(ExternalServer).filter_by(id=target_server_id))

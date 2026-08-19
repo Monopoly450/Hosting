@@ -60,7 +60,7 @@ def create_volume(req: VolumeCreateRequest, client: K8sClient = Depends(get_k8s_
         # только другими сетевыми дисками, как считала эта проверка раньше.
         from app.core.capacity import lock_host_capacity, ensure_storage_capacity
         lock_host_capacity(db)
-        ensure_storage_capacity(db, extra_gb=req.size_gb)
+        ensure_storage_capacity(db, extra_gb=req.size_gb, k8s=client)
 
         # Проверяем уникальность имени диска в БД
         existing = db.query(UserVolume).filter(UserVolume.name == full_pvc_name).first()

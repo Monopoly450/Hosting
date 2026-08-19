@@ -69,6 +69,38 @@ def test_snapshot_class_is_created_by_the_installer():
         "KubeVirt не указывает класс явно и полагается на дефолтный"
 
 
+def test_lvm_installer_creates_restore_capable_thin_storage():
+    install = _install_sh()
+    lvm = _lvm_sh()
+    assert 'thinProvision: "yes"' in lvm
+    assert "modprobe dm_thin_pool" in lvm
+    assert "modprobe dm_snapshot" in lvm
+    assert "thin_pool_autoextend_threshold" in lvm
+    assert "aegis-lvm-thin-monitor.timer" in lvm
+    assert "--metadataprofile aegis-thinpool" in lvm
+    assert "sed -ri" not in lvm, "инсталлятор не должен менять глобальный lvm.conf"
+    assert "thin-provisioning-tools" in install
+    assert '--version "$OPEN_EBS_LVM_CHART_VERSION"' in lvm
+    assert "--atomic" in lvm
+
+
+def test_existing_lvm_image_is_never_implicitly_truncated():
+    lvm = _lvm_sh()
+    existing = lvm.index('elif [ -e "$IMAGE" ]')
+    create = lvm.index('truncate -s "${POOL_GB}G" "$IMAGE"')
+    assert existing < create
+    assert "Существующий образ $IMAGE найден; его размер не изменяется" in lvm
+    assert "Не выполняю pvcreate поверх возможных данных" in lvm
+
+
+def test_install_sh_verifies_the_exact_storage_release_after_upgrade():
+    install = _install_sh()
+    assert "LVM_SETUP_OK" in install
+    assert 'deployed|lvm-localpv-${EXPECTED_LVM_CHART_VERSION}' in install
+    assert "volumesnapshotclass openebs-lvm-snapshot" in install
+    assert "aegis-lvm-thin-monitor.timer" in install
+
+
 def test_installer_no_longer_mentions_cloudflare():
     """Туннель и выбор DNS-провайдера убраны из установщика по просьбе
     владельца: настройка требовала похода в чужую панель и ничего не давала

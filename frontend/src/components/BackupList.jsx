@@ -1,19 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import { Trash2, Calendar, HardDrive, Plus, CheckCircle, AlertCircle, RotateCcw } from 'lucide-react';
 
-const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
+const BackupList = ({
+  vmName,
+  vmStatus,
+  onRestoreStarted,
+  operationLocked = false,
+  deletionLocked = false,
+}) => {
   const [backups, setBackups] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState('');
   const [actionLoading, setActionLoading] = useState(null); // 'create' | 'delete-id' | 'restore-id'
 
   const fetchBackups = async () => {
     try {
       const response = await fetch(`/api/vms/${vmName}/backups`, { cache: 'no-store' });
-      if (!response.ok) throw new Error('Failed to fetch backups');
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || `API вернул ${response.status}`);
+      }
       const data = await response.json();
       setBackups(data);
+      setListError('');
     } catch (err) {
       console.error('Error fetching backups:', err);
+      setListError(err.message || 'Не удалось обновить список бэкапов');
     } finally {
       setLoading(false);
     }
@@ -27,6 +39,9 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
   }, [vmName]);
 
   const handleCreateBackup = async () => {
+    if (vmStatus === 'Running' && !confirm(
+      `Для целостной копии виртуальная машина "${vmName}" будет выключена на время клонирования и включится автоматически после завершения. Продолжить?`
+    )) return;
     setActionLoading('create');
     try {
       const response = await fetch(`/api/vms/${vmName}/backup`, { method: 'POST' });
@@ -34,6 +49,11 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
         const err = await response.json();
         throw new Error(err.detail || 'Не удалось запустить резервное копирование.');
       }
+      const data = await response.json().catch(() => ({}));
+      if (data.will_restart) {
+        alert('Копирование запущено. Виртуальная машина выключена и включится автоматически после завершения бэкапа.');
+      }
+      if (onRestoreStarted) await onRestoreStarted();
       fetchBackups();
     } catch (err) {
       alert(`Ошибка бэкапа: ${err.message}`);
@@ -47,7 +67,10 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
     setActionLoading(`delete-${backupName}`);
     try {
       const response = await fetch(`/api/vms/${vmName}/backups/${backupName}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error('Failed to delete backup');
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || `API вернул ${response.status}`);
+      }
       fetchBackups();
     } catch (err) {
       alert(`Ошибка удаления бэкапа: ${err.message}`);
@@ -76,7 +99,7 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
       alert(data.will_restart
         ? 'Запущено восстановление диска. Виртуалка включится сама после копирования.'
         : 'Запущено восстановление диска. Виртуалка останется выключенной, как и до восстановления.');
-      if (onRestoreStarted) onRestoreStarted();
+      if (onRestoreStarted) await onRestoreStarted();
     } catch (err) {
       alert(`Ошибка восстановления: ${err.message}`);
     } finally {
@@ -123,6 +146,7 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
 
   const isDone = (b) => b.status === 'Succeeded';
   const isBusy = (b) => IN_PROGRESS.includes(b.status);
+  const hasActiveBackup = backups.some(isBusy);
 
   const statusLabel = (b) => STATUS_LABELS[b.status] || (isBusy(b) ? 'Копируется' : b.status);
 
@@ -155,7 +179,10 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
         <button 
           className="btn btn-primary btn-sm"
           onClick={handleCreateBackup}
-          disabled={actionLoading !== null}
+          disabled={actionLoading !== null || hasActiveBackup || operationLocked}
+          title={operationLocked
+            ? 'Для ВМ уже выполняется операция с диском'
+            : hasActiveBackup ? 'Сначала дождитесь завершения текущего бэкапа' : undefined}
         >
           {actionLoading === 'create' ? (
             <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px', borderColor: '#000' }} />
@@ -165,6 +192,12 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
           Создать копию
         </button>
       </div>
+
+      {listError && (
+        <div className="alert alert-danger" style={{ margin: 0 }}>
+          Не удалось обновить бэкапы: {listError}
+        </div>
+      )}
 
       {loading && backups.length === 0 ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '15px' }}>
@@ -262,8 +295,10 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                 <button
                   className="btn btn-secondary btn-sm"
                   onClick={() => handleRestoreBackup(b.name)}
-                  disabled={actionLoading !== null || !isDone(b)}
-                  title={isDone(b)
+                  disabled={actionLoading !== null || !isDone(b) || hasActiveBackup || operationLocked}
+                  title={operationLocked
+                    ? 'Дождитесь завершения текущей операции с диском'
+                    : isDone(b)
                     ? 'Заменить диск ВМ содержимым этой копии'
                     : isBusy(b)
                       ? 'Копия ещё создаётся — восстановление будет доступно, когда она завершится'
@@ -276,7 +311,10 @@ const BackupList = ({ vmName, vmStatus, onRestoreStarted }) => {
                 <button 
                   className="btn btn-danger btn-sm btn-icon-only"
                   onClick={() => handleDeleteBackup(b.name)}
-                  disabled={actionLoading !== null}
+                  disabled={actionLoading !== null || deletionLocked}
+                  title={deletionLocked
+                    ? 'Дождитесь завершения восстановления диска'
+                    : isBusy(b) ? 'Отменить копирование и включить ВМ' : 'Удалить бэкап'}
                   style={{ padding: '8px' }}
                 >
                   <Trash2 size={14} />

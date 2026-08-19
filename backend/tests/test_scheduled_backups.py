@@ -177,8 +177,8 @@ def test_restore_button_is_always_visible():
     наполовину склонированного тома значит затереть диск ВМ мусором."""
     src = _backup_list_jsx()
     assert "{b.status === 'Succeeded' && (" not in src, "кнопка снова спрятана"
-    assert "disabled={actionLoading !== null || !isDone(b)}" in src
-    assert "title={isDone(b)" in src, "недоступная кнопка должна объяснять причину"
+    assert "disabled={actionLoading !== null || !isDone(b) || hasActiveBackup || operationLocked}" in src
+    assert "title={operationLocked" in src, "недоступная кнопка должна объяснять причину"
 
 
 def test_backup_size_is_human_readable():
