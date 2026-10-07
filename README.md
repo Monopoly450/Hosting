@@ -1155,6 +1155,20 @@ MinIO собирается из исходников upstream-релиза `RELE
 ### 5. Проверка динамического доступа к базам данных
 Пользовательские базы данных запускаются в изолированных подах Kubernetes. Доступ к базе регулируется NetworkPolicy: при привязке базы к ВМ в панели Aegis трафик разрешается только от этой ВМ. Адрес подключения (`db-service-<имя_БД>`) отображается в панели.
 
+SQL-консоль и восстановление дампов используют `kubectl` внутри контейнера
+backend. Он устанавливается при сборке образа для amd64/arm64 с проверкой
+SHA-256 и запуском `kubectl version --client`. Если старый контейнер сообщает
+`No such file or directory: 'kubectl'`, пересоберите backend и worker:
+
+```bash
+docker compose up -d --build backend worker
+docker compose exec backend kubectl version --client
+```
+
+По умолчанию используется `v1.36.5`. Для кластера другой версии можно
+передать `--build-arg KUBECTL_VERSION=vX.Y.Z` в `docker compose build backend worker`.
+Выберите версию в пределах одной minor-версии от сервера Kubernetes.
+
 * **PostgreSQL из привязанной гостевой ВМ**:
   ```bash
   PGPASSWORD='<ПАРОЛЬ_БД>' psql -h <АДРЕС_БД_ИЗ_ПАНЕЛИ> -U <ПОЛЬЗОВАТЕЛЬ_БД> -d <ИМЯ_БД> -c "SELECT 1;"
