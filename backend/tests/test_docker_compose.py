@@ -30,6 +30,15 @@ def test_compose_file_is_valid_yaml():
     assert "cloudflared" in d["services"]
 
 
+def test_minio_builds_locally_when_upstream_images_are_unavailable():
+    svc = _compose()["services"]["minio"]
+    assert svc["build"] == "./minio"
+    assert svc["image"] == "aegis-minio:RELEASE.2025-09-07T16-13-09Z"
+    assert svc["pull_policy"] == "build"
+    assert "minio_data:/data" in svc["volumes"]
+    assert svc["command"] == 'server /data --console-address ":9001"'
+
+
 def test_no_required_variable_on_a_profiled_service():
     """Общий случай, а не только cloudflared: `:?` на переменной сервиса,
     у которого есть `profiles:`, ломает compose для всех, кто этот профиль

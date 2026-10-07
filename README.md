@@ -982,7 +982,7 @@ curl -sI https://<домен> | head -3       # HTTP/2 200
 ```bash
 kubectl get datavolumes | grep backup
 docker compose logs worker --tail=30 | grep -i backup
-docker compose exec minio mc ls local/database-backups/ 2>/dev/null || echo "проверьте через веб-консоль MinIO"
+docker compose exec backend sh -c 'mc alias set myminio http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null && mc ls myminio/database-backups/'
 ```
 - [ ] Ручной запуск создаёт копию, поле «последний запуск» обновилось
 - [ ] Ротация: при retention=1 старые копии удаляются
@@ -1126,6 +1126,13 @@ docker compose logs backend | grep <код из сообщения>
   ```
 
 ### 3. Объектное хранилище (MinIO S3)
+MinIO собирается из исходников upstream-релиза `RELEASE.2025-09-07T16-13-09Z`
+с проверкой коммита в `minio/Dockerfile`: готовые образы `minio/minio`
+недоступны в Docker Hub и Quay. Первый `docker compose up -d --build`
+потребует времени на компиляцию Go и доступа к GitHub и proxy.golang.org.
+Данные остаются в томе `minio_data`. Утилита `mc` установлена в контейнере
+`backend`; контейнер MinIO содержит сервер и `curl` для проверки здоровья.
+
 * **Имя контейнера**: `aegis-minio`
 * **S3 API Endpoint** (порт подключения программ): `9000` (например, `http://<IP_СЕРВЕРА>:9000`)
 * **Веб-панель управления (MinIO Console)**: `9001`, доступна **только с localhost**. С рабочей машины — SSH-туннель:
@@ -1136,7 +1143,7 @@ docker compose logs backend | grep <код из сообщения>
 * **Корневой администратор MinIO**: логин/пароль — `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` из `.env`
 * **Как проверить список сервисных аккаунтов пользователей на сервере**:
   ```bash
-  docker exec -it aegis-minio mc admin user svcacct list local minioadmin
+  docker compose exec backend sh -c 'mc alias set myminio http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null && mc admin user svcacct list myminio "$MINIO_ROOT_USER"'
   ```
 
 ### 4. Очередь сообщений (RabbitMQ)

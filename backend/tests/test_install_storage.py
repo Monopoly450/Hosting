@@ -101,6 +101,17 @@ def test_install_sh_verifies_the_exact_storage_release_after_upgrade():
     assert "aegis-lvm-thin-monitor.timer" in install
 
 
+def test_lvm_rollout_checks_use_supported_release_selector():
+    for src in (_install_sh(), _lvm_sh()):
+        commands = [line.strip() for line in src.splitlines()
+                    if line.strip().startswith("kubectl rollout status")
+                    and "openebs-lvm" in line]
+        assert len(commands) == 2
+        for command in commands:
+            assert "--all" not in command
+            assert "-l release=openebs-lvm" in command
+
+
 def test_installer_no_longer_mentions_cloudflare():
     """Туннель и выбор DNS-провайдера убраны из установщика по просьбе
     владельца: настройка требовала похода в чужую панель и ничего не давала

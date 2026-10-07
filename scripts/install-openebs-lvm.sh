@@ -263,8 +263,9 @@ helm upgrade --install openebs-lvm openebs-lvm/lvm-localpv \
   --set crds.csi.volumeSnapshots.enabled=false
 
 log "Ожидание готовности подов OpenEBS LVM..."
-kubectl rollout status deployment --all -n openebs-lvm --timeout=180s
-kubectl rollout status daemonset --all -n openebs-lvm --timeout=180s
+# rollout status не поддерживает --all; метка release задана чартом 1.9.0.
+kubectl rollout status deployment -l release=openebs-lvm -n openebs-lvm --timeout=180s
+kubectl rollout status daemonset -l release=openebs-lvm -n openebs-lvm --timeout=180s
 kubectl wait --for=condition=Ready pod --all -n openebs-lvm --timeout=180s
 
 # 3. Создание StorageClass для блочных томов

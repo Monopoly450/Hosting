@@ -719,9 +719,9 @@ if [ "$STORAGE_CLASS" = "openebs-lvm" ]; then
         [ "$HELM_RELEASE" = "deployed|lvm-localpv-${EXPECTED_LVM_CHART_VERSION}" ] \
             || LVM_VERIFY_OK=false
 
-        kubectl rollout status deployment --all -n openebs-lvm --timeout=30s >/dev/null 2>&1 \
+        kubectl rollout status deployment -l release=openebs-lvm -n openebs-lvm --timeout=30s >/dev/null 2>&1 \
             || LVM_VERIFY_OK=false
-        kubectl rollout status daemonset --all -n openebs-lvm --timeout=30s >/dev/null 2>&1 \
+        kubectl rollout status daemonset -l release=openebs-lvm -n openebs-lvm --timeout=30s >/dev/null 2>&1 \
             || LVM_VERIFY_OK=false
         kubectl wait --for=condition=Ready pod --all -n openebs-lvm --timeout=30s >/dev/null 2>&1 \
             || LVM_VERIFY_OK=false
