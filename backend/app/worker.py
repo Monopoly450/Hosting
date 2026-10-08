@@ -121,7 +121,7 @@ def process_vm_task(db: Session, task_id: int):
                     "macAddress": generate_mac_address(task.name + "-lan")
                 })
 
-        # Добавляем лимиты диска (Этап 4)
+        # Режим дискового I/O (не ограничение скорости).
         manifest["spec"]["template"]["spec"]["domain"]["ioThreadsPolicy"] = "shared"
         for disk in manifest["spec"]["template"]["spec"]["domain"]["devices"]["disks"]:
             if "disk" in disk:
@@ -197,7 +197,7 @@ def process_clone_task(db: Session, task_id: int, source_name: str):
         if not swapped:
             raise Exception(f"Не найден целевой диск {tgt_dvt} для клонирования")
 
-        # Лимиты диска (как при обычном создании)
+        # Режим дискового I/O, как при обычном создании.
         manifest["spec"]["template"]["spec"]["domain"]["ioThreadsPolicy"] = "shared"
         for disk in manifest["spec"]["template"]["spec"]["domain"]["devices"]["disks"]:
             if "disk" in disk and disk.get("cache") != "writeback":
@@ -310,36 +310,15 @@ def callback(ch, method, properties, body):
         # Подтверждаем сообщение всегда — не зацикливаемся на сбойных задачах.
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
-def apply_disk_throttling_daemon():
-    """Фоновый демон для динамического применения ограничений на дисковый ввод-вывод (cgroups v2)"""
-    from .services.disk_limits import apply_vm_disk_limits
-    logger.info("Starting disk throttling daemon thread...")
+def clear_legacy_disk_limits_daemon():
+    """Снимает прежние I/O-лимиты; новые ограничения больше не применяются."""
+    from .services.disk_limits import clear_legacy_disk_limits
+    logger.info("Starting legacy disk limits cleanup daemon thread...")
     while True:
         try:
-            vms_data = []
-            db = SessionLocal()
-            try:
-                vms_in_db = db.query(VMTask).all()
-                for vm in vms_in_db:
-                    # Извлекаем только нужные поля, чтобы закрыть сессию сразу
-                    vms_data.append({
-                        "name": vm.name,
-                        "disk_read_mbs": vm.disk_read_mbs,
-                        "disk_write_mbs": vm.disk_write_mbs,
-                        "disk_read_iops": vm.disk_read_iops,
-                        "disk_write_iops": vm.disk_write_iops
-                    })
-            finally:
-                db.close() # Закрываем транзакцию мгновенно
-
-            for vm in vms_data:
-                try:
-                    # Включая все нули: прежние ограничения нужно снимать.
-                    apply_vm_disk_limits(k8s, vm)
-                except Exception as pe:
-                    logger.error(f"Error applying disk limits for VM {vm['name']}: {pe}")
+            clear_legacy_disk_limits(k8s, SessionLocal)
         except Exception as e:
-            logger.error(f"Error in disk throttling daemon loop: {e}")
+            logger.error(f"Error in legacy disk limits cleanup loop: {e}")
             
         time.sleep(10)
 
@@ -567,9 +546,9 @@ def main():
     # `relation "domains" does not exist` и не поднимал прокси доменов.
     wait_for_schema(engine)
 
-    # Запуск фонового демона для ограничения дисков (cgroups v2)
-    throttling_thread = threading.Thread(target=apply_disk_throttling_daemon, daemon=True)
-    throttling_thread.start()
+    # Очистка ограничений, сохранённых до удаления этой функции из панели.
+    disk_cleanup_thread = threading.Thread(target=clear_legacy_disk_limits_daemon, daemon=True)
+    disk_cleanup_thread.start()
 
     # Демон переустановки проброса портов при смене IP ВМ (после перезагрузок)
     firewall_thread = threading.Thread(target=apply_firewall_reconcile_daemon, daemon=True)

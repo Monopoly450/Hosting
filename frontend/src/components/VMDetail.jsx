@@ -6,6 +6,7 @@ import VncConsole from './VncConsole';
 import SshTerminal from './SshTerminal';
 import BackupList from './BackupList';
 import CustomSelect from './CustomSelect';
+import DiskStorageNotice from './DiskStorageNotice';
 import { initializeVmSettings, quantityGi, settingsError } from '../utils/vmSettings';
 
 const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
@@ -19,15 +20,8 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   
   const [cpuCores, setCpuCores] = useState(2);
   const [memoryGb, setMemoryGb] = useState(2);
-  const [diskGb, setDiskGb] = useState(20);
   const initializedSettingsVm = useRef(null);
   const activeVmName = useRef(vmName);
-  const [savingResize, setSavingResize] = useState(false);
-
-  const [diskReadMbs, setDiskReadMbs] = useState(0);
-  const [diskWriteMbs, setDiskWriteMbs] = useState(0);
-  const [diskReadIops, setDiskReadIops] = useState(0);
-  const [diskWriteIops, setDiskWriteIops] = useState(0);
   const [portsConfig, setPortsConfig] = useState([]);
   const [firewallRules, setFirewallRules] = useState([]);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -135,13 +129,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       if (data) initializeVmSettings(initializedSettingsVm, vmName, data, (data) => {
         setCpuCores(data.cpu_cores || 2);
         const currentRam = data.memory_gb || quantityGi(data.memory, 2);
-        const currentDisk = data.disk_gb || quantityGi(data.disks?.[0]?.size, 20);
         setMemoryGb(currentRam);
-        setDiskGb(currentDisk);
-        setDiskReadMbs(data.disk_read_mbs || 0);
-        setDiskWriteMbs(data.disk_write_mbs || 0);
-        setDiskReadIops(data.disk_read_iops || 0);
-        setDiskWriteIops(data.disk_write_iops || 0);
         setPortsConfig(data.ports_config || []);
         setFirewallRules(data.firewall_rules || []);
       });
@@ -269,26 +257,6 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
     }
   };
 
-  const handleResize = async (e) => {
-    e.preventDefault();
-    setSavingResize(true);
-    try {
-      const response = await fetch(`/api/vms/${vmName}/resize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cpu_cores: parseInt(cpuCores), memory_gb: parseInt(memoryGb), disk_gb: parseInt(diskGb) })
-      });
-      if (!response.ok) throw new Error(await settingsError(response, 'Не удалось обновить ресурсы.'));
-      alert('Настройки обновлены. Для применения CPU/RAM полностью остановите ВМ и запустите её снова.');
-      fetchVmDetails();
-      if (onActionSuccess) onActionSuccess();
-    } catch (err) {
-      alert(`Ошибка: ${err.message}`);
-    } finally {
-      setSavingResize(false);
-    }
-  };
-
   const fetchMetricsHistory = async () => {
     try {
       const response = await fetch(`/api/vms/${vmName}/metrics/history?range_hours=${historyRange}`);
@@ -324,17 +292,13 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
         body: JSON.stringify({
           cpu_cores: parseInt(cpuCores),
           memory_gb: parseInt(memoryGb),
-          disk_gb: parseInt(diskGb),
-          disk_read_mbs: parseInt(diskReadMbs),
-          disk_write_mbs: parseInt(diskWriteMbs),
-          disk_read_iops: parseInt(diskReadIops),
-          disk_write_iops: parseInt(diskWriteIops),
+          disk_gb: currentDiskGb,
           ports_config: portsConfig,
           firewall_rules: firewallRules
         })
       });
       if (!response.ok) throw new Error(await settingsError(response, 'Не удалось сохранить настройки.'));
-      alert('Настройки сохранены. Для применения CPU/RAM полностью остановите ВМ и запустите её снова. Дисковые лимиты периодически применяет worker; рост раздела внутри ОС может потребовать отдельного действия.');
+      alert('Настройки сохранены. Для применения CPU/RAM полностью остановите ВМ и запустите её снова.');
       fetchVmDetails();
       if (onActionSuccess) onActionSuccess();
     } catch (err) {
@@ -452,7 +416,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
   const sshIp = getSshIp();
   const bridgeIp = getBridgeIp();
-  const currentDiskLimit = vm.disk_gb || quantityGi(vm.disks?.[0]?.size, 20);
+  const currentDiskGb = vm.disk_gb || quantityGi(vm.disks?.[0]?.size, 20);
   const backupLocked = Boolean(vm.backup_operation);
   const restoreLocked = vm.backup_operation?.startsWith('restore:');
   const snapshotRestoreLocked = vm.backup_operation?.startsWith('snapshot-restore:');
@@ -896,18 +860,6 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                     {vm.disk_read_iops_realtime || 0} / {vm.disk_write_iops_realtime || 0}
                   </td>
                 </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--card-bg-subtle)' }}>
-                  <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>Лимит чтения / записи (cgroup)</td>
-                  <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>
-                    {vm.disk_read_mbs ? `${vm.disk_read_mbs} МБ/с` : 'Без лимита'} / {vm.disk_write_mbs ? `${vm.disk_write_mbs} МБ/с` : 'Без лимита'}
-                  </td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--card-bg-subtle)' }}>
-                  <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>Лимит IOPS чтения / записи (cgroup)</td>
-                  <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>
-                    {vm.disk_read_iops ? `${vm.disk_read_iops} IOPS` : 'Без лимита'} / {vm.disk_write_iops ? `${vm.disk_write_iops} IOPS` : 'Без лимита'}
-                  </td>
-                </tr>
               </tbody>
             </table>
           </div>
@@ -976,9 +928,9 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
       {activeTab === 'settings' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '24px' }}>
-          {/* Left Panel: CPU/RAM/Disk limits */}
+          {/* Left Panel: CPU/RAM and system disk information */}
           <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <h3 className="section-title" style={{ margin: 0 }}><Settings size={18}/> Выделение ресурсов и лимиты диска</h3>
+            <h3 className="section-title" style={{ margin: 0 }}><Settings size={18}/> Выделение ресурсов</h3>
             
             <form onSubmit={handleSaveSettings} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div>
@@ -999,46 +951,10 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
-                  <span className="text-muted">Storage Disk</span>
-                  <span style={{ fontWeight: 600 }}>{diskGb} GB</span>
+                  <span className="text-muted">Системный диск</span>
+                  <span style={{ fontWeight: 600 }}>{currentDiskGb} GB</span>
                 </div>
-                <input type="range" min={currentDiskLimit} max="500" step="10" value={diskGb} onChange={(e) => setDiskGb(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingSettings} />
-              </div>
-
-              <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: '10px', paddingTop: '16px' }}></div>
-
-              <h4 style={{ margin: '0 0 10px 0', fontSize: '0.95rem' }}><HardDrive size={16} style={{ marginRight: '6px', verticalAlign: 'middle' }}/> Ограничения скорости диска (IOPS / MBs)</h4>
-
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
-                  <span className="text-muted">Лимит чтения (МБ/с)</span>
-                  <span style={{ fontWeight: 600 }}>{diskReadMbs === 0 ? 'Без лимита' : `${diskReadMbs} МБ/с`}</span>
-                </div>
-                <input type="range" min="0" max="500" step="10" value={diskReadMbs} onChange={(e) => setDiskReadMbs(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingSettings} />
-              </div>
-
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
-                  <span className="text-muted">Лимит записи (МБ/с)</span>
-                  <span style={{ fontWeight: 600 }}>{diskWriteMbs === 0 ? 'Без лимита' : `${diskWriteMbs} МБ/с`}</span>
-                </div>
-                <input type="range" min="0" max="500" step="10" value={diskWriteMbs} onChange={(e) => setDiskWriteMbs(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingSettings} />
-              </div>
-
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
-                  <span className="text-muted">Лимит операций чтения (IOPS)</span>
-                  <span style={{ fontWeight: 600 }}>{diskReadIops === 0 ? 'Без лимита' : `${diskReadIops} IOPS`}</span>
-                </div>
-                <input type="range" min="0" max="5000" step="100" value={diskReadIops} onChange={(e) => setDiskReadIops(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingSettings} />
-              </div>
-
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
-                  <span className="text-muted">Лимит операций записи (IOPS)</span>
-                  <span style={{ fontWeight: 600 }}>{diskWriteIops === 0 ? 'Без лимита' : `${diskWriteIops} IOPS`}</span>
-                </div>
-                <input type="range" min="0" max="5000" step="100" value={diskWriteIops} onChange={(e) => setDiskWriteIops(parseInt(e.target.value))} style={{ width: '100%' }} disabled={savingSettings} />
+                <DiskStorageNotice />
               </div>
 
               <button type="submit" className="btn btn-primary" disabled={savingSettings || backupLocked}>

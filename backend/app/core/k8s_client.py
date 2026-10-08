@@ -712,7 +712,7 @@ class K8sClient:
             raise ValueError("Класс хранения системного диска не поддерживает расширение")
         storage = self.storage_api.read_storage_class(pvc.spec.storage_class_name)
         if not storage.allow_volume_expansion:
-            raise ValueError(f"Класс хранения {pvc.spec.storage_class_name} не поддерживает расширение диска; CPU/RAM и лимиты можно сохранить без изменения размера диска")
+            raise ValueError(f"Класс хранения {pvc.spec.storage_class_name} не поддерживает расширение диска; для дополнительного места откройте раздел «Сетевые диски»")
         return pvc
 
     # --- РЕЗЕРВНОЕ КОПИРОВАНИЕ И ВОССТАНОВЛЕНИЕ (BACKUPS) ---

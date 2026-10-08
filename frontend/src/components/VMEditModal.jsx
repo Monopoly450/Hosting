@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { Settings, X, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Settings, X, AlertTriangle } from 'lucide-react';
+import DiskStorageNotice from './DiskStorageNotice';
+import { quantityGi, settingsError } from '../utils/vmSettings';
 
 const VMEditModal = ({ vm, onClose, onSaveSuccess }) => {
   const [cpuCores, setCpuCores] = useState(vm.cpu_cores);
-  // Парсим текущие RAM и Disk в числа (например "2Gi" -> 2, "30Gi" -> 30)
-  const currentRamGb = parseInt(vm.memory) || 2;
-  const currentDiskGb = vm.disks && vm.disks[0] ? parseInt(vm.disks[0].size) || 20 : 20;
+  const currentRamGb = vm.memory_gb || quantityGi(vm.memory, 2);
+  const currentDiskGb = vm.disk_gb || quantityGi(vm.disks?.[0]?.size, 20);
 
   const [memoryGb, setMemoryGb] = useState(currentRamGb);
-  const [diskGb, setDiskGb] = useState(currentDiskGb);
   const [saving, setSaving] = useState(false);
 
   const handleSave = async (e) => {
@@ -21,16 +21,15 @@ const VMEditModal = ({ vm, onClose, onSaveSuccess }) => {
         body: JSON.stringify({
           cpu_cores: parseInt(cpuCores),
           memory_gb: parseInt(memoryGb),
-          disk_gb: parseInt(diskGb)
+          disk_gb: currentDiskGb
         })
       });
 
       if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.detail || 'Не удалось сохранить настройки.');
+        throw new Error(await settingsError(response, 'Не удалось сохранить настройки.'));
       }
 
-      alert('Настройки успешно обновлены! Изменения CPU и RAM вступят в силу после перезапуска виртуалки.');
+      alert('Настройки обновлены. Для применения CPU/RAM полностью остановите ВМ и запустите её снова.');
       onSaveSuccess();
       onClose();
     } catch (err) {
@@ -69,8 +68,7 @@ const VMEditModal = ({ vm, onClose, onSaveSuccess }) => {
           }}>
             <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
             <div>
-              Изменения ядер CPU и оперативной памяти требуют перезагрузки виртуальной машины.
-              <strong> Уменьшение размера диска невозможно.</strong>
+              Для применения CPU/RAM полностью остановите ВМ и запустите её снова.
             </div>
           </div>
 
@@ -111,22 +109,10 @@ const VMEditModal = ({ vm, onClose, onSaveSuccess }) => {
           {/* Disk */}
           <div className="slider-container">
             <div className="slider-header">
-              <span>Объем системного диска (NVMe/SSD)</span>
-              <span className="slider-value">{diskGb} GB</span>
+              <span>Системный диск</span>
+              <span className="slider-value">{currentDiskGb} GB</span>
             </div>
-            <input 
-              type="range" 
-              min={currentDiskGb} // Уменьшить нельзя, ползунок начинается от текущего размера!
-              max="200" 
-              step="10"
-              className="range-input"
-              value={diskGb}
-              onChange={(e) => setDiskGb(parseInt(e.target.value))}
-              disabled={saving}
-            />
-            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-              Текущий размер диска: {currentDiskGb} GB. Можно только увеличить.
-            </span>
+            <DiskStorageNotice />
           </div>
 
           <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>

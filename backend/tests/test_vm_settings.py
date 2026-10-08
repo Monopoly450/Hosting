@@ -89,17 +89,18 @@ def settings_api(db_env, monkeypatch):
 
 def test_settings_are_persisted_and_available_after_page_reload(settings_api):
     factory, k8s, user = settings_api
-    request = vms.VMSettingsUpdateRequest(cpu_cores=4, memory_gb=8, disk_gb=30,
-        disk_read_mbs=20, disk_write_mbs=10, disk_read_iops=100, disk_write_iops=200)
+    request = vms.VMSettingsUpdateRequest(cpu_cores=4, memory_gb=8, disk_gb=30)
     assert vms.update_vm_settings("vm1", request, k8s, user)["status"] == "success"
     with factory() as db:
         vm = db.query(VMTask).filter(VMTask.name == "vm1").one()
         assert (vm.cpu_cores, vm.memory_gb, vm.disk_gb) == (4, 8, 30)
-        assert (vm.disk_read_mbs, vm.disk_write_mbs, vm.disk_read_iops, vm.disk_write_iops) == (20, 10, 100, 200)
     details = vms.get_vm_details("vm1", k8s, user)
     assert details["disk_gb"] == 30  # нет dataVolumeTemplates после отката
     assert details["memory_gb"] == 8
-    assert details["disk_read_mbs"] == 20
+    assert "disk_read_mbs" not in details
+    assert "disk_write_mbs" not in details
+    assert "disk_read_iops" not in details
+    assert "disk_write_iops" not in details
     k8s.resize_vm_resources.assert_called_once_with("vm1", 4, 8)
     k8s.resize_vm_disk.assert_called_once_with("vm1", 30)
 
@@ -128,14 +129,33 @@ def test_cannot_reduce_reserved_disk_size(settings_api):
     k8s.resize_vm_disk.assert_not_called()
 
 
-def test_only_limits_can_be_saved_without_disk_expansion(settings_api):
+def test_cpu_ram_settings_do_not_expand_unchanged_system_disk(settings_api):
     factory, k8s, user = settings_api
     with factory() as db:
         vm = db.query(VMTask).one()
         vm.cpu_cores, vm.memory_gb, vm.disk_gb = 2, 2, 20
         db.commit()
     vms.update_vm_settings("vm1", vms.VMSettingsUpdateRequest(
-        cpu_cores=2, memory_gb=2, disk_gb=20, disk_read_iops=100), k8s, user)
+        cpu_cores=2, memory_gb=2, disk_gb=20), k8s, user)
     k8s.validate_vm_disk_resize.assert_not_called()
     k8s.resize_vm_resources.assert_not_called()
     k8s.resize_vm_disk.assert_not_called()
+
+
+def test_old_frontend_cannot_reenable_limits_or_discard_cleanup_marker(settings_api):
+    factory, k8s, user = settings_api
+    with factory() as db:
+        vm = db.query(VMTask).one()
+        vm.disk_read_mbs = 10
+        vm.disk_gb = 20
+        db.commit()
+    request = vms.VMSettingsUpdateRequest(cpu_cores=2, memory_gb=2, disk_gb=20,
+        disk_read_mbs=50, disk_write_mbs=50, disk_read_iops=100, disk_write_iops=100)
+    assert "disk_read_mbs" not in request.dict()
+    vms.update_vm_settings("vm1", request, k8s, user)
+    with factory() as db:
+        vm = db.query(VMTask).one()
+        assert vm.disk_read_mbs == 10  # worker должен сначала снять лимит
+        assert vm.disk_write_mbs == 0
+        assert vm.disk_read_iops == 0
+        assert vm.disk_write_iops == 0

@@ -31,6 +31,7 @@ import MailPanel from './components/MailPanel';
 import CustomSelect from './components/CustomSelect';
 import Portal from './components/Portal';
 import SidebarResizer from './components/SidebarResizer';
+import DiskStorageNotice from './components/DiskStorageNotice';
 
 const OS_VERSIONS = {
   ubuntu: [
@@ -1419,10 +1420,11 @@ const App = () => {
                           </div>
                           <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                              <span className="input-label">Storage</span>
+                              <span className="input-label">Системный диск</span>
                               <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{diskGb} GB</span>
                             </div>
                             <input type="range" min="10" max="500" step="10" value={diskGb} onChange={(e) => setDiskGb(parseInt(e.target.value))} style={{ width: '100%' }} />
+                            <DiskStorageNotice />
                           </div>
                         </div>
 

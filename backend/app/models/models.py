@@ -180,7 +180,7 @@ class VMTask(Base):
     packages = Column(String, nullable=True)
     network_drives = Column(String, nullable=True)
     
-    # New limits and security fields
+    # Legacy I/O fields: only used to track cleanup of old runtime limits.
     disk_read_mbs = Column(Integer, default=0)
     disk_write_mbs = Column(Integer, default=0)
     disk_read_iops = Column(Integer, default=0)

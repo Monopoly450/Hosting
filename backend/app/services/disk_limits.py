@@ -1,8 +1,38 @@
-"""Применение сохранённых дисковых лимитов к cgroup реального пода ВМ."""
+"""Снятие дисковых ограничений, оставшихся от прежней версии панели."""
+import logging
 import os
 import subprocess
 import uuid
 from kubernetes.client.rest import ApiException
+from sqlalchemy import or_
+
+from ..models.models import VMTask
+
+logger = logging.getLogger(__name__)
+LEGACY_LIMIT_FIELDS = ("disk_read_mbs", "disk_write_mbs", "disk_read_iops", "disk_write_iops")
+
+
+def clear_legacy_disk_limits(k8s, session_factory):
+    # Поля оставлены ради совместимости БД. Ненулевое значение служит
+    # маркером: обнуляем его только после успешного снятия runtime-лимита.
+    with session_factory() as db:
+        pending = db.query(VMTask.id, VMTask.name).filter(
+            or_(*(getattr(VMTask, field) != 0 for field in LEGACY_LIMIT_FIELDS))).all()
+    cleared = 0
+    for vm_id, name in pending:
+        try:
+            # Ни при каких условиях не передаём прежние значения: только max.
+            if not apply_vm_disk_limits(k8s, {"name": name}):
+                continue
+            with session_factory() as db:
+                db.query(VMTask).filter(VMTask.id == vm_id, VMTask.name == name).update(
+                    {field: 0 for field in LEGACY_LIMIT_FIELDS}, synchronize_session=False)
+                db.commit()
+            cleared += 1
+            logger.info("Прежние ограничения скорости диска сняты для ВМ %s", name)
+        except Exception:
+            logger.exception("Не удалось снять прежние дисковые ограничения ВМ %s; повторим позже", name)
+    return cleared
 
 
 def _host(script, *args):

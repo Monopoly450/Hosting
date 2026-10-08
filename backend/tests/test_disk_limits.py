@@ -6,10 +6,67 @@ import pytest
 from kubernetes.client.rest import ApiException
 
 from app.services import disk_limits as limits
+from app.models.models import VMTask
+from test_s3_archives import db_env
 
 POD_UID = "bbbbbbbb-2222-3333-4444-555555555555"
 VMI_UID = "aaaaaaaa-2222-3333-4444-555555555555"
 GROUP = "/sys/fs/cgroup/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod" + POD_UID.replace("-", "_") + ".slice"
+
+
+@pytest.mark.parametrize("field", limits.LEGACY_LIMIT_FIELDS)
+def test_cleanup_removes_old_limits_instead_of_reapplying_them(env, db_env, field):
+    factory, _ = db_env
+    with factory() as db:
+        setattr(db.query(VMTask).one(), field, 50)
+        db.commit()
+    assert limits.clear_legacy_disk_limits(env.k8s, factory) == 1
+    assert writes(env)
+    assert all(args[1].endswith("rbps=max wbps=max riops=max wiops=max") for args in writes(env))
+    with factory() as db:
+        vm = db.query(VMTask).one()
+        assert all(getattr(vm, field) == 0 for field in limits.LEGACY_LIMIT_FIELDS)
+    env.calls.clear()
+    assert limits.clear_legacy_disk_limits(env.k8s, factory) == 0
+    assert not env.calls
+
+
+@pytest.mark.parametrize("result", [False, RuntimeError("io.max отсутствует")])
+def test_cleanup_retries_when_runtime_limits_could_not_be_removed(db_env, monkeypatch, result):
+    factory, _ = db_env
+    with factory() as db:
+        db.query(VMTask).one().disk_write_iops = 100
+        db.commit()
+    calls = []
+    def apply(k8s, settings):
+        calls.append(settings)
+        if isinstance(result, Exception):
+            raise result
+        return result
+    monkeypatch.setattr(limits, "apply_vm_disk_limits", apply)
+    assert limits.clear_legacy_disk_limits(None, factory) == 0
+    assert calls == [{"name": "vm1"}]
+    with factory() as db:
+        assert db.query(VMTask).one().disk_write_iops == 100
+    monkeypatch.setattr(limits, "apply_vm_disk_limits", lambda *args: True)
+    assert limits.clear_legacy_disk_limits(None, factory) == 1
+
+
+def test_cleanup_failure_for_one_vm_does_not_block_another(db_env, monkeypatch):
+    factory, _ = db_env
+    with factory() as db:
+        db.query(VMTask).one().disk_read_mbs = 10
+        db.add(VMTask(id=2, name="vm2", owner_id=1, os_type="ubuntu", disk_write_mbs=20))
+        db.commit()
+    def apply(k8s, settings):
+        if settings["name"] == "vm1":
+            raise RuntimeError("недоступный контроллер")
+        return True
+    monkeypatch.setattr(limits, "apply_vm_disk_limits", apply)
+    assert limits.clear_legacy_disk_limits(None, factory) == 1
+    with factory() as db:
+        assert db.get(VMTask, 1).disk_read_mbs == 10
+        assert db.get(VMTask, 2).disk_write_mbs == 0
 
 
 @pytest.fixture

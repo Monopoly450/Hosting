@@ -93,11 +93,6 @@ class VMSettingsUpdateRequest(BaseModel):
     cpu_cores: int = Field(..., ge=1, le=16)
     memory_gb: int = Field(..., ge=1, le=64)
     disk_gb: int = Field(..., ge=10, le=500)
-    # Storage Throttling (Disk Limits)
-    disk_read_mbs: int = Field(0, ge=0, le=1000)
-    disk_write_mbs: int = Field(0, ge=0, le=1000)
-    disk_read_iops: int = Field(0, ge=0, le=10000)
-    disk_write_iops: int = Field(0, ge=0, le=10000)
     # Port configuration and firewall
     ports_config: Optional[List[PortConfigItem]] = None
     firewall_rules: Optional[List[dict]] = None # List of {"port": int, "allowed_ips": ["1.2.3.4"]}
@@ -1191,10 +1186,6 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client), curre
                 # S3-отката dataVolumeTemplates отсутствуют, но настройка есть.
                 vm_data["disk_gb"] = db_vm.disk_gb
                 vm_data["memory_gb"] = db_vm.memory_gb
-                vm_data["disk_read_mbs"] = db_vm.disk_read_mbs
-                vm_data["disk_write_mbs"] = db_vm.disk_write_mbs
-                vm_data["disk_read_iops"] = db_vm.disk_read_iops
-                vm_data["disk_write_iops"] = db_vm.disk_write_iops
                 
                 # Парсим JSON портов
                 import json
@@ -1788,7 +1779,7 @@ def resize_vm(name: str, req: VMResizeRequest, client: K8sClient = Depends(get_k
 
 @router.post("/{name}/settings")
 def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
-    """Обновление настроек ВМ (ресурсы, лимиты диска, проброс портов, фаервол)"""
+    """Обновление настроек ВМ (ресурсы, проброс портов, фаервол)"""
     check_vm_ownership(name, current_user)
     try:
         client.ensure_no_backup_operation(name)
@@ -1835,13 +1826,9 @@ def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClien
                 client.resize_vm_disk(name, req.disk_gb)
                 db_vm.disk_gb = req.disk_gb
                 
-            # 2. Обновление лимитов диска в БД
-            db_vm.disk_read_mbs = req.disk_read_mbs
-            db_vm.disk_write_mbs = req.disk_write_mbs
-            db_vm.disk_read_iops = req.disk_read_iops
-            db_vm.disk_write_iops = req.disk_write_iops
-            
-            # 3. Обновление портов и фаервола в БД
+            # Старые лимиты не меняем здесь: worker сначала снимает их
+            # с работающего пода и только затем обнуляет поля в БД.
+            # 2. Обновление портов и фаервола в БД
             ports_list = [p.dict() for p in req.ports_config] if req.ports_config is not None else []
             fw_list = req.firewall_rules if req.firewall_rules is not None else []
             
