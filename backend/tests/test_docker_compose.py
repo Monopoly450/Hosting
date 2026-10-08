@@ -65,6 +65,20 @@ def test_backend_and_worker_share_the_verified_mc_image_build():
     assert services["backend"]["build"] == services["worker"]["build"]
 
 
+@pytest.mark.parametrize("service", ["backend", "worker"])
+@pytest.mark.parametrize("key", ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"])
+def test_s3_clients_receive_the_same_credentials_as_minio(service, key):
+    services = _compose()["services"]
+    def environment(name):
+        return dict(entry.split("=", 1) for entry in services[name]["environment"])
+    expected = environment("minio")[key]
+    assert environment(service).get(key) == expected, (
+        f"{service} must receive {key} from .env, not use the Python fallback"
+    )
+    if key == "MINIO_ROOT_PASSWORD":
+        assert "${MINIO_ROOT_PASSWORD:?" in expected
+
+
 def test_no_required_variable_on_a_profiled_service():
     """Общий случай, а не только cloudflared: `:?` на переменной сервиса,
     у которого есть `profiles:`, ломает compose для всех, кто этот профиль

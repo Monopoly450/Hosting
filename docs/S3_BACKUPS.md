@@ -46,6 +46,26 @@ docker compose exec -T worker mc --version
 проверка SHA-256 и пробный запуск утилиты. После обновления повторите
 создание копии на тестовой Linux-ВМ.
 
+### Если бакет создан, но копия падает в worker
+
+`backend`, `worker` и `minio` должны получать одинаковые
+`MINIO_ROOT_USER` и `MINIO_ROOT_PASSWORD` из `.env`. Без этих переменных
+worker использует запасные значения, и пароль может не совпасть с MinIO.
+После обновления `docker-compose.yml` пересоздайте worker, чтобы применить
+окружение: простой `docker compose restart worker` его не обновляет.
+
+```bash
+cd /root/Hosting
+git pull
+docker compose up -d --no-deps --force-recreate worker
+docker compose logs --since 10m --tail 200 worker
+```
+
+Неудавшиеся копии не становятся готовыми после изменения окружения:
+создайте новую копию на тестовой ВМ. Если ошибка повторится, сохраните
+traceback рядом с `Ошибка S3-операции` из логов worker; не публикуйте ключи,
+токены и presigned-ссылки.
+
 ## Что именно сохраняется
 
 Снимок — полная дисковая точка восстановления, а не CSI/LVM-снимок и не

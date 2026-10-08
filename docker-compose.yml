@@ -143,6 +143,10 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
       - AEGIS_SECRET_KEY=${AEGIS_SECRET_KEY:-}
       - ADMIN_TOKEN=${ADMIN_TOKEN:?ADMIN_TOKEN не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
+      # S3-копирование и импорт дисков выполняются в worker: нужны те же
+      # учётные данные MinIO, что у backend и самого S3-сервера.
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
       - STORAGE_CLASS=${STORAGE_CLASS:-local-path}
       - AEGIS_HOST_IP=${AEGIS_HOST_IP:-}
       - REGISTRY_PORT=${REGISTRY_PORT:-5000}
