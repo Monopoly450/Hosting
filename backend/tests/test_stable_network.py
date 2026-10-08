@@ -193,7 +193,7 @@ def test_resolve_vm_ports_fallback_matches_default_ports_for():
     арифметика была скопирована в трёх местах и могла разъехаться."""
     from app.api.vms import default_ports_for, resolve_vm_ports
 
-    for os_type in ("linux", "windows"):
+    for os_type in ("linux", "windows", "proxmox"):
         assert resolve_vm_ports("172.20.0.71", 71, None, os_type) == \
             default_ports_for(71, os_type)
 

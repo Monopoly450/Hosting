@@ -11,22 +11,22 @@ from app.services import vm_ssh_access as access
 from test_s3_archives import db_env
 
 
-@pytest.mark.parametrize("os_type", ["ubuntu", "debian", "almalinux", "rocky", "fedora", "centos", "opensuse", "alpine", "arch", "custom", "proxmox"])
+@pytest.mark.parametrize("os_type", ["ubuntu", "debian", "almalinux", "rocky", "fedora", "centos", "opensuse", "alpine", "arch", "custom"])
 def test_own_key_disables_password_terminal_for_all_supported_os(os_type):
     task = NS(os_type=os_type, ssh_key="ssh-ed25519 test-public-key")
     assert access.ssh_access_policy(task) == {
         "auth_mode": "publickey", "web_terminal_enabled": False, "reason": "own_key"}
 
 
-@pytest.mark.parametrize("os_type", ["windows", "truenas", "TrueNAS"])
+@pytest.mark.parametrize("os_type", ["windows", "truenas", "TrueNAS", "proxmox", "Proxmox"])
 @pytest.mark.parametrize("key", [None, "ssh-ed25519 test-public-key"])
-def test_windows_and_truenas_do_not_offer_ssh_terminal(os_type, key):
+def test_iso_guests_do_not_offer_ssh_terminal(os_type, key):
     assert access.ssh_access_policy(NS(os_type=os_type, ssh_key=key))["reason"] == "unsupported_os"
 
 
 def test_password_guests_keep_existing_terminal():
     assert access.ssh_access_policy(NS(os_type="ubuntu", ssh_key=None))["web_terminal_enabled"]
-    assert access.ssh_access_policy(os_type="proxmox")["web_terminal_enabled"]
+    assert not access.ssh_access_policy(os_type="proxmox")["web_terminal_enabled"]
 
 
 def test_explicit_password_disable_in_yaml_also_stops_password_ssh():
@@ -93,7 +93,7 @@ def test_rest_password_probes_are_rejected_without_attempting_ssh(ssh_env, endpo
     inspector.assert_not_called()
 
 
-@pytest.mark.parametrize("mode", ["key", "windows", "truenas", "password-disabled"])
+@pytest.mark.parametrize("mode", ["key", "windows", "truenas", "proxmox", "password-disabled"])
 def test_websocket_is_closed_before_any_password_authentication(ssh_env, monkeypatch, mode):
     factory, k8s, ssh_factory, _ = ssh_env
     with factory() as db:

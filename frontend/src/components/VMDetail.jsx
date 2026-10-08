@@ -5,6 +5,7 @@ import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip as Recharts
 import VncConsole from './VncConsole';
 import SshTerminal from './SshTerminal';
 import SshConnectionGuide from './SshConnectionGuide';
+import ProxmoxAccessGuide from './ProxmoxAccessGuide';
 import BackupList from './BackupList';
 import CustomSelect from './CustomSelect';
 import DiskStorageNotice from './DiskStorageNotice';
@@ -699,23 +700,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             )}
 
             {/* Proxmox Web UI Link */}
-            {vm.os_type === 'proxmox' && (
-              <div style={{ marginTop: '8px' }}>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Доступ к панели Proxmox (HTTPS):</div>
-                {(() => {
-                  const pObj = portsConfig.find(p => p.int_port === 8006);
-                  const pUrl = pObj ? `https://${window.location.hostname}:${pObj.ext_port}` : null;
-                  return (
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={pUrl || 'Добавьте проброс порта 8006 внизу...'} />
-                      <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(pUrl || '', 'extProxmox')} disabled={!pUrl}>
-                        {copiedField === 'extProxmox' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
-                      </button>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
+            <ProxmoxAccessGuide vm={vm} serverHost={window.location.hostname} onCopy={handleCopy} copiedField={copiedField} />
 
             {/* Ссылки на сайт по HTTP и HTTPS.
                 Показываем ВСЕГДА: приложение может подниматься долго

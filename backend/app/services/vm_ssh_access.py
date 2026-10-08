@@ -4,7 +4,7 @@ from fastapi import HTTPException
 
 def ssh_access_policy(task=None, os_type=None):
     os_type = (getattr(task, "os_type", None) or os_type or "").lower()
-    if os_type in ("windows", "truenas"):
+    if os_type in ("windows", "truenas", "proxmox"):
         return {"auth_mode": "unsupported", "web_terminal_enabled": False,
                 "reason": "unsupported_os"}
     if task is not None and (getattr(task, "ssh_key", None) or "").strip():

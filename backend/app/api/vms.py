@@ -891,6 +891,11 @@ def default_ports_for(base: int, os_type: str = "linux", template: str = None) -
     и Redis сюда намеренно не попали — они по умолчанию слушают только
     localhost, и проброс вёл бы в никуда.
     """
+    if os_type.lower() == "proxmox":
+        return [
+            {"ext_port": 22000 + base, "int_port": 22, "name": "SSH"},
+            {"ext_port": 28000 + base, "int_port": 8006, "name": "Proxmox HTTPS"},
+        ]
     if os_type == "windows":
         return [
             {"ext_port": 33000 + base, "int_port": 3389, "name": "RDP"},
@@ -927,9 +932,6 @@ def resolve_vm_ports(vm_ip: str, vm_id: Optional[int] = None,
         except Exception as e:
             logger.error(f"Error parsing ports_config: {e}")
 
-    if ports:
-        return ports
-
     # Порты не настроены — считаем дефолтные от ID ВМ (он стабилен), а если
     # ID неизвестен — от последнего октета адреса.
     if vm_id:
@@ -938,9 +940,48 @@ def resolve_vm_ports(vm_ip: str, vm_id: Optional[int] = None,
         try:
             base = int(vm_ip.split('.')[-1])
         except Exception:
-            return []
+            return ports
+
+    if ports:
+        # Старые ISO-ВМ Proxmox получили Linux-дефолт HTTP -> 80. Исправляем
+        # только эту стандартную запись; свои пробросы и уже настроенный
+        # TCP/8006 не трогаем. UI и watchdog используют один результат.
+        if os_type.lower() == "proxmox" and not any(
+            p.get("int_port") == 8006 and (p.get("protocol") or "tcp").lower() == "tcp"
+            for p in ports
+        ):
+            return [
+                {**p, "int_port": 8006, "name": "Proxmox HTTPS"}
+                if p.get("ext_port") == 28000 + base and p.get("int_port") == 80
+                and p.get("name") == "HTTP" and (p.get("protocol") or "tcp").lower() == "tcp"
+                else p for p in ports
+            ]
+        return ports
 
     return default_ports_for(base, os_type, template)
+
+
+def effective_firewall_rules(ports_config: str, firewall_rules: str, ports: list) -> list:
+    """Keep an internal-port allowlist when repairing a legacy forwarding rule."""
+    try:
+        rules = json.loads(firewall_rules) if firewall_rules else []
+    except Exception:
+        return []
+    try:
+        original_ports = json.loads(ports_config) if ports_config else []
+    except Exception:
+        return rules
+    for original in original_ports:
+        for port in ports:
+            if original.get("ext_port") != port.get("ext_port"):
+                continue
+            before, after = original.get("int_port"), port.get("int_port")
+            if before == after or any(r.get("port") == after for r in rules):
+                continue
+            old_rule = next((r for r in rules if r.get("port") == before), None)
+            if old_rule is not None:
+                rules = [*rules, {**old_rule, "port": after}]
+    return rules
 
 
 def internal_port_for(ports_config: list, ext_port, default: int) -> int:
@@ -1063,7 +1104,7 @@ def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_c
         fw_map = {}
         if firewall_rules:
             try:
-                rules_list = json.loads(firewall_rules)
+                rules_list = effective_firewall_rules(ports_config, firewall_rules, ports)
                 for r in rules_list:
                     port_val = r.get("port")
                     if port_val is not None:
@@ -1266,10 +1307,19 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client), curre
                     vm_data["ports_config"] = json.loads(db_vm.ports_config) if db_vm.ports_config else []
                 except Exception:
                     vm_data["ports_config"] = []
+                if db_vm.os_type == "proxmox":
+                    vm_data["ports_config"] = resolve_vm_ports(
+                        "", db_vm.id, db_vm.ports_config, db_vm.os_type)
+                    vm_data["proxmox_port"] = next((p["ext_port"] for p in vm_data["ports_config"]
+                        if p.get("int_port") == 8006 and (p.get("protocol") or "tcp").lower() == "tcp"), None)
+                    vm_data["http_port"] = vm_data["https_port"] = None
                 try:
                     vm_data["firewall_rules"] = json.loads(db_vm.firewall_rules) if db_vm.firewall_rules else []
                 except Exception:
                     vm_data["firewall_rules"] = []
+                if db_vm.os_type == "proxmox":
+                    vm_data["firewall_rules"] = effective_firewall_rules(
+                        db_vm.ports_config, db_vm.firewall_rules, vm_data["ports_config"])
                 
                 # Если виртуальная машина активна и получила IP-адрес, автоматически пробрасываем порт.
                 #
@@ -1302,10 +1352,13 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client), curre
                     from app.core.netutils import port_is_open, pick_external_ip
                     probe_ip = pick_external_ip(vm_data["ips"]) or ip
                     ports_cfg = vm_data.get("ports_config") or []
-                    vm_data["http_available"] = port_is_open(
-                        probe_ip, internal_port_for(ports_cfg, vm_data.get("http_port"), 80))
-                    vm_data["https_available"] = port_is_open(
-                        probe_ip, internal_port_for(ports_cfg, vm_data.get("https_port"), 443))
+                    if db_vm.os_type == "proxmox":
+                        vm_data["proxmox_available"] = port_is_open(probe_ip, 8006)
+                    else:
+                        vm_data["http_available"] = port_is_open(
+                            probe_ip, internal_port_for(ports_cfg, vm_data.get("http_port"), 80))
+                        vm_data["https_available"] = port_is_open(
+                            probe_ip, internal_port_for(ports_cfg, vm_data.get("https_port"), 443))
                     # Сервис шаблона на своём порту (Grafana 3000, Portainer
                     # 9000) — проверяем ровно его, а не 80: именно он и должен
                     # отвечать у таких ВМ.
@@ -1593,18 +1646,7 @@ def clone_vm(name: str, req: VMCloneRequest, current_user: User = Depends(get_cu
         db.refresh(clone)
 
         # Стабильные порты по ID клона (как при обычном создании)
-        if clone.os_type == "windows":
-            default_ports = [
-                {"ext_port": 33000 + clone.id, "int_port": 3389, "name": "RDP"},
-                {"ext_port": 22000 + clone.id, "int_port": 22, "name": "SSH"},
-                {"ext_port": 28000 + clone.id, "int_port": 80, "name": "HTTP"},
-            ]
-        else:
-            default_ports = [
-                {"ext_port": 22000 + clone.id, "int_port": 22, "name": "SSH"},
-                {"ext_port": 28000 + clone.id, "int_port": 80, "name": "HTTP"},
-                {"ext_port": 44300 + clone.id, "int_port": 443, "name": "HTTPS"},
-            ]
+        default_ports = default_ports_for(clone.id, clone.os_type, clone.cloud_init_template)
         clone.ports_config = _json.dumps(default_ports)
         clone.static_ip = compute_static_ip(clone.id)
         db.commit()

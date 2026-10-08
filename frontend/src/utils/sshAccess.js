@@ -1,5 +1,5 @@
 export function sshTerminalSupported(vm) {
-  return Boolean(vm) && !['windows', 'truenas'].includes(String(vm.os_type || '').toLowerCase());
+  return Boolean(vm) && !['windows', 'truenas', 'proxmox'].includes(String(vm.os_type || '').toLowerCase());
 }
 
 export function webTerminalEnabled(vm) {

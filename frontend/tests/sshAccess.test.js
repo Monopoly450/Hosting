@@ -13,13 +13,13 @@ const vm = { name: 'all-fields-test', os_type: 'ubuntu', status: 'Running', ips:
   ssh_access: { auth_mode: 'publickey', web_terminal_enabled: false } };
 
 test('key-only guests offer instructions instead of password terminal; OS exclusions apply', () => {
-  for (const os_type of ['ubuntu', 'debian', 'alpine', 'arch', 'custom', 'proxmox', 'fedora', 'almalinux', 'rocky', 'opensuse']) {
+  for (const os_type of ['ubuntu', 'debian', 'alpine', 'arch', 'custom', 'fedora', 'almalinux', 'rocky', 'opensuse']) {
     const guest = { ...vm, os_type };
     assert.ok(sshTerminalSupported(guest));
     assert.ok(keyOnlyAccess(guest));
     assert.equal(webTerminalEnabled(guest), false);
   }
-  for (const os_type of ['windows', 'truenas', 'TrueNAS']) {
+  for (const os_type of ['windows', 'truenas', 'TrueNAS', 'proxmox', 'Proxmox']) {
     const guest = { ...vm, os_type };
     assert.equal(sshTerminalSupported(guest), false);
     assert.equal(webTerminalEnabled(guest), false);
@@ -85,6 +85,7 @@ test('guide explains disabled terminal and external access without requesting ke
   assert.match(html, /Настройки портов/);
   assert.match(html, /не гарантирует доступность порта извне/);
   assert.equal(guide({ vm: { ...vm, os_type: 'truenas' } }), '');
+  assert.equal(guide({ vm: { ...vm, os_type: 'proxmox' } }), '');
 });
 
 test('parent never mounts socket terminal or polls password SSH for key-only guests', () => {
