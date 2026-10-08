@@ -1,8 +1,97 @@
-"""Preflight checks for PVCs selected in the VM creation form."""
+"""Preflight checks and connection state for managed network disks."""
+from dataclasses import dataclass
+
 from fastapi import HTTPException
 from kubernetes.client.rest import ApiException
 
 from app.models.models import UserVolume, VMTask
+
+
+@dataclass(frozen=True)
+class DiskConnection:
+    vm_names: tuple[str, ...]
+    status: str
+    attachment_type: str
+    volume_name: str | None = None
+
+    @property
+    def can_detach(self):
+        return self.attachment_type == "hotplug" and self.volume_name is not None
+
+
+def network_disk_connections(db, client, volumes):
+    """Read VM/VMI manifests, including disks attached at creation time.
+
+    Do not persist these derived connections in attached_vm_id: doing so would
+    make the legacy VM-delete cascade delete previously independent disks.
+    Historical network_drives input is only a reservation before provisioning,
+    never proof that a running/stopped VM still has a disk attached.
+    """
+    if not volumes:
+        return {}
+    names = {volume.name for volume in volumes}
+    consumers = {}
+
+    def record(claim, vm_name, kind, volume_name=None):
+        if claim not in names or not vm_name:
+            return
+        entries = consumers.setdefault(claim, {})
+        previous = entries.get(vm_name)
+        # A reservation must not override a real VM/VMI reference. If one
+        # manifest describes a non-hotpluggable disk, don't allow hot-unplug.
+        if previous and (kind == "reserved" or previous[0] == "creation"):
+            return
+        entries[vm_name] = (kind, volume_name)
+
+    try:
+        for plural in ("virtualmachines", "virtualmachineinstances"):
+            items = client.custom_api.list_namespaced_custom_object(
+                "kubevirt.io", "v1", "default", plural).get("items", [])
+            for vm in items:
+                vm_name = vm.get("metadata", {}).get("name")
+                spec = vm.get("spec", {})
+                template = spec.get("template", {}).get("spec", spec)
+                for volume in template.get("volumes", []):
+                    source = volume.get("persistentVolumeClaim") or volume.get("dataVolume") or {}
+                    claim = source.get("claimName") or source.get("name")
+                    kind = "hotplug" if source.get("hotpluggable") is True else "creation"
+                    record(claim, vm_name, kind, volume.get("name"))
+                # The hotplug API returns before the controller updates the
+                # template. An accepted request already reserves this PVC.
+                for request in vm.get("status", {}).get("volumeRequests", []):
+                    options = request.get("addVolumeOptions", {})
+                    source = options.get("volumeSource", {})
+                    claim = source.get("persistentVolumeClaim", {}).get("claimName") or source.get("dataVolume", {}).get("name")
+                    record(claim, vm_name, "reserved")
+    except Exception as error:
+        raise HTTPException(503, "Не удалось проверить подключения сетевых дисков в Kubernetes. Повторите позже.") from error
+
+    tasks = db.query(VMTask).all()
+    by_id = {task.id: task for task in tasks}
+    for task in tasks:
+        if task.status in ("Pending", "Provisioning"):
+            for name in (task.network_drives or "").split(","):
+                record(name.strip(), task.name, "reserved")
+
+    # Keep the existing hotplug state during the short controller delay after
+    # addvolume. Actual manifest references always take precedence.
+    for volume in volumes:
+        task = by_id.get(volume.attached_vm_id)
+        if volume.name not in consumers and volume.status == "Attached" and task:
+            clean_name = volume.name.removeprefix(f"vol-{volume.owner_id}-")
+            record(volume.name, task.name, "hotplug", clean_name)
+
+    result = {}
+    for claim, entries in consumers.items():
+        vm_names = tuple(sorted(entries))
+        kinds = {kind for kind, _ in entries.values()}
+        state = "Reserved" if kinds == {"reserved"} else "Attached"
+        if len(entries) == 1:
+            kind, volume_name = next(iter(entries.values()))
+        else:
+            kind, volume_name = "multiple", None
+        result[claim] = DiskConnection(vm_names, state, kind, volume_name)
+    return result
 
 
 def validate_network_disks(db, client, user, requests):

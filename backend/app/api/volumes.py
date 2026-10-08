@@ -9,6 +9,7 @@ from app.core.auth import get_current_user
 from app.core.k8s_client import K8sClient
 from app.core.config import settings
 from kubernetes.client.rest import ApiException
+from app.services.vm_network_disks import network_disk_connections
 
 router = APIRouter()
 logger = logging.getLogger("app.api.volumes")
@@ -25,6 +26,9 @@ class VolumeResponse(BaseModel):
     name: str
     size_gb: int
     attached_vm_name: Optional[str] = None
+    attachment_type: Optional[str] = None
+    can_detach: bool = True
+    can_delete: bool = True
     status: str
     owner_username: str
     created_at: str
@@ -110,7 +114,7 @@ def create_volume(req: VolumeCreateRequest, client: K8sClient = Depends(get_k8s_
         db.close()
 
 @router.get("", response_model=List[VolumeResponse])
-def list_volumes(current_user: User = Depends(get_current_user)):
+def list_volumes(current_user: User = Depends(get_current_user), client: K8sClient = Depends(get_k8s_client)):
     db = SessionLocal()
     try:
         if current_user.role == "admin":
@@ -118,16 +122,13 @@ def list_volumes(current_user: User = Depends(get_current_user)):
         else:
             volumes = db.query(UserVolume).filter(UserVolume.owner_id == current_user.id).all()
 
+        connections = network_disk_connections(db, client, volumes)
         res = []
         for v in volumes:
             owner = db.query(User).filter(User.id == v.owner_id).first()
             owner_name = owner.username if owner else "Unknown"
             
-            attached_vm_name = None
-            if v.attached_vm_id:
-                vm = db.query(VMTask).filter(VMTask.id == v.attached_vm_id).first()
-                if vm:
-                    attached_vm_name = vm.name
+            connection = connections.get(v.name)
 
             # Убираем префикс vol-ID- из отображаемого имени
             display_name = re.sub(r"^vol-\d+-", "", v.name)
@@ -136,8 +137,11 @@ def list_volumes(current_user: User = Depends(get_current_user)):
                 id=v.id,
                 name=display_name,
                 size_gb=v.size_gb,
-                attached_vm_name=attached_vm_name,
-                status=v.status,
+                attached_vm_name=", ".join(connection.vm_names) if connection else None,
+                status=connection.status if connection else "Available",
+                attachment_type=connection.attachment_type if connection else None,
+                can_detach=connection.can_detach if connection else False,
+                can_delete=connection.can_detach if connection else True,
                 owner_username=owner_name,
                 created_at=v.created_at.strftime("%Y-%m-%d %H:%M:%S")
             ))
@@ -156,7 +160,7 @@ def attach_volume(vol_id: int, vm_name: str, client: K8sClient = Depends(get_k8s
         if current_user.role != "admin" and vol.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этого диска.")
 
-        if vol.status == "Attached":
+        if network_disk_connections(db, client, [vol]).get(vol.name):
             raise HTTPException(status_code=400, detail="Диск уже подключен к виртуальной машине.")
 
         # Находим виртуальную машину
@@ -201,11 +205,14 @@ def detach_volume(vol_id: int, client: K8sClient = Depends(get_k8s_client), curr
         if current_user.role != "admin" and vol.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этого диска.")
 
-        if vol.status != "Attached" or not vol.attached_vm_id:
+        connection = network_disk_connections(db, client, [vol]).get(vol.name)
+        if not connection:
             raise HTTPException(status_code=400, detail="Диск не подключен к виртуальной машине.")
+        if not connection.can_detach:
+            raise HTTPException(status_code=400, detail="Диск подключён при создании ВМ или занят операцией; горячее отключение недоступно.")
 
         # Находим виртуальную машину
-        vm = db.query(VMTask).filter(VMTask.id == vol.attached_vm_id).first()
+        vm = db.query(VMTask).filter(VMTask.name == connection.vm_names[0]).first()
         if not vm:
             raise HTTPException(status_code=404, detail="Связанная ВМ не найдена в системе.")
 
@@ -224,8 +231,7 @@ def detach_volume(vol_id: int, client: K8sClient = Depends(get_k8s_client), curr
 
         # Горячее отключение в KubeVirt
         try:
-            clean_vol_name = re.sub(r"[^a-zA-Z0-9-]", "", re.sub(r"^vol-\d+-", "", vol.name))
-            client.remove_vm_volume(vm.name, volume_name=clean_vol_name)
+            client.remove_vm_volume(vm.name, volume_name=connection.volume_name)
         except Exception as e:
             logger.error(f"Failed to hot-unplug volume {vol.name} from VM {vm.name}: {e}")
             raise HTTPException(status_code=500, detail=f"Ошибка горячего отключения в Kubernetes: {e}")
@@ -255,27 +261,32 @@ def delete_volume(vol_id: int, client: K8sClient = Depends(get_k8s_client), curr
         if current_user.role != "admin" and vol.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail="Доступ запрещен: Вы не являетесь владельцем этого диска.")
 
-        # Если диск подключен к ВМ, сначала делаем горячее отключение
-        if vol.status == "Attached" and vol.attached_vm_id:
-            vm = db.query(VMTask).filter(VMTask.id == vol.attached_vm_id).first()
-            if vm:
-                # Получаем реальный статус ВМ из Kubernetes
-                try:
-                    k8s_vm = client.get_vm(vm.name)
-                    vm_status = k8s_vm.get("status")
-                except Exception:
-                    vm_status = vm.status
+        connection = network_disk_connections(db, client, [vol]).get(vol.name)
+        if connection and not connection.can_detach:
+            raise HTTPException(status_code=400, detail="Нельзя удалить диск, подключённый при создании ВМ или занятый операцией.")
 
-                if vm_status == "Stopped" or vm_status == "Stopping":
-                    raise HTTPException(
-                        status_code=400, 
-                        detail="Нельзя удалить сетевой диск, подключенный к выключенной или выключающейся виртуальной машине. Включите виртуалку и отключите диск сначала."
-                    )
-                try:
-                    clean_vol_name = re.sub(r"[^a-zA-Z0-9-]", "", re.sub(r"^vol-\d+-", "", vol.name))
-                    client.remove_vm_volume(vm.name, volume_name=clean_vol_name)
-                except Exception as detach_err:
-                    logger.warning(f"Auto-detaching volume failed: {detach_err}")
+        # Если диск подключен к ВМ, сначала делаем горячее отключение
+        if connection:
+            vm = db.query(VMTask).filter(VMTask.name == connection.vm_names[0]).first()
+            if not vm:
+                raise HTTPException(status_code=400, detail="Диск используется ВМ вне панели. Сначала отключите его от этой ВМ.")
+            # Получаем реальный статус ВМ из Kubernetes
+            try:
+                k8s_vm = client.get_vm(vm.name)
+                vm_status = k8s_vm.get("status")
+            except Exception:
+                vm_status = vm.status
+
+            if vm_status == "Stopped" or vm_status == "Stopping":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Нельзя удалить сетевой диск, подключенный к выключенной или выключающейся виртуальной машине. Включите виртуалку и отключите диск сначала."
+                )
+            try:
+                client.remove_vm_volume(vm.name, volume_name=connection.volume_name)
+            except Exception as detach_err:
+                logger.warning(f"Auto-detaching volume failed: {detach_err}")
+                raise HTTPException(status_code=500, detail="Не удалось отключить диск от ВМ; удаление отменено.") from detach_err
 
         # Удаляем PVC из Kubernetes
         try:

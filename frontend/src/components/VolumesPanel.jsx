@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { HardDrive, Plus, Trash2, Link2, Unlink, Info, X } from 'lucide-react';
 import CustomSelect from './CustomSelect';
+import NetworkDiskStatus from './NetworkDiskStatus';
+import { networkDiskState } from '../utils/networkDisks';
 
 export default function VolumesPanel() {
     const [volumes, setVolumes] = useState([]);
@@ -181,14 +183,14 @@ export default function VolumesPanel() {
                             </tr>
                         </thead>
                         <tbody>
-                            {volumes.map(v => (
+                            {volumes.map(v => {
+                                const diskState = networkDiskState(v);
+                                return (
                                 <tr key={v.id}>
                                     <td style={{ fontWeight: 'bold' }}>{v.name}</td>
                                     <td>{v.size_gb} ГБ</td>
                                     <td>
-                                        <span className={`status-badge ${v.status === 'Attached' ? 'status-active' : 'status-pending'}`}>
-                                            {v.status === 'Attached' ? 'Подключен' : 'Свободен'}
-                                        </span>
+                                        <NetworkDiskStatus volume={v} />
                                     </td>
                                     <td>
                                         {v.attached_vm_name ? (
@@ -201,10 +203,12 @@ export default function VolumesPanel() {
                                     <td>{v.owner_username}</td>
                                     <td>
                                         <div style={{ display: 'flex', gap: '8px' }}>
-                                            {v.status === 'Attached' ? (
+                                            {diskState.busy ? (
                                                 <button 
                                                     className="btn btn-secondary btn-sm" 
                                                     onClick={() => handleDetachVolume(v.id)}
+                                                    disabled={!diskState.canDetach}
+                                                    title={!diskState.canDetach ? 'Горячее отключение недоступно: диск подключён при создании ВМ или занят операцией.' : undefined}
                                                     style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
                                                 >
                                                     <Unlink size={12} /> Отключить
@@ -221,6 +225,8 @@ export default function VolumesPanel() {
                                             <button 
                                                 className="btn btn-danger btn-sm" 
                                                 onClick={() => handleDeleteVolume(v.id)}
+                                                disabled={!diskState.canDelete}
+                                                title={!diskState.canDelete ? 'Нельзя удалить используемый диск, подключённый при создании ВМ или занятый операцией.' : undefined}
                                                 style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
                                             >
                                                 <Trash2 size={12} /> Удалить
@@ -228,7 +234,8 @@ export default function VolumesPanel() {
                                         </div>
                                     </td>
                                 </tr>
-                            ))}
+                                );
+                            })}
                             {volumes.length === 0 && (
                                 <tr>
                                     <td colSpan="7" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
