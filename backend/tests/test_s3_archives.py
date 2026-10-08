@@ -157,8 +157,10 @@ def new_record(factory, kind="backup", **overrides):
             bucket=bucket_name(1), prefix="vms/1/backup/s3-backup-1/", status="Pending", progress=0,
             manifest={"vm_uid": "vm-uid", "vm_id": 1, "label": "before-change",
                       "vm_spec": vm_manifest()["spec"], "volumes": archives.disk_volumes(vm_manifest())},
-            restore_data={}, **overrides,
+            restore_data={},
         )
+        for key, value in overrides.items():
+            setattr(row, key, value)
         db.add(row)
         db.commit()
         return row.name
@@ -269,6 +271,160 @@ def test_failed_upload_never_marks_the_copy_ready(db_env, monkeypatch):
         assert row.status != "Succeeded"
         assert not row.manifest.get("disks")
     assert not s3.uploads
+
+
+def completed_restore(factory, restore_state="Finalizing"):
+    name = new_record(factory, status="Succeeded", operation="restore-1",
+                      restore_state=restore_state, restart_vm=True)
+    k8s = FakeK8s()
+    with factory() as db:
+        row = db.get(VMArchive, name)
+        row.manifest = {**row.manifest, "disks": archives.disk_volumes(k8s.vm)}
+        row.restore_data = {"switched": True}
+        row.error = "previous error"
+        db.commit()
+    for i, volume in enumerate(k8s.vm["spec"]["template"]["spec"]["volumes"][:2]):
+        volume.pop("persistentVolumeClaim", None)
+        volume["dataVolume"] = {"name": f"restore-1-disk-{i}"}
+    return name, k8s
+
+
+def test_finish_recovers_old_false_failure_only_after_verified_switch(db_env, monkeypatch):
+    from app.core.k8s_client import K8sClient
+    factory, _s3 = db_env
+    name, k8s = completed_restore(factory, restore_state="Failed")
+    monkeypatch.setattr(archives, "_delete_export", lambda *args: None)
+    # Реальный парсер воспроизводит ВМ после start: runStrategy=Always,
+    # нет старого spec.running, VMI уже Running.
+    k8s.vm["metadata"]["namespace"] = "default"
+    k8s.vm["spec"].pop("running")
+    k8s.vm["spec"]["runStrategy"] = "Always"
+    parser = K8sClient.__new__(K8sClient)
+    parser.core_api = NS(
+        read_namespaced_secret=lambda *args: NS(data={"password": "eA=="}),
+        list_namespaced_pod=lambda **kwargs: NS(items=[]),
+    )
+    monkeypatch.setattr("app.db.SessionLocal", factory)
+    k8s.get_vm = lambda name: parser._parse_vm_object(
+        k8s.vm, {"metadata": {}, "status": {"phase": "Running"}})
+    with factory() as db:
+        row = db.get(VMArchive, name)
+        archives._finish(db, k8s, row)
+        assert row.restore_state is None
+        assert row.operation is None
+        assert row.error is None
+        assert row.status == "Succeeded"
+    assert not any(action[0] in {"start", "delete"} for action in k8s.actions)
+    assert ("unlock", "restore-1") in k8s.actions
+
+
+@pytest.mark.parametrize("verified_switch", [False, True])
+def test_recovery_does_not_claim_success_for_unconfirmed_or_changed_disks(db_env, monkeypatch, verified_switch):
+    factory, _s3 = db_env
+    name, k8s = completed_restore(factory, restore_state="Failed")
+    monkeypatch.setattr(archives, "_delete_export", lambda *args: None)
+    with factory() as db:
+        row = db.get(VMArchive, name)
+        row.restore_data = {"switched": verified_switch}
+        if verified_switch:
+            k8s.vm["spec"]["template"]["spec"]["volumes"][1]["dataVolume"]["name"] = "different-disk"
+        archives._finish(db, k8s, row)
+        assert row.restore_state == "Failed"
+        assert row.error == "previous error"
+    # Даже при настоящем сбое нельзя удалять подключённый импортный диск.
+    assert ("delete", "restore-1-disk-0") not in k8s.actions
+
+
+def test_recovery_never_finishes_restore_for_recreated_vm(db_env, monkeypatch):
+    factory, _s3 = db_env
+    name, k8s = completed_restore(factory, restore_state="Failed")
+    k8s.vm["metadata"]["uid"] = "replacement-vm"
+    monkeypatch.setattr(archives, "_delete_export", lambda *args: None)
+    with factory() as db:
+        row = db.get(VMArchive, name)
+        archives._finish(db, k8s, row)
+        assert row.status == "Failed"
+        assert row.restore_state == "Failed"
+    assert not any(action[0] in {"start", "unlock", "delete"} for action in k8s.actions)
+
+
+def test_finish_waits_on_already_running_start_race_without_failing_restore(db_env, monkeypatch):
+    factory, _s3 = db_env
+    name, k8s = completed_restore(factory)
+    monkeypatch.setattr(archives, "_delete_export", lambda *args: None)
+    k8s.get_vm = lambda name: {"status": "Stopped"}
+    def already_running(name):
+        error = ApiException(status=409)
+        error.body = json.dumps({"message": 'VM is already running'})
+        raise error
+    k8s.start_vm = already_running
+    with factory() as db:
+        row = db.get(VMArchive, name)
+        archives._finish(db, k8s, row)
+        assert row.restore_state == "Finalizing"
+        assert row.operation == "restore-1"
+        assert not any(action[0] == "unlock" for action in k8s.actions)
+        k8s.get_vm = lambda name: {"status": "Running"}
+        archives._finish(db, k8s, row)
+        assert row.operation is None
+        assert row.restore_state is None
+        assert row.error is None
+
+
+@pytest.mark.parametrize("status,message", [(409, "migration conflict"), (403, "VM is already running"),
+                                             (500, "server error")])
+def test_finish_does_not_swallow_unrelated_start_errors(db_env, monkeypatch, status, message):
+    factory, _s3 = db_env
+    name, k8s = completed_restore(factory)
+    monkeypatch.setattr(archives, "_delete_export", lambda *args: None)
+    k8s.get_vm = lambda name: {"status": "Stopped"}
+    def fail(name):
+        error = ApiException(status=status)
+        error.body = json.dumps({"message": message})
+        raise error
+    k8s.start_vm = fail
+    with factory() as db:
+        with pytest.raises(ApiException):
+            archives._finish(db, k8s, db.get(VMArchive, name))
+    assert not any(action[0] == "unlock" for action in k8s.actions)
+
+
+@pytest.mark.parametrize("restoring", [False, True])
+def test_worker_retries_finalization_without_marking_completed_disks_failed(db_env, monkeypatch, restoring):
+    factory, _s3 = db_env
+    if restoring:
+        name, k8s = completed_restore(factory)
+    else:
+        name = new_record(factory, status="Finalizing", operation="s3-backup-1")
+        k8s = FakeK8s()
+    class Guard:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def execute(self, *args, **kwargs):
+            return NS(scalar=lambda: True)
+        def commit(self):
+            pass
+    monkeypatch.setattr("app.db.engine", NS(connect=Guard))
+    original_finish = archives._finish
+    def fail(*args):
+        raise ApiException(status=503)
+    monkeypatch.setattr(archives, "_finish", fail)
+    archives.process_archives(k8s)
+    with factory() as db:
+        row = db.get(VMArchive, name)
+        assert row.operation
+        assert (row.restore_state if restoring else row.status) == "Finalizing"
+    monkeypatch.setattr(archives, "_finish", original_finish)
+    monkeypatch.setattr(archives, "_delete_export", lambda *args: None)
+    archives.process_archives(k8s)
+    with factory() as db:
+        row = db.get(VMArchive, name)
+        assert row.status == "Succeeded"
+        assert row.restore_state is None
+        assert row.operation is None
+        assert row.error is None
 
 
 def test_restore_does_not_switch_until_every_import_is_complete(db_env, monkeypatch):

@@ -349,6 +349,17 @@ def _finish(db, k8s, row):
         row.error = "Исходная ВМ удалена или пересоздана"
         db.commit()
         return
+    if row.restore_state == "Failed" and (row.restore_data or {}).get("switched"):
+        # Старый worker ошибочно помечал завершённый импорт Failed из-за
+        # start -> 409. Восстанавливаем финализацию только при подтверждённом
+        # переключении ВСЕХ дисков той же ВМ; чужие/старые диски не трогаем.
+        expected = {disk["volume_name"]: f"{row.operation}-disk-{i}"
+                    for i, disk in enumerate(row.manifest.get("disks", []))}
+        attached = {disk["volume_name"]: disk["pvc"] for disk in disk_volumes(current)}
+        if expected and attached == expected:
+            row.restore_state = "Finalizing"
+            row.error = None
+            db.commit()
     if row.restore_state == "Failed":
         attached = {d["pvc"] for d in disk_volumes(current)}
         for i, _disk in enumerate(row.manifest["disks"]):
@@ -363,15 +374,23 @@ def _finish(db, k8s, row):
     vm_status = k8s.get_vm(row.vm_name).get("status")
     if row.restart_vm and vm_status != "Running":
         if vm_status not in {"Starting", "Scheduling", "Scheduled", "Provisioning"}:
-            k8s.start_vm(row.vm_name)
+            try:
+                k8s.start_vm(row.vm_name)
+            except ApiException as error:
+                if error.status != 409 or "VM is already running" not in (error.body or ""):
+                    raise
+                # Между чтением статуса и start ВМ уже могла запуститься.
+                # Это не сбой импорта: следующий тик проверит Running.
         return  # следующий тик дождётся Running перед снятием блокировки
     k8s.clear_s3_operation(row.vm_name, row.operation)
     row.operation = None
     if row.status == "Finalizing":
         row.status = "Succeeded"
         row.progress = 100
+        row.error = None
     if row.restore_state == "Finalizing":
         row.restore_state = None
+        row.error = None
     db.commit()
     schedule_id = (row.manifest or {}).get("schedule_id")
     if schedule_id:
@@ -517,11 +536,18 @@ def process_archives(k8s):
                 db.rollback()
                 row = db.query(VMArchive).filter(VMArchive.name == name).first()
                 if row:
-                    row.error = "Не удалось завершить операцию S3; подробности в логах worker"
-                    if row.restore_state:
-                        row.restore_state = "Failed"
-                    elif row.status != "Finalizing":
-                        row.status = "Failed"
+                    if row.status == "Finalizing" or row.restore_state == "Finalizing":
+                        # Диски уже сохранены/переключены. Сбой возврата питания
+                        # или очистки экспортера должен повторять финализацию,
+                        # а не удалять импортированные диски как неудавшиеся.
+                        row.error = "Диски готовы; повторяется завершение операции S3. Подробности в логах worker"
+                    else:
+                        if not row.error:
+                            row.error = "Не удалось завершить операцию S3; подробности в логах worker"
+                        if row.restore_state:
+                            row.restore_state = "Failed"
+                        else:
+                            row.status = "Failed"
                     db.commit()
             finally:
                 guard.execute(text("SELECT pg_advisory_unlock(hashtext(:key))"), {"key": "s3:" + name})

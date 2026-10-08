@@ -1996,7 +1996,16 @@ class K8sClient:
         name = vm["metadata"]["name"]
         namespace = vm["metadata"]["namespace"]
         spec = vm.get("spec", {})
-        running_desired = spec.get("running", False)
+        # running и runStrategy взаимоисключающие. После S3-отката ВМ
+        # использует Halted -> Always; отсутствие running не значит остановку.
+        strategy = spec.get("runStrategy")
+        if strategy == "Manual":
+            running_desired = bool(vmi and not vmi.get("metadata", {}).get("deletionTimestamp")
+                                   and vmi.get("status", {}).get("phase") not in {"Succeeded", "Failed"})
+        elif strategy:
+            running_desired = strategy in {"Always", "RerunOnFailure", "Once"}
+        else:
+            running_desired = bool(spec.get("running", False))
         
         # Ресурсы
         template_spec = spec.get("template", {}).get("spec", {})
