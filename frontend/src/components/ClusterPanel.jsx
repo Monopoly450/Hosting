@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Layers, Plus, Server, Activity, ArrowRight, X, Trash, Info, ChevronDown, ChevronUp, HardDrive, Cpu, Package, Key } from 'lucide-react';
 import Portal from './Portal';
 import CustomSelect from './CustomSelect';
+import { creationName, creationError } from '../utils/vmCreation';
 
 const OS_VERSIONS = {
   ubuntu: [
@@ -281,10 +282,10 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
   const handleCreateCluster = async (e) => {
     e.preventDefault();
     try {
-      const sanitizedClusterName = clusterName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      const sanitizedClusterName = creationName(clusterName);
       const sanitizedVms = clusterVms.map(vm => ({
         ...vm,
-        name: vm.name.toLowerCase().replace(/[^a-z0-9-]/g, '-')
+        name: creationName(vm.name)
       }));
 
       const res = await fetch('/api/clusters', {
@@ -297,12 +298,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
       });
       if (!res.ok) {
         const data = await res.json();
-        let errorMsg = 'Ошибка создания кластера';
-        if (typeof data.detail === 'string') {
-          errorMsg = data.detail;
-        } else if (Array.isArray(data.detail)) {
-          errorMsg = data.detail.map(e => `${e.loc.join('.')}: ${e.msg}`).join(', ');
-        }
+        let errorMsg = creationError(data.detail, 'Ошибка создания кластера');
         throw new Error(errorMsg);
       }
       setShowCreate(false);
@@ -766,7 +762,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                                   value={vm.network_drives || ''}
                                   onChange={e => handleUpdateVm(index, 'network_drives', e.target.value)}
                                 />
-                                <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Сетевая шара будет смонтирована в /mnt/network_drive.</span>
+                                <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>NFS: /mnt/network_drive_0, _1 и далее. PVC: отдельный диск без автоформатирования; укажите точное имя своего свободного PVC.</span>
                               </div>
 
                               <div className="input-group">
@@ -810,6 +806,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                                   onChange={e => handleUpdateVm(index, 'custom_user_data', e.target.value)}
                                   style={{ height: '80px', minHeight: '60px', resize: 'vertical' }}
                                 />
+                                <small className="text-muted">#cloud-config дополняет поля выше; runcmd выполняется после базовой настройки. Русский текст разрешён в файлах и командах, названия ключей — латиницей.</small>
                               </div>
                             </>
                           )}

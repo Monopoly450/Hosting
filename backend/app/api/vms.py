@@ -22,7 +22,7 @@ def compute_static_ip(vm_id: int) -> str:
 
 import logging
 from fastapi import APIRouter, HTTPException, Depends, status, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional, Dict
 from app.core.k8s_client import K8sClient
 from app.services.ssh_inspector import SSHInspector
@@ -66,7 +66,7 @@ def get_k8s_client():
 
 # Модели запросов
 class VMCreationRequest(BaseModel):
-    name: str = Field(..., pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", description="Имя виртуалки (латиница, цифры, дефис)")
+    name: str = Field(..., description="Имя виртуалки (латиница, цифры, дефис)")
     os_type: str = Field(..., description="Тип ОС (ubuntu, windows или custom)")
     custom_image: Optional[str] = Field(None, description="Имя файла кастомного образа (если os_type == custom)")
     cpu_cores: int = Field(2, ge=1, le=16, description="Количество ядер CPU")
@@ -78,6 +78,64 @@ class VMCreationRequest(BaseModel):
     cloud_init_template: Optional[str] = Field(None, description="Предустановленный шаблон (lamp, docker, nodejs, wordpress)")
     custom_user_data: Optional[str] = Field(None, description="Собственный cloud-init userdata")
     ssh_key: Optional[str] = Field(None, description="Публичный SSH-ключ для беспарольного входа")
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value):
+        from app.services.vm_inputs import dns_name
+        return dns_name(value)
+
+    @field_validator("packages", "network_drives", "custom_user_data", "ssh_key", "iso_url", "custom_image", "cloud_init_template")
+    @classmethod
+    def validate_optional_input(cls, value, info):
+        from app.services import vm_inputs
+        if value is None or not value.strip():
+            return None
+        value = value.strip()
+        if len(value.encode("utf-8")) > 262144:
+            raise ValueError("Максимальный размер поля — 256 КиБ.")
+        validators = {"packages": vm_inputs.packages, "network_drives": vm_inputs.network_drives,
+                      "ssh_key": vm_inputs.ssh_key, "iso_url": vm_inputs.image_url}
+        if info.field_name in validators:
+            return validators[info.field_name](value)
+        if info.field_name == "custom_user_data":
+            vm_inputs.cloud_config(value)
+        if info.field_name == "custom_image" and ("/" in value or "\\" in value or value in (".", "..")):
+            raise ValueError("Образ: выберите имя загруженного файла, не путь.")
+        return value
+
+    @field_validator("os_type")
+    @classmethod
+    def validate_os(cls, value):
+        from app.services.os_profiles import OS_FAMILY
+        value = value.strip().lower()
+        if value not in {*OS_FAMILY, "windows", "proxmox", "truenas", "custom"}:
+            raise ValueError("ОС: выберите поддерживаемую систему из списка, например ubuntu.")
+        return value
+
+    @field_validator("cpu_cores", "memory_gb", "disk_gb", mode="before")
+    @classmethod
+    def validate_resource_number(cls, value):
+        if isinstance(value, bool) or not re.fullmatch(r"[0-9]+", str(value)):
+            raise ValueError("Ресурсы: требуется целое положительное число, не текст и не дробь.")
+        return value
+
+    @model_validator(mode="after")
+    def validate_combination(self):
+        from app.services.vm_inputs import cloud_config
+        if self.os_type in ("windows", "proxmox", "truenas") and any(
+            (self.packages, self.network_drives, self.ssh_key, self.custom_user_data, self.cloud_init_template)
+        ):
+            raise ValueError("Пакеты, сетевые диски, SSH-ключ и Cloud-Init доступны только для облачных Linux-образов.")
+        if self.os_type == "custom" and not self.custom_image:
+            raise ValueError("Выберите загруженный кастомный образ.")
+        if self.ssh_key and self.custom_user_data and cloud_config(self.custom_user_data).get("ssh_pwauth") is True:
+            raise ValueError("SSH-ключ несовместим с ssh_pwauth: true: вход по паролю должен быть выключен.")
+        if self.custom_user_data:
+            # Validate the composed document as well, before DB/queue writes.
+            # The manifest builder is pure: no Kubernetes mutations occur here.
+            generate_linux_manifest(self, "validation-password")
+        return self
 
 class VMResizeRequest(BaseModel):
     cpu_cores: int = Field(..., ge=1, le=16)
@@ -135,6 +193,8 @@ def default_user_for(os_type: str) -> str:
 
 
 def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
+    from app.services.vm_inputs import cloud_config, merge_cloud_config
+    custom_config = cloud_config(req.custom_user_data) if req.custom_user_data else {}
     # Определение базового образа и логина (из централизованной карты)
     access_mode = "ReadWriteMany" if "nfs" in settings.STORAGE_CLASS.lower() else "ReadWriteOnce"
     default_image, default_user = LINUX_CLOUD_IMAGES.get(req.os_type, (DEFAULT_UBUNTU_IMAGE, "ubuntu"))
@@ -169,7 +229,7 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
         mounts_list = []
         for idx, drive in enumerate(drives):
             if ":/" in drive:
-                mounts_list.append(f"  - [ {drive}, /mnt/network_drive_{idx}, nfs, \"defaults\", \"0\", \"0\" ]")
+                mounts_list.append("  - " + json.dumps([drive, f"/mnt/network_drive_{idx}", "nfs", "defaults,_netdev,nofail", "0", "0"], ensure_ascii=False))
             else:
                 vol_name = f"net-pvc-{idx}"
                 extra_volumes.append({
@@ -248,12 +308,17 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
   - default
   - name: root
     ssh_authorized_keys:
-      - {req.ssh_key}
+      - {json.dumps(req.ssh_key, ensure_ascii=False)}
   - name: {default_user}
     ssh_authorized_keys:
-      - {req.ssh_key}"""
+      - {json.dumps(req.ssh_key, ensure_ascii=False)}"""
+    if getattr(req, "ssh_key", None) or custom_config.get("ssh_pwauth") is False:
+        ssh_pwauth_val = "False"
         ssh_enable_commands = """  - sed -i 's/^PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config || true
-  - sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config.d/*.conf || true"""
+  - sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config.d/*.conf || true
+  - sed -i 's/^KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config || true
+  - sed -i 's/KbdInteractiveAuthentication yes/KbdInteractiveAuthentication no/g' /etc/ssh/sshd_config.d/*.conf || true
+  - printf '\\nPasswordAuthentication no\\nKbdInteractiveAuthentication no\\n' >> /etc/ssh/sshd_config"""
 
     # Автологин в консоли — через drop-in для systemd-юнита getty. В системах
     # без systemd (Alpine с OpenRC) этот файл никто не прочитает, а команды
@@ -399,7 +464,7 @@ ethernets:
                         {
                             "name": "cloudinit",
                             "cloudInitNoCloud": {
-                                "userData": req.custom_user_data if req.custom_user_data else f"""#cloud-config
+                                "userData": f"""#cloud-config
 ssh_pwauth: {ssh_pwauth_val}
 disable_root: false
 chpasswd:
@@ -414,6 +479,7 @@ chpasswd:
 {users_yaml}
 {mounts_yaml}{autologin_yaml}
 runcmd:
+  - set -e
   - echo "root:{password}" | chpasswd
   - echo "{default_user}:{password}" | chpasswd
   - sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config || true
@@ -466,6 +532,10 @@ local-hostname: {req.name}
             ]
         }
     }
+    for volume in manifest["spec"]["template"]["spec"]["volumes"]:
+        if "cloudInitNoCloud" in volume:
+            ci = volume["cloudInitNoCloud"]
+            ci["userData"] = merge_cloud_config(ci["userData"], req.custom_user_data, getattr(req, "ssh_key", None))
     # Инжектим дополнительные диски (PVC)
     if extra_disks:
         manifest["spec"]["template"]["spec"]["domain"]["devices"]["disks"].extend(extra_disks)
@@ -1284,15 +1354,6 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         from app.models.models import VMTask
         from app.queue_client import publish_task
 
-        # Свой cloud-init полностью заменяет сгенерированный, поэтому SSH-ключ
-        # в него не попадёт. Не «съедаем» ключ молча — сообщаем об этом явно.
-        if getattr(req, "custom_user_data", None) and getattr(req, "ssh_key", None):
-            raise HTTPException(
-                status_code=400,
-                detail="Свой Cloud-Init скрипт и SSH-ключ нельзя указывать одновременно: "
-                       "пропишите ssh_authorized_keys прямо в своём cloud-config."
-            )
-
         # Шаблон окружения существует не для каждой ОС: пакеты и службы у
         # семейств называются по-разному. Отказываем сразу, а не создаём ВМ,
         # в которой шаблон молча не сработает (именно так было раньше —
@@ -1373,6 +1434,9 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         from app.core.capacity import lock_host_capacity, ensure_storage_capacity
         lock_host_capacity(db)
 
+        from app.services.vm_network_disks import validate_network_disks
+        validate_network_disks(db, client, current_user, [req])
+
         db_vms = db.query(VMTask).all()
         reserved_cpu = sum(vm.cpu_cores for vm in db_vms)
         reserved_stopped_ram = sum(vm.memory_gb for vm in db_vms if vm.status != "Running")
@@ -1444,8 +1508,12 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
         db.close()
         return {"status": "creating", "name": req.name, "task_id": task.id}
     except HTTPException:
+        if "db" in locals():
+            db.close()
         raise
     except Exception as e:
+        if "db" in locals():
+            db.close()
         raise HTTPException(status_code=500, detail=str(e))
 
 class VMCloneRequest(BaseModel):

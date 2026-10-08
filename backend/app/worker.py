@@ -89,10 +89,9 @@ def process_vm_task(db: Session, task_id: int):
         # Вызываем логику создания ВМ
         from .api.vms import generate_linux_manifest, generate_windows_manifest, generate_random_password, default_user_for, generate_mac_address
 
-        # Если cloud-init пришёл извне (деплой, маркетплейс), пароль в него уже
-        # вписан, а generate_linux_manifest сгенерированный игнорирует. Тогда в
-        # Secret нужно положить именно сохранённый пароль — иначе SSH из панели
-        # (логи сборки, терминал, подсказка подключения) не заработает.
+        # Для внешнего cloud-init пароль может быть уже сохранён. Используем
+        # один пароль в базовой части объединённого YAML и в Secret, чтобы
+        # SSH-доступ панели не расходился с гостевой ОС.
         generated_password = resolve_vm_password(task)
 
         # Windows/Proxmox/TrueNAS ставятся с ISO; всё остальное — Linux-образ с cloud-init

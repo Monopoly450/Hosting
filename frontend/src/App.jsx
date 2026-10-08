@@ -32,6 +32,7 @@ import CustomSelect from './components/CustomSelect';
 import Portal from './components/Portal';
 import SidebarResizer from './components/SidebarResizer';
 import DiskStorageNotice from './components/DiskStorageNotice';
+import { creationName, creationError } from './utils/vmCreation';
 
 const OS_VERSIONS = {
   ubuntu: [
@@ -375,7 +376,7 @@ const App = () => {
     setFormLoading(true);
     try {
       const payload = {
-        name: name.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+        name: creationName(name),
         os_type: osType,
         custom_image: osType === 'custom' ? selectedCustomImage : undefined,
         cpu_cores: parseInt(cpuCores),
@@ -396,13 +397,7 @@ const App = () => {
 
       if (!response.ok) {
         const err = await response.json();
-        let errMsg = 'Не удалось создать ВМ.';
-        if (typeof err.detail === 'string') {
-          errMsg = err.detail;
-        } else if (Array.isArray(err.detail)) {
-          errMsg = err.detail.map(e => `${e.loc.join('.')}: ${e.msg}`).join(', ');
-        }
-        throw new Error(errMsg);
+        throw new Error(creationError(err.detail));
       }
 
       const resData = await response.json();
@@ -1358,7 +1353,7 @@ const App = () => {
                                 value={networkDrives}
                                 onChange={(e) => setNetworkDrives(e.target.value)}
                               />
-                              <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>Сетевая шара будет смонтирована в /mnt/network_drive.</span>
+                              <span className="text-muted" style={{ fontSize: '0.75rem', marginTop: '4px' }}>NFS: /mnt/network_drive_0, _1 и далее. PVC: отдельный диск без автоформатирования; укажите точное имя своего свободного PVC.</span>
                             </div>
 
                             {/* Шаблоны окружения (LAMP, Docker, Zabbix, …) переехали
@@ -1399,6 +1394,7 @@ const App = () => {
                                 onChange={e => setCustomUserData(e.target.value)}
                                 style={{ height: '80px', minHeight: '60px', resize: 'vertical' }}
                               />
+                              <small className="text-muted">YAML с #cloud-config дополняет настройки выше. Команды runcmd выполняются после базовой настройки. Русский текст в файлах и командах разрешён; имена ключей — латиницей.</small>
                             </div>
                           </>
                         )}

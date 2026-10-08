@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional
 from sqlalchemy import select
 from app.db import SessionLocal
@@ -13,6 +13,18 @@ router = APIRouter()
 class ClusterCreateRequest(BaseModel):
     name: str = Field(..., description="Имя кластера")
     vms: List[VMCreationRequest] = Field(..., description="Список виртуалок для создания внутри кластера")
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value):
+        from app.services.vm_inputs import dns_name
+        return dns_name(value)
+
+    @model_validator(mode="after")
+    def validate_vms(self):
+        if not self.vms or len({vm.name for vm in self.vms}) != len(self.vms):
+            raise ValueError("Укажите хотя бы одну ВМ; имена ВМ в кластере не должны повторяться.")
+        return self
 
 class AttachVMRequest(BaseModel):
     vm_names: List[str] = Field(..., description="Список имен существующих ВМ для добавления в кластер")
@@ -71,6 +83,9 @@ def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_c
         # и набирается перерасход. Блокировка до подсчёта, чтобы два
         # параллельных создания кластера не прочитали одно и то же состояние.
         lock_host_capacity(db)
+        from app.services.vm_network_disks import validate_network_disks
+        if any(vm.network_drives for vm in req.vms):
+            validate_network_disks(db, K8sClient(), current_user, req.vms)
         ensure_host_capacity(db, cpu_cores=total_vcpus,
                              memory_gb=total_ram, disk_gb=total_disk,
                              k8s=K8sClient())

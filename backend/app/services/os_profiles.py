@@ -11,6 +11,7 @@
 и это честнее, чем подставить заведомо несуществующие имена пакетов.
 """
 import re
+import shlex
 
 # os_type -> семейство. Определяет менеджер пакетов и имена пакетов/служб.
 OS_FAMILY = {
@@ -162,10 +163,12 @@ def install_packages_runcmd(os_type: str, packages) -> str:
     pkgs = [p for p in (packages or []) if p]
     if not pkgs:
         return ""
-    joined = " ".join(pkgs)
+    joined = " ".join(shlex.quote(pkg) for pkg in dict.fromkeys(pkgs))
     chain = install_package_cmd_chain(os_type, joined)
     return (f"i=1; while [ $i -le {PACKAGE_INSTALL_RETRIES} ]; do "
-            f"{chain} || sleep 5; i=$((i+1)); done || true")
+            f"{chain} || sleep 5; i=$((i+1)); done; "
+            f"if [ $i -gt {PACKAGE_INSTALL_RETRIES} ]; then "
+            "echo 'Не удалось установить запрошенные пакеты; проверьте имена пакетов, сеть и репозитории в логе cloud-init.' >&2; exit 1; fi")
 
 
 # Семейства, где брандмауэр гостя включён по умолчанию и блокирует HTTP.
