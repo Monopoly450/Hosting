@@ -60,7 +60,21 @@ def _vm(running=True, annotations=None):
     }
 
 
-class RestoreCustomApi:
+class JsonPatchTransport:
+    """Транспорт JSON Patch для существующих моделей состояния Kubernetes."""
+
+    @property
+    def api_client(self):
+        return self
+
+    def call_api(self, path, method, *, path_params, header_params, body, **kwargs):
+        assert method == "PATCH"
+        assert header_params["Content-Type"] == "application/json-patch+json"
+        assert kwargs["auth_settings"] == ["BearerToken"]
+        return self.patch_namespaced_custom_object(**path_params, body=body)
+
+
+class RestoreCustomApi(JsonPatchTransport):
     def __init__(self):
         self.vm = _vm()
         self.patches = []
@@ -391,7 +405,7 @@ def test_backup_can_be_deleted_after_worker_clears_restart_mark(monkeypatch):
     assert client.deleted == [("vm1", "backup-1")]
 
 
-class BackupCreateCustomApi:
+class BackupCreateCustomApi(JsonPatchTransport):
     def __init__(self, existing=()):
         self.existing = list(existing)
         self.created = []
@@ -452,7 +466,7 @@ def test_running_vm_backup_is_offline_immediate_and_marked_for_restart():
         and operation.get("path", "").endswith("offline-backup")
         for operation in vm_patch[2]
     )
-    assert vm_patch[3]["_content_type"] == "application/json-patch+json"
+    assert vm_patch[3] == {}
 
 
 def test_second_backup_is_refused_before_the_vm_is_stopped():
@@ -631,7 +645,7 @@ def test_restore_reconciler_finds_unlabelled_target_by_durable_marker():
     assert ready[0]["phase"] == "Succeeded"
 
 
-class RestoreFinishCustomApi:
+class RestoreFinishCustomApi(JsonPatchTransport):
     def __init__(self):
         self.vm = _vm(running=True, annotations={
             K8sClient.BACKUP_RESTORE_OPERATION: "restore-op",

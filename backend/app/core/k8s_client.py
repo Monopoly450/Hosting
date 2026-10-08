@@ -722,6 +722,31 @@ class K8sClient:
     def _annotation_json_path(key: str) -> str:
         return "/metadata/annotations/" + key.replace("~", "~0").replace("/", "~1")
 
+    def _patch_vm_json(self, name: str, operations: list, namespace="default"):
+        """JSON Patch с атомарными test/add/remove для блокировок ВМ.
+
+        CustomObjectsApi в kubernetes==30.1.0 поддерживает только Merge Patch
+        и отклоняет _content_type. Указываем тип через транспорт ApiClient,
+        сохраняя его kubeconfig, TLS и BearerToken-аутентификацию.
+        """
+        return self.custom_api.api_client.call_api(
+            "/apis/{group}/{version}/namespaces/{namespace}/{plural}/{name}",
+            "PATCH",
+            path_params={
+                "group": "kubevirt.io", "version": "v1",
+                "namespace": namespace, "plural": "virtualmachines",
+                "name": name,
+            },
+            header_params={
+                "Accept": "application/json",
+                "Content-Type": "application/json-patch+json",
+            },
+            body=operations,
+            response_type="object",
+            auth_settings=["BearerToken"],
+            _return_http_data_only=True,
+        )
+
     def acquire_backup_operation(self, vm: dict, backup_name: str,
                                  restart_vm: bool,
                                  source_pvc: str,
@@ -783,10 +808,7 @@ class K8sClient:
                     "path": self._annotation_json_path(self.VM_ACTION_GUARD),
                 })
         try:
-            return self.custom_api.patch_namespaced_custom_object(
-                "kubevirt.io", "v1", namespace, "virtualmachines", name,
-                operations, _content_type="application/json-patch+json",
-            )
+            return self._patch_vm_json(name, operations, namespace)
         except ApiException as error:
             if error.status in {409, 422}:
                 raise ValueError(
@@ -842,10 +864,7 @@ class K8sClient:
                 ), "value": token,
             })
         try:
-            self.custom_api.patch_namespaced_custom_object(
-                "kubevirt.io", "v1", namespace, "virtualmachines", name,
-                operations, _content_type="application/json-patch+json",
-            )
+            self._patch_vm_json(name, operations, namespace)
         except ApiException as error:
             if error.status in {409, 422}:
                 raise ValueError(
@@ -893,11 +912,7 @@ class K8sClient:
                 "value": value,
             } for key, value in values.items())
         try:
-            return self.custom_api.patch_namespaced_custom_object(
-                "kubevirt.io", "v1", namespace, "virtualmachines",
-                meta.get("name"), operations,
-                _content_type="application/json-patch+json",
-            )
+            return self._patch_vm_json(meta.get("name"), operations, namespace)
         except ApiException as error:
             if error.status in {409, 422}:
                 raise ValueError(
@@ -933,10 +948,7 @@ class K8sClient:
         operations.extend({
             "op": "remove", "path": self._annotation_json_path(key),
         } for key in keys if key in annotations)
-        return self.custom_api.patch_namespaced_custom_object(
-            "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
-            operations, _content_type="application/json-patch+json",
-        )
+        return self._patch_vm_json(vm_name, operations, namespace)
 
     def clear_vm_action_guard(self, name: str, token: str,
                               namespace="default"):
@@ -947,8 +959,8 @@ class K8sClient:
         annotations = meta.get("annotations") or {}
         if annotations.get(self.VM_ACTION_GUARD) != token:
             return None
-        return self.custom_api.patch_namespaced_custom_object(
-            "kubevirt.io", "v1", namespace, "virtualmachines", name,
+        return self._patch_vm_json(
+            name,
             [
                 {"op": "test", "path": "/metadata/resourceVersion",
                  "value": meta.get("resourceVersion")},
@@ -957,7 +969,7 @@ class K8sClient:
                 {"op": "remove", "path": self._annotation_json_path(
                     self.VM_ACTION_GUARD)},
             ],
-            _content_type="application/json-patch+json",
+            namespace,
         )
 
     def backup_restores_awaiting_finish(self, namespace="default") -> list:
@@ -1707,10 +1719,7 @@ class K8sClient:
                     self.BACKUP_SOURCE_PVC
                 ),
             })
-        return self.custom_api.patch_namespaced_custom_object(
-            "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
-            operations, _content_type="application/json-patch+json",
-        )
+        return self._patch_vm_json(vm_name, operations, namespace)
 
     def list_vm_backups(self, name: str, namespace="default"):
         """Получить список всех бэкапов для конкретной VM"""
