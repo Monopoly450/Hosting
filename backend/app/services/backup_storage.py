@@ -38,8 +38,10 @@ def ensure_backup_bucket(db, owner_id: int, s3) -> str:
         s3.make_bucket(name)
     if existing:
         return name
-    access = "backup_" + secrets.token_hex(12)
-    secret = secrets.token_urlsafe(32)
+    # MinIO ограничивает сервисные аккаунты: Access Key — 3–20 символов,
+    # Secret Key — 8–40. Считаем длину результата, а не исходных байтов.
+    access = secrets.token_hex(10)       # 20 символов
+    secret = secrets.token_urlsafe(30)  # 40 символов, 240 бит энтропии
     policy = {
         "Version": "2012-10-17",
         "Statement": [{

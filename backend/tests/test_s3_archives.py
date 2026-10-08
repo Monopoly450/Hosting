@@ -423,6 +423,41 @@ def test_mc_errors_do_not_expose_root_credentials(monkeypatch):
     assert error.value.__suppress_context__
 
 
+def test_backup_account_credentials_fit_minio_service_account_limits(db_env, monkeypatch):
+    from app.core.crypto import decrypt_secret
+    from app.models.models import UserBucket
+    from app.services import backup_storage as storage
+    factory, s3 = db_env
+    accounts = []
+    monkeypatch.setenv("MINIO_ROOT_USER", "root")
+    monkeypatch.setenv("MINIO_ROOT_PASSWORD", "test-root-password")
+
+    def run(command, **kwargs):
+        if "--access-key" in command:
+            access = command[command.index("--access-key") + 1]
+            secret = command[command.index("--secret-key") + 1]
+            # MinIO RELEASE.2025-09-07T16-13-09Z:
+            # internal/auth/credentials.go, CreateNewCredentialsWithMetadata.
+            assert 3 <= len(access) <= 20, "MinIO rejects this service-account Access Key"
+            assert 8 <= len(secret) <= 40, "MinIO rejects this service-account Secret Key"
+            accounts.append((access, secret))
+        return NS(returncode=0)
+
+    monkeypatch.setattr(storage.subprocess, "run", run)
+    with factory() as db:
+        db.connection().connection.driver_connection.create_function("pg_advisory_xact_lock", 1, lambda key: 0)
+        for owner in (1, 2):
+            storage.ensure_backup_bucket(db, owner, s3)
+        db.commit()
+        for bucket, (access, secret) in zip(db.query(UserBucket).order_by(UserBucket.owner_id).all(), accounts):
+            assert bucket.access_key == access
+            assert decrypt_secret(bucket.secret_key) == secret
+            assert bucket.secret_key != secret
+    assert len(accounts) == 2
+    assert accounts[0][0] != accounts[1][0]
+    assert accounts[0][1] != accounts[1][1]
+
+
 def test_legacy_database_dumps_do_not_leak_a_previous_database():
     from app.services.backup_storage import _legacy_owned
     db = NS(created_at=datetime(2026, 10, 8))
