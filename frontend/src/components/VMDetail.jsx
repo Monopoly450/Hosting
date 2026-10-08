@@ -6,6 +6,7 @@ import VncConsole from './VncConsole';
 import SshTerminal from './SshTerminal';
 import BackupList from './BackupList';
 import CustomSelect from './CustomSelect';
+import { initializeVmSettings, quantityGi, settingsError } from '../utils/vmSettings';
 
 const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [vm, setVm] = useState(null);
@@ -19,7 +20,8 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [cpuCores, setCpuCores] = useState(2);
   const [memoryGb, setMemoryGb] = useState(2);
   const [diskGb, setDiskGb] = useState(20);
-  const [hasInitializedResize, setHasInitializedResize] = useState(false);
+  const initializedSettingsVm = useRef(null);
+  const activeVmName = useRef(vmName);
   const [savingResize, setSavingResize] = useState(false);
 
   const [diskReadMbs, setDiskReadMbs] = useState(0);
@@ -126,13 +128,14 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       const response = await fetch(`/api/vms/${vmName}`);
       if (!response.ok) throw new Error('Не удалось получить статус виртуальной машины.');
       const data = await response.json();
+      if (activeVmName.current !== vmName) return;
       setVm(data);
       setError(null);
 
-      if (data && !hasInitializedResize) {
+      if (data) initializeVmSettings(initializedSettingsVm, vmName, data, (data) => {
         setCpuCores(data.cpu_cores || 2);
-        const currentRam = parseInt(data.memory) || 2;
-        const currentDisk = data.disks && data.disks[0] ? parseInt(data.disks[0].size) || 20 : 20;
+        const currentRam = data.memory_gb || quantityGi(data.memory, 2);
+        const currentDisk = data.disk_gb || quantityGi(data.disks?.[0]?.size, 20);
         setMemoryGb(currentRam);
         setDiskGb(currentDisk);
         setDiskReadMbs(data.disk_read_mbs || 0);
@@ -141,8 +144,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
         setDiskWriteIops(data.disk_write_iops || 0);
         setPortsConfig(data.ports_config || []);
         setFirewallRules(data.firewall_rules || []);
-        setHasInitializedResize(true);
-      }
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -171,9 +173,14 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   };
 
   useEffect(() => {
+    activeVmName.current = vmName;
+    initializedSettingsVm.current = null;
     fetchVmDetails();
     const interval = setInterval(fetchVmDetails, 4000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      activeVmName.current = null;
+    };
   }, [vmName]);
 
   useEffect(() => {
@@ -271,8 +278,8 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cpu_cores: parseInt(cpuCores), memory_gb: parseInt(memoryGb), disk_gb: parseInt(diskGb) })
       });
-      if (!response.ok) throw new Error('Не удалось обновить ресурсы.');
-      alert('Настройки успешно обновлены! Изменения вступят в силу после перезапуска виртуалки.');
+      if (!response.ok) throw new Error(await settingsError(response, 'Не удалось обновить ресурсы.'));
+      alert('Настройки обновлены. Для применения CPU/RAM полностью остановите ВМ и запустите её снова.');
       fetchVmDetails();
       if (onActionSuccess) onActionSuccess();
     } catch (err) {
@@ -326,8 +333,8 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
           firewall_rules: firewallRules
         })
       });
-      if (!response.ok) throw new Error('Не удалось сохранить настройки.');
-      alert('Настройки успешно сохранены! Изменения CPU/RAM/Диска вступят в силу после перезапуска ВМ, лимиты диска и фаервол применились мгновенно.');
+      if (!response.ok) throw new Error(await settingsError(response, 'Не удалось сохранить настройки.'));
+      alert('Настройки сохранены. Для применения CPU/RAM полностью остановите ВМ и запустите её снова. Дисковые лимиты периодически применяет worker; рост раздела внутри ОС может потребовать отдельного действия.');
       fetchVmDetails();
       if (onActionSuccess) onActionSuccess();
     } catch (err) {
@@ -445,7 +452,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
   const sshIp = getSshIp();
   const bridgeIp = getBridgeIp();
-  const currentDiskLimit = vm.disks && vm.disks[0] ? parseInt(vm.disks[0].size) || 20 : 20;
+  const currentDiskLimit = vm.disk_gb || quantityGi(vm.disks?.[0]?.size, 20);
   const backupLocked = Boolean(vm.backup_operation);
   const restoreLocked = vm.backup_operation?.startsWith('restore:');
   const snapshotRestoreLocked = vm.backup_operation?.startsWith('snapshot-restore:');

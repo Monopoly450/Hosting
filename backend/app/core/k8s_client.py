@@ -650,10 +650,11 @@ class K8sClient:
         """Изменяет выделенные ядра CPU и RAM в манифесте VM (требуется перезапуск)"""
         try:
             # Изменяем манифест VM
-            body = [
-                {"op": "replace", "path": "/spec/template/spec/domain/cpu/cores", "value": cpu_cores},
-                {"op": "replace", "path": "/spec/template/spec/domain/resources/requests/memory", "value": f"{memory_gb}Gi"}
-            ]
+            # CustomObjectsApi использует Merge Patch, не JSON Patch.
+            body = {"spec": {"template": {"spec": {"domain": {
+                "cpu": {"cores": cpu_cores},
+                "resources": {"requests": {"memory": f"{memory_gb}Gi"}},
+            }}}}}
             self.custom_api.patch_namespaced_custom_object(
                 group="kubevirt.io",
                 version="v1",
@@ -671,17 +672,11 @@ class K8sClient:
     def resize_vm_disk(self, name: str, new_size_gb: int, namespace="default"):
         """Увеличивает объем системного PVC жесткого диска виртуалки"""
         try:
-            # Находим системный PVC по маске имени ВМ
-            pvc_list = self.core_api.list_namespaced_persistent_volume_claim(namespace)
-            pvc_name = None
-            for pvc in pvc_list.items:
-                # Нам нужен PVC диска, а не бэкапа
-                if pvc.metadata.name.startswith(name) and "-backup-" not in pvc.metadata.name:
-                    pvc_name = pvc.metadata.name
-                    break
-                    
-            if not pvc_name:
-                raise Exception(f"Системный диск (PVC) для VM {name} не найден.")
+            pvc = self.validate_vm_disk_resize(name, new_size_gb, namespace)
+            pvc_name = pvc.metadata.name
+            from kubernetes.utils.quantity import parse_quantity
+            if parse_quantity(pvc.spec.resources.requests["storage"]) >= new_size_gb * 1024 ** 3:
+                return {"status": "unchanged", "pvc": pvc_name, "new_size_gb": new_size_gb}
                 
             body = {
                 "spec": {
@@ -698,6 +693,27 @@ class K8sClient:
         except Exception as e:
             logger.error(f"Ошибка расширения диска для {name}: {e}")
             raise e
+
+    def validate_vm_disk_resize(self, name: str, new_size_gb: int, namespace="default"):
+        """Проверяет активный диск и драйвер до изменения CPU/RAM или PVC."""
+        from kubernetes.utils.quantity import parse_quantity
+        vm = self.custom_api.get_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines", name)
+        pvc_name = _primary_disk_pvc_name(vm)
+        if not pvc_name:
+            raise ValueError("Системный диск ВМ не найден в текущем манифесте")
+        pvc = self.core_api.read_namespaced_persistent_volume_claim(pvc_name, namespace)
+        current = parse_quantity(pvc.spec.resources.requests["storage"])
+        # CDI добавляет файловый overhead к PVC. Запрос в пределах уже
+        # выделенного PVC не требует расширения и не должен уменьшать том.
+        if new_size_gb * 1024 ** 3 <= current:
+            return pvc
+        if not pvc.spec.storage_class_name:
+            raise ValueError("Класс хранения системного диска не поддерживает расширение")
+        storage = self.storage_api.read_storage_class(pvc.spec.storage_class_name)
+        if not storage.allow_volume_expansion:
+            raise ValueError(f"Класс хранения {pvc.spec.storage_class_name} не поддерживает расширение диска; CPU/RAM и лимиты можно сохранить без изменения размера диска")
+        return pvc
 
     # --- РЕЗЕРВНОЕ КОПИРОВАНИЕ И ВОССТАНОВЛЕНИЕ (BACKUPS) ---
 

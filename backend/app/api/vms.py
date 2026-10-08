@@ -1187,6 +1187,10 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client), curre
                 # Нужен фронту, чтобы сопоставить ВМ с привязанными доменами
                 # (Domain.target_id при target_type == "vm") — см. VMDetail.jsx.
                 vm_data["id"] = db_vm.id
+                # Логический размер диска, без файлового overhead CDI. После
+                # S3-отката dataVolumeTemplates отсутствуют, но настройка есть.
+                vm_data["disk_gb"] = db_vm.disk_gb
+                vm_data["memory_gb"] = db_vm.memory_gb
                 vm_data["disk_read_mbs"] = db_vm.disk_read_mbs
                 vm_data["disk_write_mbs"] = db_vm.disk_write_mbs
                 vm_data["disk_read_iops"] = db_vm.disk_read_iops
@@ -1760,6 +1764,10 @@ def resize_vm(name: str, req: VMResizeRequest, client: K8sClient = Depends(get_k
                 raise HTTPException(status_code=400, detail=f"Превышена квота на дисковое пространство (Лимит: {current_user.max_storage_gb} ГБ).")
 
         # Изменяем CPU/RAM
+        db_vm = db.query(VMTask).filter(VMTask.name == name).first()
+        if db_vm and req.disk_gb < db_vm.disk_gb:
+            raise HTTPException(status_code=400, detail="Уменьшение системного диска запрещено")
+        client.validate_vm_disk_resize(name, req.disk_gb)
         client.resize_vm_resources(name, req.cpu_cores, req.memory_gb)
         # Расширяем диск
         client.resize_vm_disk(name, req.disk_gb)
@@ -1773,6 +1781,8 @@ def resize_vm(name: str, req: VMResizeRequest, client: K8sClient = Depends(get_k
             db.commit()
             
         return {"status": "resized", "name": name, "cpu_cores": req.cpu_cores, "memory_gb": req.memory_gb, "disk_gb": req.disk_gb}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
     finally:
         db.close()
 
@@ -1810,6 +1820,12 @@ def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClien
                     raise HTTPException(status_code=400, detail=f"Превышена квота на дисковое пространство (Лимит: {current_user.max_storage_gb} ГБ).")
                 
             # 1. Изменение CPU, RAM и диска в K8s
+            if req.disk_gb < db_vm.disk_gb:
+                raise HTTPException(status_code=400, detail="Уменьшение системного диска запрещено")
+            if db_vm.disk_gb != req.disk_gb:
+                # Ошибка неподдерживаемого resize не должна оставлять CPU/RAM
+                # изменёнными в K8s, но не сохранёнными в БД.
+                client.validate_vm_disk_resize(name, req.disk_gb)
             if db_vm.cpu_cores != req.cpu_cores or db_vm.memory_gb != req.memory_gb:
                 client.resize_vm_resources(name, req.cpu_cores, req.memory_gb)
                 db_vm.cpu_cores = req.cpu_cores
@@ -1847,6 +1863,8 @@ def update_vm_settings(name: str, req: VMSettingsUpdateRequest, client: K8sClien
             db.close()
     except HTTPException:
         raise
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
     except Exception as e:
         logger.error(f"Error updating VM settings for {name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

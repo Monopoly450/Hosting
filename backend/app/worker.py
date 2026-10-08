@@ -312,6 +312,7 @@ def callback(ch, method, properties, body):
 
 def apply_disk_throttling_daemon():
     """Фоновый демон для динамического применения ограничений на дисковый ввод-вывод (cgroups v2)"""
+    from .services.disk_limits import apply_vm_disk_limits
     logger.info("Starting disk throttling daemon thread...")
     while True:
         try:
@@ -332,57 +333,9 @@ def apply_disk_throttling_daemon():
                 db.close() # Закрываем транзакцию мгновенно
 
             for vm in vms_data:
-                # Проверяем, заданы ли лимиты
-                if not (vm["disk_read_mbs"] or vm["disk_write_mbs"] or vm["disk_read_iops"] or vm["disk_write_iops"]):
-                    continue
-                    
                 try:
-                    # Получаем информацию о поде ВМ
-                    pods = k8s.core_api.list_namespaced_pod(namespace="default", label_selector=f"kubevirt.io/created-by={vm['name']}").items
-                    if not pods:
-                        continue
-                        
-                    pod = pods[0]
-                    pod_uid = pod.metadata.uid
-                    if not pod_uid:
-                        continue
-                        
-                    # Переводим дефисы в подчеркивания для соответствия имени systemd slice
-                    pod_uid_systemd = pod_uid.replace("-", "_")
-                    
-                    # Находим мажорный/минорный номера устройства для K3s storage на хосте
-                    import subprocess
-                    nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
-                    stat_res = subprocess.run(nsenter_prefix + ["stat -c '%d' /var/lib/rancher/k3s/storage 2>/dev/null || stat -c '%d' /"], capture_output=True, text=True, timeout=5)
-                    if stat_res.returncode != 0:
-                        continue
-                        
-                    dev_id = int(stat_res.stdout.strip())
-                    major = (dev_id >> 8) & 0xfff
-                    minor = dev_id & 0xff
-                    
-                    # Строим строку лимита для io.max
-                    rbps = f"{vm['disk_read_mbs'] * 1024 * 1024}" if vm['disk_read_mbs'] > 0 else "max"
-                    wbps = f"{vm['disk_write_mbs'] * 1024 * 1024}" if vm['disk_write_mbs'] > 0 else "max"
-                    riops = f"{vm['disk_read_iops']}" if vm['disk_read_iops'] > 0 else "max"
-                    wiops = f"{vm['disk_write_iops']}" if vm['disk_write_iops'] > 0 else "max"
-                    
-                    limit_line = f"{major}:{minor} rbps={rbps} wbps={wbps} riops={riops} wiops={wiops}"
-                    
-                    # Ищем директорию слайса пода
-                    find_cmd = f"find /sys/fs/cgroup/kubepods.slice/ -name '*pod{pod_uid_systemd}*.slice' 2>/dev/null"
-                    find_res = subprocess.run(nsenter_prefix + [find_cmd], capture_output=True, text=True, timeout=5)
-                    if find_res.returncode == 0 and find_res.stdout.strip():
-                        pod_slice_paths = find_res.stdout.strip().splitlines()
-                        for slice_path in pod_slice_paths:
-                            # Ищем все файлы io.max внутри cri-containerd-*.scope контейнеров
-                            io_find_cmd = f"find {slice_path} -name 'io.max' 2>/dev/null"
-                            io_res = subprocess.run(nsenter_prefix + [io_find_cmd], capture_output=True, text=True, timeout=5)
-                            if io_res.returncode == 0 and io_res.stdout.strip():
-                                for io_max_file in io_res.stdout.strip().splitlines():
-                                    # Записываем лимит
-                                    write_cmd = f"echo '{limit_line}' > {io_max_file}"
-                                    subprocess.run(nsenter_prefix + [write_cmd], capture_output=True, timeout=5)
+                    # Включая все нули: прежние ограничения нужно снимать.
+                    apply_vm_disk_limits(k8s, vm)
                 except Exception as pe:
                     logger.error(f"Error applying disk limits for VM {vm['name']}: {pe}")
         except Exception as e:
