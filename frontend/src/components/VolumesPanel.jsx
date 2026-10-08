@@ -285,7 +285,7 @@ export default function VolumesPanel() {
 
                                 <div style={{ background: 'var(--bg-surface-hover)', padding: '12px', borderRadius: '8px', marginTop: '20px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                                     <Info size={16} style={{ marginRight: '8px', verticalAlign: 'middle', color: 'var(--accent-primary)' }} />
-                                    Диски создаются мгновенно в СХД Kubernetes и могут монтироваться на лету (hotplug) без перезагрузки ВМ.
+                                    Новые сетевые диски создаются в отдельном LVM-пуле и подключаются к ВМ через hotplug. Ранее созданные диски остаются в своём хранилище.
                                 </div>
                             </div>
 

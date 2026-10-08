@@ -16,6 +16,7 @@ class Settings(BaseSettings):
         os.path.expanduser("~/.kube/config")
     )
     STORAGE_CLASS: str = os.getenv("STORAGE_CLASS", "local-path")
+    NETWORK_STORAGE_CLASS: str = os.getenv("NETWORK_STORAGE_CLASS", "openebs-lvm")
     
     # Настройки CORS. По умолчанию "*" (панель отдаётся тем же хостом и
     # авторизуется токеном в заголовке, не куками). Можно ограничить через

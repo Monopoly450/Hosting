@@ -290,22 +290,62 @@ def read_lvm_pool_gb() -> dict:
     return {"active": False, "total_gb": 0.0, "free_gb": 0.0}
 
 
-def storage_backend_totals() -> dict:
+def storage_backend_totals(storage_class=None) -> dict:
     """{'backend', 'total_gb', 'free_gb'} — куда РЕАЛЬНО уйдёт новый PVC при
-    текущем значении STORAGE_CLASS: в LVM-пул или на корневой диск хоста."""
+    выбранном классе хранения: в LVM-пул или на корневой диск хоста.
+    Без аргумента сохраняется прежнее поведение STORAGE_CLASS.
+    """
     from app.core.config import settings
 
-    if is_lvm_storage_class(settings.STORAGE_CLASS):
+    storage_class = settings.STORAGE_CLASS if storage_class is None else storage_class
+    if is_lvm_storage_class(storage_class):
         lvm = read_lvm_pool_gb()
         if lvm["active"]:
             return {"backend": "lvm", "total_gb": lvm["total_gb"], "free_gb": lvm["free_gb"]}
         logger.warning(
-            f"STORAGE_CLASS={settings.STORAGE_CLASS!r} указывает на LVM, но "
+            f"STORAGE_CLASS={storage_class!r} указывает на LVM, но "
             f"группа томов {LVM_VG_NAME} не отвечает — запрещаю новые PVC")
         return {"backend": "lvm", "total_gb": 0.0, "free_gb": 0.0}
 
     host = host_totals()
     return {"backend": "local", "total_gb": host["disk_gb"], "free_gb": host["disk_free_gb"]}
+
+
+def lvm_storage_allocations_gb(k8s) -> dict:
+    """Все реальные LVM-PVC и ожидающие PVC DataVolume, без двойного счёта."""
+    from kubernetes.utils.quantity import parse_quantity
+
+    allocations = {}
+    claims = k8s.core_api.list_namespaced_persistent_volume_claim(namespace="default").items
+    for pvc in claims:
+        if is_lvm_storage_class(pvc.spec.storage_class_name):
+            allocations[pvc.metadata.name] = float(parse_quantity(
+                pvc.spec.resources.requests["storage"])) / 1024 ** 3
+    dvs = k8s.custom_api.list_namespaced_custom_object(
+        "cdi.kubevirt.io", "v1beta1", "default", "datavolumes")
+    for dv in dvs.get("items", []):
+        storage = dv.get("spec", {}).get("storage", dv.get("spec", {}).get("pvc", {}))
+        if is_lvm_storage_class(storage.get("storageClassName")):
+            name = dv["metadata"]["name"]
+            size = float(parse_quantity(storage["resources"]["requests"]["storage"])) / 1024 ** 3
+            allocations[name] = max(size, allocations.get(name, 0.0))
+    return allocations
+
+
+def network_disks_lvm_reserved_gb(db, k8s, *, allocations=None) -> float:
+    """Резерв только сетевых дисков, чьи реальные PVC находятся на LVM.
+
+    STORAGE_CLASS задаёт новые PVC, но не переносит существующие: проверяем
+    класс самого тома, а не текущую глобальную настройку сервера.
+    """
+    from app.models.models import UserVolume
+
+    volumes = db.query(UserVolume).all()
+    if not volumes:
+        return 0.0
+    if allocations is None:
+        allocations = lvm_storage_allocations_gb(k8s)
+    return round(sum(volume.size_gb or 0 for volume in volumes if volume.name in allocations), 1)
 
 
 def known_storage_reservations_gb(db, k8s=None, *, require_backups: bool = False) -> float:
@@ -366,7 +406,7 @@ def backups_total_gb(k8s, *, strict: bool = False) -> float:
     return total
 
 
-def ensure_storage_capacity(db, *, extra_gb: float, k8s=None):
+def ensure_storage_capacity(db, *, extra_gb: float, k8s=None, storage_class=None):
     """Не даёт занять на активном бэкенде хранения больше, чем там есть.
 
     Общая проверка для ЛЮБОГО нового PVC: диска ВМ, бэкапа, сетевого диска,
@@ -380,16 +420,24 @@ def ensure_storage_capacity(db, *, extra_gb: float, k8s=None):
     """
     from fastapi import HTTPException
 
-    backend = storage_backend_totals()
+    backend = storage_backend_totals() if storage_class is None else storage_backend_totals(storage_class)
     try:
-        reserved = known_storage_reservations_gb(
-            db, k8s=k8s, require_backups=k8s is not None
-        )
+        if storage_class is not None and is_lvm_storage_class(storage_class):
+            # Сетевые диски на отдельном классе не конкурируют с local-path
+            # за логическую ёмкость VG. Pending DataVolume тоже резервируют
+            # место, даже если PVC ещё не создан (WaitForFirstConsumer).
+            if k8s is None:
+                raise ValueError("Для проверки LVM нужны реальные PVC и DataVolume")
+            reserved = sum(lvm_storage_allocations_gb(k8s).values())
+        else:
+            reserved = known_storage_reservations_gb(
+                db, k8s=k8s, require_backups=k8s is not None
+            )
     except Exception as e:
-        logger.warning(f"ensure_storage_capacity: backup reservations недоступны: {e}")
+        logger.warning(f"ensure_storage_capacity: storage reservations недоступны: {e}")
         raise HTTPException(
             status_code=503,
-            detail="Не удалось проверить занятое место бэкапами в Kubernetes; создание PVC временно остановлено.",
+            detail="Не удалось проверить занятое место томами в Kubernetes; создание PVC временно остановлено.",
         )
     free = available_disk_gb(backend["total_gb"], backend["free_gb"], reserved)
 

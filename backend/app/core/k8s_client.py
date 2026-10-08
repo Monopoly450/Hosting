@@ -2453,9 +2453,9 @@ class K8sClient:
             logger.error(f"Error querying Prometheus: {e}")
             return None
 
-    def create_pvc(self, name: str, size_gb: int, namespace: str = "default"):
+    def create_pvc(self, name: str, size_gb: int, namespace: str = "default", *, storage_class: str = None):
         """Создает DataVolume в Kubernetes для автоматического создания disk.img и поддержки NFS/LVM"""
-        storage_class = settings.STORAGE_CLASS
+        storage_class = storage_class or settings.STORAGE_CLASS
         volume_mode = "Block"
         access_mode = "ReadWriteOnce"
         # NFS не поддерживает режим Block и требует ReadWriteMany для живой миграции

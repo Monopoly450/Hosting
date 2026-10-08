@@ -258,7 +258,7 @@ const HostStats = ({ onMetricsLoaded }) => {
         {metrics.lvm && (
           <div className="stat-box">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> LVM Хранилище (PaaS)</span>
+              <span className="stat-box-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><HardDrive size={16}/> Сетевые диски (LVM)</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {localStorage.getItem('aegis_role') === 'admin' && metrics.lvm.active && (
                   <button 
@@ -277,7 +277,7 @@ const HostStats = ({ onMetricsLoaded }) => {
                       transition: 'all 0.2s'
                     }}
                     onClick={() => { setShowResize(!showResize); setResizeStatus(null); }}
-                    title="Управление пулом LVM"
+                    title="Управление пулом сетевых дисков"
                   >
                     <Settings size={14} style={{ color: showResize ? 'var(--accent-primary)' : 'var(--text-secondary)' }} />
                   </button>
@@ -295,7 +295,7 @@ const HostStats = ({ onMetricsLoaded }) => {
             </div>
             <div className="stat-box-meta">
               <span>Общая емкость пула: {metrics.lvm.total_gb} ГБ | Занято: {metrics.lvm.used_gb} ГБ</span>
-              <span>Зарезервировано (диски ВМ, бэкапы, базы данных, сетевые диски): {metrics.lvm.reserved_gb ?? 0} ГБ</span>
+              <span>Выделено сетевым дискам: {metrics.lvm.network_reserved_gb == null ? 'Нет данных' : `${metrics.lvm.network_reserved_gb} ГБ`}</span>
               <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>Свободно (доступно): {metrics.lvm.free_gb} ГБ</span>
             </div>
           </div>
@@ -469,7 +469,7 @@ const HostStats = ({ onMetricsLoaded }) => {
               onClick={() => setSelectedStorageTab('lvm')}
               style={{ padding: '6px 12px', fontSize: '0.8rem', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
             >
-              LVM Хранилище (PaaS) ({metrics.vms_resources.filter(v => v.storage_class.toLowerCase().includes('lvm') || v.storage_class.toLowerCase().includes('vg-')).length})
+              LVM ({metrics.vms_resources.filter(v => v.storage_class.toLowerCase().includes('lvm') || v.storage_class.toLowerCase().includes('vg-')).length})
             </button>
             <button 
               type="button" 
@@ -602,7 +602,7 @@ const HostStats = ({ onMetricsLoaded }) => {
           <div className="slide-over-overlay" onClick={() => setShowResize(false)}>
             <div className="slide-over-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '450px' }}>
               <div className="slide-over-header">
-                <h2>Настройки пула LVM</h2>
+                <h2>Пул сетевых дисков (LVM)</h2>
                 <button className="btn-close" onClick={() => setShowResize(false)}>&times;</button>
               </div>
               
@@ -615,8 +615,8 @@ const HostStats = ({ onMetricsLoaded }) => {
                       <span style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.lvm ? metrics.lvm.total_gb : 0} ГБ</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Зарезервировано ВМ:</span>
-                      <span style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.lvm ? metrics.lvm.reserved_gb : 0} ГБ</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>Выделено сетевым дискам:</span>
+                      <span style={{ fontWeight: 600, color: 'var(--text-heading)' }}>{metrics.lvm?.network_reserved_gb == null ? 'Нет данных' : `${metrics.lvm.network_reserved_gb} ГБ`}</span>
                     </div>
                   </div>
                 </div>
@@ -633,7 +633,7 @@ const HostStats = ({ onMetricsLoaded }) => {
                     required
                   />
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px', lineHeight: '1.4' }}>
-                    Вы можете расширить объем пула или безопасно уменьшить его. Уменьшение сработает только в том случае, если новый размер больше, чем суммарный объем дисков созданных ВМ ({metrics.lvm ? metrics.lvm.reserved_gb : 0} ГБ).
+                    Увеличение добавит место в пул. Уменьшение проверяется LVM: если занятые области выходят за новый размер, операция будет отклонена.
                   </span>
                 </div>
 

@@ -7,6 +7,8 @@ from app.db import SessionLocal
 from app.models.models import User, UserVolume, VMTask
 from app.core.auth import get_current_user
 from app.core.k8s_client import K8sClient
+from app.core.config import settings
+from kubernetes.client.rest import ApiException
 
 router = APIRouter()
 logger = logging.getLogger("app.api.volumes")
@@ -51,16 +53,22 @@ def create_volume(req: VolumeCreateRequest, client: K8sClient = Depends(get_k8s_
 
         full_pvc_name = f"vol-{current_user.id}-{req.name}"
 
-        # Сетевой диск — PVC на том же STORAGE_CLASS, что и диски ВМ, бэкапы и
-        # базы данных. Прежняя проверка звала vgs напрямую, БЕЗ nsenter — у
-        # контейнера нет доступа к /dev/mapper, и вызов либо ничего не находил,
-        # либо падал с ошибкой; в обоих случаях lvm_free_gb оставался None, и
-        # проверка молча пропускалась. Общая ensure_storage_capacity также
-        # учитывает уже занятое дисками ВМ, бэкапами и базами данных, а не
-        # только другими сетевыми дисками, как считала эта проверка раньше.
-        from app.core.capacity import lock_host_capacity, ensure_storage_capacity
+        # Только сетевые диски направляем в отдельный LVM-класс.
+        # Существующие диски не переносим и local-path как fallback не используем.
+        from app.core.capacity import lock_host_capacity, ensure_storage_capacity, is_lvm_storage_class, LVM_VG_NAME
+        storage_class = settings.NETWORK_STORAGE_CLASS
+        if not is_lvm_storage_class(storage_class):
+            raise HTTPException(status_code=400, detail="NETWORK_STORAGE_CLASS должен указывать на LVM-класс хранения.")
+        try:
+            sc = client.storage_api.read_storage_class(storage_class)
+        except ApiException as error:
+            if error.status == 404:
+                raise HTTPException(status_code=503, detail=f"Класс сетевых дисков {storage_class} не установлен. Установите OpenEBS LVM: bash scripts/install-openebs-lvm.sh") from None
+            raise HTTPException(status_code=503, detail="Не удалось проверить класс хранения сетевых дисков.") from None
+        if sc.provisioner != "local.csi.openebs.io" or (sc.parameters or {}).get("volgroup") != LVM_VG_NAME:
+            raise HTTPException(status_code=400, detail=f"Класс сетевых дисков должен использовать OpenEBS LVM и группу {LVM_VG_NAME}.")
         lock_host_capacity(db)
-        ensure_storage_capacity(db, extra_gb=req.size_gb, k8s=client)
+        ensure_storage_capacity(db, extra_gb=req.size_gb, k8s=client, storage_class=storage_class)
 
         # Проверяем уникальность имени диска в БД
         existing = db.query(UserVolume).filter(UserVolume.name == full_pvc_name).first()
@@ -69,7 +77,7 @@ def create_volume(req: VolumeCreateRequest, client: K8sClient = Depends(get_k8s_
 
         # Создаем PVC в Kubernetes
         try:
-            client.create_pvc(full_pvc_name, req.size_gb)
+            client.create_pvc(full_pvc_name, req.size_gb, storage_class=storage_class)
         except Exception as e:
             logger.error(f"Failed to create PVC in Kubernetes: {e}")
             raise HTTPException(status_code=500, detail=f"Ошибка создания PVC в кластере: {e}")

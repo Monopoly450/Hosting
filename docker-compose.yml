@@ -89,6 +89,7 @@ services:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
       - STORAGE_CLASS=${STORAGE_CLASS:-local-path}
+      - NETWORK_STORAGE_CLASS=${NETWORK_STORAGE_CLASS:-openebs-lvm}
       # Внешний адрес сервера: ссылки на приложения, адрес push в реестр и
       # цель A-записей доменов. Пусто — определяется автоматически.
       - AEGIS_HOST_IP=${AEGIS_HOST_IP:-}
@@ -148,6 +149,7 @@ services:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
       - STORAGE_CLASS=${STORAGE_CLASS:-local-path}
+      - NETWORK_STORAGE_CLASS=${NETWORK_STORAGE_CLASS:-openebs-lvm}
       - AEGIS_HOST_IP=${AEGIS_HOST_IP:-}
       - REGISTRY_PORT=${REGISTRY_PORT:-5000}
       # Вотчдог Caddy (caddy_watchdog_tick) тикает именно в этом контейнере —

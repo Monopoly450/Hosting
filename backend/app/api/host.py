@@ -386,17 +386,27 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
 
             from app.core import capacity as _cap
 
-            # STORAGE_CLASS — одна настройка на весь сервер, и её же читают
-            # диск ВМ, бэкап, сетевой диск и приватная база данных (все они
-            # используют её при создании PVC). Если она указывает не на LVM,
-            # ни один из этих PVC на vg-aegis не попадает — и «зарезервировано»
-            # для этой карточки честно равно нулю, что бы ни лежало в БД.
+            # Отдельный показатель для карточки сетевых дисков. Общий резерв
+            # пула сохраняется для честного расчёта доступного места.
+            network_reserved_gb = None
             total_lvm_reserved = 0.0
+            try:
+                with SessionLocal() as db_network:
+                    allocations = _cap.lvm_storage_allocations_gb(client)
+                    total_lvm_reserved = sum(allocations.values())
+                    network_reserved_gb = _cap.network_disks_lvm_reserved_gb(db_network, client, allocations=allocations)
+            except Exception as network_err:
+                import logging
+                logging.getLogger("app.host").error(f"Не удалось посчитать сетевые диски LVM: {network_err}")
+
+            # Для старой конфигурации с общим LVM-классом учитываем и задачи,
+            # которые ещё не успели создать PVC. Новые сетевые диски выше
+            # учитываются по своему отдельному классу, независимо от STORAGE_CLASS.
             if _cap.is_lvm_storage_class(settings.STORAGE_CLASS):
                 try:
                     db_lvm = SessionLocal()
                     try:
-                        total_lvm_reserved = _cap.known_storage_reservations_gb(db_lvm, k8s=client)
+                        total_lvm_reserved = max(total_lvm_reserved, _cap.known_storage_reservations_gb(db_lvm, k8s=client))
                     finally:
                         db_lvm.close()
                 except Exception as res_err:
@@ -451,6 +461,7 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                     "reserved_gb": 0.0
                 }
 
+            lvm_info["network_reserved_gb"] = network_reserved_gb
             _lvm_cache["data"] = lvm_info
             _lvm_cache["last_updated"] = now
 

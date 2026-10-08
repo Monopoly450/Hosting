@@ -43,3 +43,11 @@ test('all disk forms include the same hint and VM settings have no throttle or d
   const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
   assert.match(app, /<DiskStorageNotice\s*\/>/);
 });
+
+test('network pool card and settings do not attribute all VM backups and databases to network disks', () => {
+  const stats = readFileSync(new URL('../src/components/HostStats.jsx', import.meta.url), 'utf8');
+  assert.match(stats, /Сетевые диски \(LVM\)/);
+  assert.match(stats, /Выделено сетевым дискам/);
+  assert.match(stats, /network_reserved_gb/);
+  assert.doesNotMatch(stats, /диски ВМ, бэкапы, базы данных, сетевые диски|Зарезервировано ВМ:|суммарный объем дисков созданных ВМ/);
+});
