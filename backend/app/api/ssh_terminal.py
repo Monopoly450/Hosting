@@ -150,6 +150,18 @@ async def ssh_terminal_proxy(
         await websocket.close(code=1011, reason="VM is not running")
         return
 
+    # Check even for direct WebSocket clients/old frontends. Never attempt a
+    # password login when the user selected key-only access.
+    from app.services.vm_ssh_access import read_ssh_access
+    try:
+        policy = read_ssh_access(name, vm.get("os_type"))
+    except Exception:
+        await websocket.close(code=1011, reason="Cannot check VM SSH access")
+        return
+    if not policy["web_terminal_enabled"]:
+        await websocket.close(code=1008, reason="Web SSH disabled; use your SSH key or VNC")
+        return
+
     ips = vm.get("ips", [])
     external_ip = resolve_vm_ip(ips)
     if not external_ip:

@@ -793,7 +793,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                                   onChange={e => handleUpdateVm(index, 'ssh_key', e.target.value)}
                                 />
                                 <small style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                                  Если указан ключ, парольный вход по SSH будет автоматически заблокирован на создаваемой ВМ.
+                                  Если указан ключ, парольный вход по SSH будет заблокирован. Вместо веб-терминала панель покажет инструкции подключения по ключу; VNC останется доступен.
                                 </small>
                               </div>
 

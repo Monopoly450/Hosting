@@ -1243,12 +1243,15 @@ def get_vm_details(name: str, client: K8sClient = Depends(get_k8s_client), curre
 
     try:
         vm_data = client.get_vm(name)
+        from app.services.vm_ssh_access import ssh_access_policy
+        vm_data["ssh_access"] = ssh_access_policy(os_type=vm_data.get("os_type"))
         
         # Загружаем лимиты и сетевые настройки из БД
         db = SessionLocal()
         try:
             db_vm = db.query(VMTask).filter(VMTask.name == name).first()
             if db_vm:
+                vm_data["ssh_access"] = ssh_access_policy(db_vm, vm_data.get("os_type"))
                 # Нужен фронту, чтобы сопоставить ВМ с привязанными доменами
                 # (Domain.target_id при target_type == "vm") — см. VMDetail.jsx.
                 vm_data["id"] = db_vm.id
@@ -2085,6 +2088,9 @@ def get_vm_ssh_details(name: str, client: K8sClient = Depends(get_k8s_client), c
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Виртуальная машина {name} не найдена: {str(e)}")
         
+    from app.services.vm_ssh_access import require_web_ssh
+    require_web_ssh(name, vm.get("os_type"))
+
     if vm.get("status") != "Running":
         raise HTTPException(status_code=400, detail="Мониторинг доступен только для запущенных виртуальных машин.")
 
@@ -2126,6 +2132,9 @@ def execute_vm_ssh_command(name: str, req: VMCommandExecuteRequest, client: K8sC
         vm = client.get_vm(name)
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Виртуальная машина {name} не найдена: {str(e)}")
+
+    from app.services.vm_ssh_access import require_web_ssh
+    require_web_ssh(name, vm.get("os_type"))
 
     if vm.get("status") != "Running":
         raise HTTPException(status_code=400, detail="Выполнение команд доступно только на запущенных виртуальных машинах.")

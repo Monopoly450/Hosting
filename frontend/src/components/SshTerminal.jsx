@@ -86,7 +86,9 @@ const SshTerminal = ({ name, isInline = false }) => {
     socket.onclose = (event) => {
       if (event.code === 1008) {
         setStatus('error');
-        setErrorMsg('Ошибка авторизации. Доступ к терминалу заблокирован.');
+        setErrorMsg(event.reason?.startsWith('Web SSH disabled')
+          ? 'Парольный веб-терминал отключён. Используйте свой SSH-ключ или VNC.'
+          : 'Ошибка авторизации. Доступ к терминалу заблокирован.');
       } else if (event.code === 1011) {
         setStatus('error');
         setErrorMsg(event.reason || 'Ошибка подключения по SSH на стороне сервера.');

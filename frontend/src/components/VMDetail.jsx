@@ -4,10 +4,12 @@ import Portal from './Portal';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import VncConsole from './VncConsole';
 import SshTerminal from './SshTerminal';
+import SshConnectionGuide from './SshConnectionGuide';
 import BackupList from './BackupList';
 import CustomSelect from './CustomSelect';
 import DiskStorageNotice from './DiskStorageNotice';
 import { initializeVmSettings, quantityGi, settingsError } from '../utils/vmSettings';
+import { keyOnlyAccess, sshIp as pickSshIp, sshTerminalSupported, webTerminalEnabled } from '../utils/sshAccess';
 
 const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [vm, setVm] = useState(null);
@@ -32,6 +34,8 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const [actionLoading, setActionLoading] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [copiedField, setCopiedField] = useState(null);
+  const [sshKeyPath, setSshKeyPath] = useState('~/.ssh/id_ed25519');
+  const [sshServerHost, setSshServerHost] = useState(window.location.hostname);
 
   // Terminal state
   const [command, setCommand] = useState('');
@@ -141,9 +145,10 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   };
 
   const fetchSshDetails = async () => {
-    if (!vm || vm.status !== 'Running') {
+    if (!webTerminalEnabled(vm) || vm.status !== 'Running') {
       setSshData(null);
       setSshLoading(false);
+      setSshError(null);
       return;
     }
     setSshLoading(true);
@@ -163,6 +168,8 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   useEffect(() => {
     activeVmName.current = vmName;
     initializedSettingsVm.current = null;
+    setSshKeyPath('~/.ssh/id_ed25519');
+    setSshServerHost(window.location.hostname);
     fetchVmDetails();
     const interval = setInterval(fetchVmDetails, 4000);
     return () => {
@@ -183,7 +190,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
     fetchSshDetails();
     const interval = setInterval(fetchSshDetails, 6000);
     return () => clearInterval(interval);
-  }, [vmName, vm?.status]);
+  }, [vmName, vm?.status, vm?.ssh_access?.web_terminal_enabled]);
 
   useEffect(() => {
     if (!vm?.id) { setBoundDomains([]); return; }
@@ -387,12 +394,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   };
 
   const getSshIp = () => {
-    if (!vm || !vm.ips || vm.ips.length === 0) return null;
-    const bridgeIp = vm.ips.find(ip => !ip.startsWith('10.244.') && !ip.startsWith('10.42.') && !ip.startsWith('10.0.2.') && !ip.startsWith('127.0.') && !ip.includes(':'));
-    if (bridgeIp) return bridgeIp;
-    const podIp = vm.ips.find(ip => (ip.startsWith('10.42.') || ip.startsWith('10.244.')) && !ip.includes(':'));
-    if (podIp) return podIp;
-    return vm.ips.find(ip => !ip.includes(':')) || vm.ips[0];
+    return pickSshIp(vm);
   };
 
   const getBridgeIp = () => {
@@ -420,6 +422,11 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
   const backupLocked = Boolean(vm.backup_operation);
   const restoreLocked = vm.backup_operation?.startsWith('restore:');
   const snapshotRestoreLocked = vm.backup_operation?.startsWith('snapshot-restore:');
+  const sshGuideProps = {
+    vm, serverHost: sshServerHost, onServerHostChange: setSshServerHost,
+    keyPath: sshKeyPath, onKeyPathChange: setSshKeyPath,
+    onOpenVnc: () => setActiveTab('vnc'), onOpenSettings: () => setActiveTab('settings'),
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -488,9 +495,9 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             <button className={`btn ${activeTab === 'vnc' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('vnc')} disabled={vm.status !== 'Running'}>
               <Monitor size={14} /> VNC
             </button>
-            {vm.os_type !== 'windows' && (
-              <button className={`btn ${activeTab === 'terminal' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('terminal')} disabled={vm.status !== 'Running'}>
-                <Terminal size={14} /> Терминал
+            {sshTerminalSupported(vm) && (
+              <button className={`btn ${activeTab === 'terminal' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('terminal')}>
+                {keyOnlyAccess(vm) ? <Key size={14} /> : <Terminal size={14} />} Терминал / SSH
               </button>
             )}
             {vm.os_type !== 'windows' && <button className={`btn ${activeTab === 'backups' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('backups')}>
@@ -530,10 +537,15 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
         </div>
       )}
 
-      {activeTab === 'terminal' && (
-        <div className="glass-card" style={{ padding: 0, overflow: 'hidden', background: 'var(--terminal-bg)', borderRadius: 'var(--radius-lg)' }}>
-          <SshTerminal name={vmName} />
-        </div>
+      {activeTab === 'terminal' && sshTerminalSupported(vm) && (
+        <>
+          {webTerminalEnabled(vm) && vm.status === 'Running' && (
+            <div className="glass-card" style={{ padding: 0, overflow: 'hidden', background: 'var(--terminal-bg)', borderRadius: 'var(--radius-lg)' }}>
+              <SshTerminal name={vmName} />
+            </div>
+          )}
+          <div className="glass-card"><SshConnectionGuide {...sshGuideProps} /></div>
+        </>
       )}
 
 
@@ -637,7 +649,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                       </td>
                     </tr>
                     <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                      <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>Пароль</td>
+                      <td style={{ padding: '12px 0', color: 'var(--text-secondary)' }}>{keyOnlyAccess(vm) ? 'Пароль консоли VNC (не SSH)' : 'Пароль'}</td>
                       <td style={{ padding: '12px 0', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{showPassword ? (vm.credentials?.password || 'N/A') : '••••••••'}</span>
                         <button className="btn-icon-only" onClick={() => setShowPassword(!showPassword)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }} title={showPassword ? 'Скрыть пароль' : 'Показать пароль'}>
@@ -682,38 +694,8 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
             )}
 
             {/* SSH Commands */}
-            {!['windows', 'proxmox'].includes(vm.os_type) && !portsConfig.some(p => p.int_port === 3389) && (
-              <>
-                <div style={{ marginTop: '8px' }}>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда локального SSH (внутри сети):</div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={sshIp ? `ssh ${vm.credentials?.username || 'root'}@${sshIp}` : 'Ожидание сети...'} />
-                    <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${sshIp}`, 'localSsh')} disabled={!sshIp}>
-                      {copiedField === 'localSsh' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда внешнего SSH (через проброс):</div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={vm.ssh_port ? `ssh ${vm.credentials?.username || 'root'}@${window.location.hostname} -p ${vm.ssh_port}` : 'Ожидание порта...'} />
-                    <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`ssh ${vm.credentials?.username || 'root'}@${window.location.hostname} -p ${vm.ssh_port}`, 'extSsh')} disabled={!vm.ssh_port}>
-                      {copiedField === 'extSsh' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '8px' }}>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Команда SSH через бастион (Jump Host):</div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input type="text" readOnly className="form-control" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }} value={sshIp ? `ssh -J root@${window.location.hostname} ${vm.credentials?.username || 'root'}@${sshIp}` : 'Ожидание сети...'} />
-                    <button className="btn btn-secondary btn-icon" onClick={() => handleCopy(`ssh -J root@${window.location.hostname} ${vm.credentials?.username || 'root'}@${sshIp}`, 'bastionSsh')} disabled={!sshIp}>
-                      {copiedField === 'bastionSsh' ? <Check size={14} color="var(--status-success)" /> : <Copy size={14} />}
-                    </button>
-                  </div>
-                </div>
-              </>
+            {sshTerminalSupported(vm) && !portsConfig.some(p => p.int_port === 3389) && (
+              <SshConnectionGuide {...sshGuideProps} compact />
             )}
 
             {/* Proxmox Web UI Link */}
