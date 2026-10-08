@@ -593,9 +593,9 @@ kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEV
 kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml"
 
 if [ "$KVM_SUPPORTED" = false ]; then
-    kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true,"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes","WorkloadSnapshots","Snapshot"]}}}}'
+    kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true,"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes","WorkloadSnapshots","Snapshot","VMExport"]}}}}'
 else
-    kubectl patch kubevirt kubevirt -n kubevirt --type=merge -p '{"spec":{"configuration":{"developerConfiguration":{"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes","WorkloadSnapshots","Snapshot"]}}}}'
+    kubectl patch kubevirt kubevirt -n kubevirt --type=merge -p '{"spec":{"configuration":{"developerConfiguration":{"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes","WorkloadSnapshots","Snapshot","VMExport"]}}}}'
 fi
 
 log "Ожидание запуска KubeVirt (может занять пару минут)..."

@@ -24,8 +24,9 @@ class FakeDb:
     ensure_storage_capacity опрашивает VMTask, UserVolume и UserDatabase
     раздельно (диски ВМ, сетевые диски и базы данных конкурируют за одно и
     то же место на активном бэкенде хранения)."""
-    def __init__(self, vms=(), volumes=(), databases=()):
+    def __init__(self, vms=(), volumes=(), databases=(), archives=()):
         self._vms, self._volumes, self._databases = list(vms), list(volumes), list(databases)
+        self._archives = list(archives)
 
     def query(self, model):
         name = getattr(model, "__name__", "")
@@ -33,6 +34,8 @@ class FakeDb:
             return FakeQuery(self._volumes)
         if name == "UserDatabase":
             return FakeQuery(self._databases)
+        if name == "VMArchive":
+            return FakeQuery(self._archives)
         return FakeQuery(self._vms)
 
 

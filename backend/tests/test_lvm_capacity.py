@@ -265,11 +265,8 @@ def test_headroom_check_passes_when_room_remains(monkeypatch):
 @pytest.mark.parametrize("module,func,guard", [
     ("app.api.databases", "create_database", "ensure_storage_capacity"),
     ("app.api.volumes", "create_volume", "ensure_storage_capacity"),
-    ("app.api.vms", "create_backup", "ensure_storage_capacity"),
     ("app.api.vms", "restore_vm_backup", "ensure_storage_capacity"),
-    # У снимка нет известного заранее размера (дифференциальный объект) —
-    # см. ensure_any_storage_headroom.
-    ("app.api.snapshots", "create_snapshot", "ensure_any_storage_headroom"),
+    ("app.services.vm_archives", "enqueue_restore", "ensure_storage_capacity"),
 ])
 def test_every_pvc_creating_endpoint_checks_storage_capacity(module, func, guard):
     """Диск ВМ, бэкап, сетевой диск и база данных — все создают PVC на одном
@@ -303,9 +300,10 @@ def test_scheduled_vm_backup_uses_the_shared_storage_guard():
     from app.services import scheduled_backups
 
     src = inspect.getsource(scheduled_backups._execute_one)
-    assert "lock_host_capacity" in src
-    assert "ensure_storage_capacity" in src
-    assert "k8s=k8s" in src
+    assert 'enqueue(vm.name, "backup", k8s' in src
+    assert "retention=schedule.retention" in src
+    # Создание S3-копии больше не создаёт clone PVC в LVM-пуле.
+    assert "create_vm_backup" not in src
 
 
 def test_dashboard_reuses_the_same_vgs_reader_as_the_capacity_check():

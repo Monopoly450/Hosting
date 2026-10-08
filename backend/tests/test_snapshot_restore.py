@@ -588,7 +588,9 @@ def test_panel_is_told_about_broken_snapshots_before_creating_one():
     assert '@router.get("/{vm_name}/support")' in src
     # Один и тот же текст у отказа и у предупреждения: две формулировки
     # неизбежно разойдутся.
-    assert src.count("_unsupported_reason(support)") == 3
+    assert "VirtualMachineExport" not in src or "virtualmachineexports" in src
+    assert '"storage": "s3"' in src
+    assert 'disk_volumes(raw)' in src
 
 
 def test_support_check_failure_does_not_block_the_panel():
@@ -596,7 +598,8 @@ def test_support_check_failure_does_not_block_the_panel():
     запрещаем, отказ при создании всё равно сработает."""
     src = _source("app", "api", "snapshots.py")
     block = src[src.index("def snapshot_support("):src.index('@router.get("/{vm_name}", response_model')]
-    assert '{"supported": True, "reason": None}' in block
+    assert '{"supported": True, "reason": None, "storage": "s3"}' in block
+    assert '{"supported": False' in block
 
 
 def test_warning_style_exists_for_things_that_are_not_broken():

@@ -57,6 +57,7 @@ class UserBucket(Base):
     bucket_name = Column(String, unique=True, index=True, nullable=False)
     access_key = Column(String, nullable=False)
     secret_key = Column(String, nullable=False)
+    purpose = Column(String, nullable=False, default="user")
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     # Общий доступ через проекты — как у ВМ, баз и деплоев. Без этой колонки
     # бакет нельзя было отдать команде вовсе: доступ проверялся строго по
@@ -204,6 +205,28 @@ class VMTask(Base):
     
     cluster = relationship("Cluster", back_populates="vms")
     owner = relationship("User", back_populates="vms")
+
+
+class VMArchive(Base):
+    """S3-копия дисков и конфигурации ВМ; состояние фоновой операции."""
+    __tablename__ = "vm_archives"
+
+    name = Column(String, primary_key=True)
+    vm_name = Column(String, nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    kind = Column(String, nullable=False)  # backup | snapshot
+    bucket = Column(String, nullable=False)
+    prefix = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="Pending")
+    progress = Column(Integer, default=0)
+    error = Column(Text, nullable=True)
+    manifest = Column(JSONB, nullable=False, default=dict)
+    operation = Column(String, nullable=True)
+    restart_vm = Column(Boolean, default=False)
+    restore_state = Column(String, nullable=True)
+    restore_data = Column(JSONB, nullable=False, default=dict)
+    retention = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
 class AppDeployment(Base):

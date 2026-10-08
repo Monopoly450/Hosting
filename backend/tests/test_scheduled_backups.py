@@ -101,9 +101,11 @@ def test_snapshot_creation_refuses_without_a_volume_snapshot_class():
     with open(path, encoding="utf-8") as f:
         src = f.read()
 
+    assert 'enqueue(vm_name, "snapshot", client' in src
+    # Новый S3-снимок не требует CSI VolumeSnapshotClass. Старые локальные
+    # снимки по-прежнему проверяются перед восстановлением.
+    assert "virtualmachineexports" in src
     assert "client.snapshot_support(vm_name)" in src
-    # Сообщение обязано называть причину и путь решения, а не просто «ошибка».
-    assert "local-path" in src and "install-openebs-lvm.sh" in src
 
 
 def test_lvm_installer_creates_the_snapshot_class():

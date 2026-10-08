@@ -99,7 +99,8 @@ export default function BackupsPanel() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.detail || 'Ошибка запуска');
             fetchAll();
-            if (data.last_status && data.last_status !== 'success') alert(`Бэкап завершился с ошибкой: ${data.last_status}`);
+            if (data.last_status === 'queued') alert('S3-бэкап поставлен в очередь. ВМ будет выключена на время копирования.');
+            else if (data.last_status && data.last_status !== 'success') alert(`Бэкап завершился с ошибкой: ${data.last_status}`);
         } catch (e) {
             alert(`Ошибка: ${e.message}`);
         } finally {
@@ -165,6 +166,7 @@ export default function BackupsPanel() {
                                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
                                                 {(s.last_status === 'success')
                                                     ? <CheckCircle2 size={14} style={{ color: 'var(--status-success)' }} />
+                                                    : s.last_status === 'queued' ? <span className="text-muted">В очереди</span>
                                                     : <AlertTriangle size={14} style={{ color: 'var(--status-danger, #e5484d)' }} />}
                                                 <span title={s.last_status || ''}>{fmt(s.last_run)}</span>
                                             </span>
@@ -212,7 +214,7 @@ export default function BackupsPanel() {
                                             onChange={e => setTarget(e.target.value)}
                                             placeholder="— выберите объект —"
                                             options={[
-                                                ...vms.filter(v => v.id).map(v => ({ value: `vm:${v.id}`, label: `🖥 ${v.name}` })),
+                                                ...vms.filter(v => v.id && v.os_type !== 'windows').map(v => ({ value: `vm:${v.id}`, label: `🖥 ${v.name}` })),
                                                 ...databases.map(d => ({ value: `database:${d.id}`, label: `🗄 ${d.db_name}` })),
                                             ]}
                                         />

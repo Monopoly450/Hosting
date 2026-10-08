@@ -522,12 +522,12 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
                 <Terminal size={14} /> Терминал
               </button>
             )}
-            <button className={`btn ${activeTab === 'backups' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('backups')}>
+            {vm.os_type !== 'windows' && <button className={`btn ${activeTab === 'backups' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('backups')}>
               💾 Бэкапы
-            </button>
-            <button className={`btn ${activeTab === 'snapshots' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('snapshots')}>
+            </button>}
+            {vm.os_type !== 'windows' && <button className={`btn ${activeTab === 'snapshots' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('snapshots')}>
               📸 Снимки
-            </button>
+            </button>}
             <button className={`btn ${activeTab === 'settings' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('settings')}>
               <Settings size={14} /> Настройки
             </button>
@@ -543,7 +543,9 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
       {backupLocked && (
         <div className="alert alert-info">
-          {snapshotRestoreLocked
+          {vm.backup_operation.startsWith('s3-') || vm.backup_operation.startsWith('restore-')
+            ? 'Выполняется S3-копирование или восстановление дисков. Дождитесь завершения: исходное состояние питания будет восстановлено автоматически.'
+            : snapshotRestoreLocked
             ? `Идёт откат на снимок ${vm.backup_operation.slice('snapshot-restore:'.length)}. Операции с диском заблокированы до завершения; исходное состояние питания будет восстановлено автоматически.`
             : restoreLocked
             ? `Идёт восстановление диска из ${vm.backup_operation.slice('restore:'.length)}. Операции с диском заблокированы до завершения; исходное состояние питания будет восстановлено автоматически.`
@@ -564,7 +566,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
       )}
 
 
-      {activeTab === 'backups' && (
+      {activeTab === 'backups' && vm.os_type !== 'windows' && (
         <div className="glass-card">
           <BackupList vmName={vmName} vmStatus={vm.status}
                       operationLocked={backupLocked}
@@ -573,7 +575,7 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
         </div>
       )}
 
-      {activeTab === 'snapshots' && (
+      {activeTab === 'snapshots' && vm.os_type !== 'windows' && (
         <div className="glass-card">
           {/* onVmChanged: откат гасит ВМ, и карточка выше должна
               перестать показывать её запущенной. */}
@@ -1234,6 +1236,7 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged, operationLocked = fals
     const handleCreateSnapshot = async (e) => {
         e.preventDefault();
         if (!snapName.trim()) return;
+        if (vmStatus === 'Running' && !confirm('Для полной точки восстановления в S3 ВМ будет выключена на время выгрузки дисков и затем включена автоматически. Продолжить?')) return;
         setCreating(true);
         try {
             const res = await fetch(`/api/snapshots/${vmName}`, {
@@ -1315,7 +1318,7 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged, operationLocked = fals
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <div>
                     <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-heading)' }}>Снимки виртуалки (Snapshots)</h3>
-                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Слепки диска для быстрого отката состояния ВМ</p>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Полные точки восстановления дисков в личном S3-бакете. ВМ выключается на время выгрузки.</p>
                 </div>
             </div>
 
@@ -1371,7 +1374,7 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged, operationLocked = fals
                         <tbody>
                             {snapshots.map((s, idx) => (
                                 <tr key={idx}>
-                                    <td style={{ fontWeight: 'bold' }}>{s.name}</td>
+                                    <td style={{ fontWeight: 'bold' }}>{s.label || s.name}{s.storage === 's3' && <small style={{ display: 'block', color: 'var(--text-secondary)' }}>S3 · {s.bucket}</small>}</td>
                                     <td>{s.creation_time}</td>
                                     <td>
                                         {/* «Готов» только если в снимке ЕСТЬ диск. KubeVirt ставит
@@ -1394,7 +1397,7 @@ function VMSnapshotsList({ vmName, vmStatus, onVmChanged, operationLocked = fals
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                                 <span className={`status-badge ${s.phase === 'Succeeded' ? 'status-active' : s.phase === 'Failed' ? 'status-danger' : 'status-pending'}`}
                                                       title={s.error || undefined}>
-                                                    {s.phase === 'Succeeded' ? 'Готов' : s.phase === 'InProgress' ? 'Создается' : s.phase}
+                                                    {({Succeeded: 'Готов', Failed: 'Не удался', InProgress: 'Создаётся', Pending: 'В очереди', Exporting: 'Подготовка дисков', Uploading: 'Выгрузка в S3', Importing: 'Импорт дисков', Finalizing: 'Завершение'})[s.phase] || s.phase}
                                                 </span>
                                                 {/* Пока снимок делается — сколько дисков уже снято.
                                                     Тонкого процента у снимка ВМ нет: KubeVirt его не

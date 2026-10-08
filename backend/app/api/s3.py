@@ -25,6 +25,7 @@ class BucketResponse(BaseModel):
     secret_key: str
     status: str
     owner_username: str
+    purpose: str = "user"
 
 def get_minio_client():
     return Minio(
@@ -47,12 +48,14 @@ def create_bucket(req: BucketCreateRequest, current_user: User = Depends(get_cur
     try:
         # Лимит для студентов: макс 3 бакета
         if current_user.role != "admin":
-            bucket_count = db.query(UserBucket).filter(UserBucket.owner_id == current_user.id).count()
+            bucket_count = db.query(UserBucket).filter(UserBucket.owner_id == current_user.id, UserBucket.purpose == "user").count()
             if bucket_count >= 3:
                 raise HTTPException(status_code=400, detail="Достигнут лимит на создание бакетов (макс. 3).")
 
         # Префикс к имени бакета
         full_bucket_name = f"{current_user.username}-{req.name}"
+        if full_bucket_name.startswith("aegis-backups-u"):
+            raise HTTPException(status_code=400, detail="Имя зарезервировано для бакетов резервных копий")
 
         # Проверка уникальности
         existing = db.query(UserBucket).filter(UserBucket.bucket_name == full_bucket_name).first()
@@ -187,7 +190,8 @@ def list_buckets(current_user: User = Depends(get_current_user)):
                 access_key=b.access_key,
                 secret_key=decrypt_secret(b.secret_key),
                 status="Active",
-                owner_username=owner_name
+                owner_username=owner_name,
+                purpose=b.purpose,
             ))
         return res
     finally:
@@ -200,9 +204,10 @@ def delete_bucket(bucket_id: int, current_user: User = Depends(get_current_user)
         bucket = db.query(UserBucket).filter(UserBucket.id == bucket_id).first()
         if not bucket:
             raise HTTPException(status_code=404, detail="Бакет не найден")
-
         require_access(db, current_user, bucket.owner_id, bucket.project_id, need="editor",
                        message="Доступ запрещён: бакет не ваш и не в вашем проекте.")
+        if bucket.purpose == "backup":
+            raise HTTPException(status_code=409, detail="Служебный бакет резервных копий нельзя удалить через S3-панель")
 
         client = get_minio_client()
 
@@ -275,6 +280,8 @@ async def upload_file_to_bucket(bucket_id: int, file: UploadFile = File(...), cu
             raise HTTPException(status_code=404, detail="Бакет не найден")
         require_access(db, current_user, bucket.owner_id, bucket.project_id, need="editor",
                        message="Доступ запрещён: бакет не ваш и не в вашем проекте.")
+        if bucket.purpose == "backup":
+            raise HTTPException(status_code=409, detail="Служебный бакет доступен только для чтения")
 
         client = get_minio_client()
         
@@ -356,6 +363,8 @@ def delete_file_from_bucket(bucket_id: int, filename: str, current_user: User = 
             raise HTTPException(status_code=404, detail="Бакет не найден")
         require_access(db, current_user, bucket.owner_id, bucket.project_id, need="editor",
                        message="Доступ запрещён: бакет не ваш и не в вашем проекте.")
+        if bucket.purpose == "backup":
+            raise HTTPException(status_code=409, detail="Удаляйте резервные копии на вкладке бэкапов или снимков")
 
         client = get_minio_client()
         try:

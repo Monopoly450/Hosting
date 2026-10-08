@@ -38,6 +38,10 @@ class SnapshotResponse(BaseModel):
     volumes_ready: int = 0
     volumes_total: int = 0
     error: Optional[str] = None
+    storage: str = "local"
+    bucket: Optional[str] = None
+    label: Optional[str] = None
+    restore_state: Optional[str] = None
 
 
 def _snapshot_for_vm(client: K8sClient, vm_name: str, snapshot_name: str) -> dict:
@@ -101,24 +105,30 @@ def snapshot_support(vm_name: str, client: K8sClient = Depends(get_k8s_client),
     которая заведомо не дойдёт до конца.
     """
     check_vm_ownership(vm_name, current_user)
+    from app.services.vm_archives import get_task, disk_volumes, s3_client
+    from app.db import SessionLocal
     try:
-        support = client.snapshot_support(vm_name)
-    except Exception as e:
-        logger.error(f"Error checking snapshot support for {vm_name}: {e}")
-        # Панель не должна ломаться из-за диагностики: не смогли проверить —
-        # значит не мешаем, отказ при создании всё равно сработает.
-        return {"supported": True, "reason": None}
-    return {
-        "supported": support["supported"],
-        "reason": None if support["supported"] else _unsupported_reason(support),
-        "storage_classes": support["storage_classes"],
-    }
+        with SessionLocal() as db:
+            get_task(db, vm_name)
+        raw = client.custom_api.get_namespaced_custom_object("kubevirt.io", "v1", "default", "virtualmachines", vm_name)
+        disk_volumes(raw)
+        s3_client().list_buckets()
+        client.custom_api.list_namespaced_custom_object("export.kubevirt.io", "v1beta1", "default", "virtualmachineexports", limit=1)
+        return {"supported": True, "reason": None, "storage": "s3"}
+    except HTTPException as error:
+        return {"supported": False, "reason": error.detail, "storage": "s3"}
+    except Exception:
+        logger.exception("S3-снимки недоступны для %s", vm_name)
+        return {"supported": False, "reason": "Проверьте доступность S3 и KubeVirt Export API (VMExport).", "storage": "s3"}
+
 
 
 @router.get("/{vm_name}", response_model=List[SnapshotResponse])
 def list_snapshots(vm_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(vm_name, current_user)
     try:
+        from app.services.vm_archives import list_archives
+        archives = [SnapshotResponse(**s) for s in list_archives(vm_name, "snapshot")]
         snaps = client.list_vm_snapshots(vm_name)
         res = []
         for s in snaps:
@@ -140,7 +150,9 @@ def list_snapshots(vm_name: str, client: K8sClient = Depends(get_k8s_client), cu
                 volumes_total=s.get("volumes_total", 0),
                 error=s.get("error"),
             ))
-        return res
+        return archives + res
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error listing snapshots for VM {vm_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -148,68 +160,18 @@ def list_snapshots(vm_name: str, client: K8sClient = Depends(get_k8s_client), cu
 @router.post("/{vm_name}", response_model=SnapshotResponse, status_code=status.HTTP_201_CREATED)
 def create_snapshot(vm_name: str, req: SnapshotCreateRequest, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(vm_name, current_user)
-    try:
-        client.ensure_no_backup_operation(vm_name)
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    
-    if not re.match(r"^[a-z0-9-]{3,32}$", req.name):
-        raise HTTPException(
-            status_code=400,
-            detail="Имя снимка должно содержать только строчные латинские буквы, цифры и дефис."
-        )
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,31}", req.name):
+        raise HTTPException(status_code=400, detail="Имя снимка: 3–32 символа, строчные латинские буквы, цифры и дефис")
+    from app.services.vm_archives import enqueue
+    return SnapshotResponse(**enqueue(vm_name, "snapshot", client, label=req.name))
 
-    # Имя снапшота в Kubernetes
-    full_snapshot_name = f"snap-{vm_name}-{req.name}"
-
-    # Снимок — это VirtualMachineSnapshot, дифференциальный объект: в отличие
-    # от бэкапа (полного клона PVC) у него нет известного заранее размера —
-    # он растёт по мере изменений на диске ПОСЛЕ создания снимка. Поэтому
-    # здесь не проверяется конкретное число ГБ (проверять было бы нечего),
-    # а только то, что хранилище не забито под ноль совсем: делать снимок
-    # некуда расти на уже исчерпанном пуле — риск, что он тут же откажет
-    # или испортит данные вместо того чтобы честно не создаться.
-    from app.db import SessionLocal
-    from app.core.capacity import lock_host_capacity, ensure_any_storage_headroom
-    db = SessionLocal()
-    try:
-        lock_host_capacity(db)
-        ensure_any_storage_headroom(db, k8s=client)
-    finally:
-        db.close()
-
-    # Проверяем не «есть ли в кластере хоть какой-нибудь класс снимков», а
-    # найдётся ли класс под провизионер диска ИМЕННО ЭТОЙ ВМ.
-    #
-    # Разница не теоретическая, на неё и напоролись. После установки LVM в
-    # кластере появляется VolumeSnapshotClass с driver local.csi.openebs.io,
-    # и проверка «есть хоть один» проходит. Но диск ВМ, созданной раньше,
-    # остался на local-path с провизионером rancher.io/local-path. Совпадения
-    # нет — KubeVirt не падает, а молча кладёт том в excludedVolumes и всё
-    # равно ставит снимку phase: Succeeded. Панель показывает «Готов», откат
-    # проходит без ошибок и возвращает описание ВМ, а диск не трогает:
-    # установленное после снимка приложение остаётся на месте. Пользователь
-    # при этом уверен, что точка отката у него есть.
-    support = client.snapshot_support(vm_name)
-    if not support["supported"]:
-        raise HTTPException(status_code=400, detail="Снимки недоступны: " + _unsupported_reason(support))
-
-    try:
-        client.create_vm_snapshot(vm_name, full_snapshot_name)
-        return SnapshotResponse(
-            name=full_snapshot_name,
-            creation_time="Только что создается",
-            phase="Pending",
-            ready_to_use=False,
-            progress_percent=0,
-        )
-    except Exception as e:
-        logger.error(f"Error creating snapshot for VM {vm_name}: {e}")
-        raise HTTPException(status_code=500, detail=f"Ошибка создания снимка в Kubernetes: {e}")
 
 @router.delete("/{vm_name}/{snapshot_name}")
 def delete_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(vm_name, current_user)
+    if snapshot_name.startswith("s3-"):
+        from app.services.vm_archives import delete_archive
+        return delete_archive(vm_name, snapshot_name, "snapshot")
     try:
         client.ensure_no_backup_operation(vm_name)
         _snapshot_for_vm(client, vm_name, snapshot_name)
@@ -226,6 +188,9 @@ def delete_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depend
 @router.post("/{vm_name}/{snapshot_name}/restore")
 def restore_snapshot(vm_name: str, snapshot_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(vm_name, current_user)
+    if snapshot_name.startswith("s3-"):
+        from app.services.vm_archives import enqueue_restore
+        return enqueue_restore(vm_name, snapshot_name, "snapshot", client)
     try:
         client.ensure_no_backup_operation(vm_name)
     except ValueError as e:

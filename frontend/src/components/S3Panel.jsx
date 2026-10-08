@@ -138,7 +138,7 @@ export default function S3Panel() {
     };
 
     const uploadFile = async (file) => {
-        if (!file) return;
+        if (!file || selectedBucket?.purpose === 'backup') return;
         setUploadingFile(true);
         const formData = new FormData();
         formData.append('file', file);
@@ -257,6 +257,11 @@ export default function S3Panel() {
 
     const buildS3Snippet = (b, tab) => {
         const endpoint = getMinioEndpoint();
+        if (b.purpose === 'backup') {
+            if (tab === 'cli') return `aws configure set aws_access_key_id ${b.access_key}\naws configure set aws_secret_access_key ${b.secret_key}\naws --endpoint-url ${endpoint} s3 ls s3://${b.bucket_name}/ --recursive\naws --endpoint-url ${endpoint} s3 cp s3://${b.bucket_name}/PATH/manifest.json ./manifest.json`;
+            if (tab === 'boto3') return `import boto3\ns3 = boto3.client("s3", endpoint_url="${endpoint}",\n    aws_access_key_id="${b.access_key}", aws_secret_access_key="${b.secret_key}")\ns3.download_file("${b.bucket_name}", "PATH/manifest.json", "manifest.json")`;
+            return `mc alias set mybucket ${endpoint} ${b.access_key} ${b.secret_key}\nmc ls --recursive mybucket/${b.bucket_name}\nmc cp mybucket/${b.bucket_name}/PATH/manifest.json ./manifest.json`;
+        }
         if (tab === 'cli') {
             return `aws configure set aws_access_key_id ${b.access_key}\naws configure set aws_secret_access_key ${b.secret_key}\naws --endpoint-url ${endpoint} s3 ls s3://${b.bucket_name}\naws --endpoint-url ${endpoint} s3 cp ./file.txt s3://${b.bucket_name}/`;
         }
@@ -362,7 +367,9 @@ export default function S3Panel() {
                 )}
 
                 {/* Drag & drop upload zone */}
-                <div
+                {b.purpose === 'backup' ? <div className="alert alert-info" style={{ marginBottom: '20px' }}>
+                    Личный бакет резервных копий: файлы доступны для чтения. Создание и удаление копий выполняется во вкладках ВМ и баз данных.
+                </div> : <div
                     className="glass-card"
                     onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                     onDragLeave={() => setDragOver(false)}
@@ -386,10 +393,10 @@ export default function S3Panel() {
                         <div className="text-muted">или</div>
                         <label className="btn btn-primary" style={{ cursor: 'pointer' }}>
                             <Upload size={16} /> Выберите файл
-                            <input type="file" onChange={handleFileUpload} style={{ display: 'none' }} disabled={uploadingFile} />
+                            <input type="file" onChange={handleFileUpload} style={{ display: 'none' }} disabled={uploadingFile || b.purpose === 'backup'} />
                         </label>
                     </div>
-                </div>
+                </div>}
 
                 {filesLoading ? (
                     <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
@@ -399,7 +406,7 @@ export default function S3Panel() {
                     <div className="glass-card" style={{ textAlign: 'center', padding: '54px 20px' }}>
                         <FolderOpen size={44} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
                         <h3 className="section-title" style={{ justifyContent: 'center' }}>Бакет пуст</h3>
-                        <p className="text-muted">Загрузите первый файл — перетащите его в зону выше.</p>
+                        <p className="text-muted">{b.purpose === 'backup' ? 'Готовые копии появятся здесь после S3-копирования.' : 'Загрузите первый файл — перетащите его в зону выше.'}</p>
                     </div>
                 ) : (
                     <div className="grid-cols-4 stagger">
@@ -415,7 +422,7 @@ export default function S3Panel() {
                                             <button className="btn-icon" onClick={() => handleDownloadFile(file.name)} title="Скачать">
                                                 <Download size={14} />
                                             </button>
-                                            <button className="btn-icon" onClick={() => handleDeleteFile(file.name)} title="Удалить" style={{ color: 'var(--status-danger)' }}>
+                                            <button className="btn-icon" onClick={() => handleDeleteFile(file.name)} disabled={b.purpose === 'backup'} title="Удалить" style={{ color: 'var(--status-danger)' }}>
                                                 <Trash2 size={14} />
                                             </button>
                                         </div>
@@ -491,7 +498,7 @@ export default function S3Panel() {
                         <tbody>
                             {buckets.map(b => (
                                 <tr key={b.id}>
-                                    <td style={{ fontWeight: 'bold' }}>{b.bucket_name}</td>
+                                    <td style={{ fontWeight: 'bold' }}>{b.bucket_name}{b.purpose === 'backup' && <small style={{ display: 'block', color: 'var(--text-secondary)' }}>Резервные копии · только чтение</small>}</td>
                                     <td>
                                         <span style={{ fontFamily: 'monospace', background: 'var(--bg-surface)', padding: '2px 6px', borderRadius: '4px' }}>
                                             {getMinioEndpoint()}
@@ -553,6 +560,7 @@ export default function S3Panel() {
                                             <button 
                                                 className="btn btn-danger btn-sm" 
                                                 onClick={() => handleDeleteBucket(b.id)}
+                                                disabled={b.purpose === 'backup'}
                                                 style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
                                             >
                                                 <Trash2 size={12} /> Удалить

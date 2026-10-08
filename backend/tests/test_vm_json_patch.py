@@ -135,3 +135,24 @@ def test_guard_cleanup_keeps_another_operations_lock(vm_transport):
 
     assert vm["metadata"]["annotations"][k8s.VM_ACTION_GUARD] == "start:other-token"
     assert not any(r[0] == "PATCH" for r in requests)
+
+
+def test_s3_lock_is_durable_and_blocks_power_actions(vm_transport):
+    k8s, vm, requests = vm_transport
+    k8s.acquire_s3_operation("vm1", "s3-backup-1", "tenant")
+    assert vm["metadata"]["annotations"][k8s.S3_OPERATION] == "s3-backup-1"
+    with pytest.raises(ValueError, match="S3"):
+        k8s.guarded_power_action("start", "vm1", "tenant")
+    k8s.acquire_s3_operation("vm1", "s3-backup-1", "tenant")
+    assert len([r for r in requests if r[0] == "PATCH"]) == 1
+    k8s.clear_s3_operation("vm1", "another-operation", "tenant")
+    assert vm["metadata"]["annotations"][k8s.S3_OPERATION] == "s3-backup-1"
+    k8s.clear_s3_operation("vm1", "s3-backup-1", "tenant")
+    assert k8s.S3_OPERATION not in vm["metadata"]["annotations"]
+
+
+def test_s3_can_replace_an_expired_power_guard(vm_transport):
+    k8s, vm, _requests = vm_transport
+    vm["metadata"]["annotations"][k8s.VM_ACTION_GUARD] = "start:token:0"
+    k8s.acquire_s3_operation("vm1", "s3-backup-1", "tenant")
+    assert vm["metadata"]["annotations"][k8s.S3_OPERATION] == "s3-backup-1"

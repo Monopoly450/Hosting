@@ -34,6 +34,7 @@ REQUIRED_TABLES = (
     "domains",           # вотчдог Caddy
     "clusters",          # создание ВМ в кластере
     "backup_schedules",  # планировщик бэкапов
+    "vm_archives",       # выгрузка и восстановление S3-копий
     "alert_rules",       # движок алертов
 )
 

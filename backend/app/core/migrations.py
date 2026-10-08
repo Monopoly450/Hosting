@@ -10,6 +10,7 @@ from sqlalchemy import text
 logger = logging.getLogger("app.core.migrations")
 
 MIGRATION_STATEMENTS = [
+    "ALTER TABLE user_buckets ADD COLUMN IF NOT EXISTS purpose VARCHAR NOT NULL DEFAULT 'user';",
     # vm_tasks
     "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS iso_url VARCHAR;",
     "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS owner_id INTEGER;",

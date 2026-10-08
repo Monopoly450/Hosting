@@ -60,6 +60,8 @@ def _resolve_target(db, target_type: str, target_id: int, user: User) -> str:
         obj = db.query(VMTask).filter(VMTask.id == target_id).first()
         if not obj:
             raise HTTPException(status_code=404, detail="ВМ не найдена")
+        if obj.os_type == "windows":
+            raise HTTPException(status_code=400, detail="Бэкапы Windows отключены")
         owner_id, name = obj.owner_id, obj.name
     elif target_type == "database":
         obj = db.query(UserDatabase).filter(UserDatabase.id == target_id).first()

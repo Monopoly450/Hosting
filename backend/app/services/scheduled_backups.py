@@ -12,7 +12,6 @@ from io import BytesIO
 
 logger = logging.getLogger("app.services.scheduled_backups")
 
-DB_BACKUP_BUCKET = "database-backups"
 
 
 def compute_next_run(frequency: str, hour: int, minute: int, weekday, now: datetime = None) -> datetime:
@@ -85,7 +84,7 @@ def prune_vm_backups(k8s, vm_name: str, retention: int):
 
 # ------------------------------- Бэкап БД -----------------------------------
 
-def run_db_backup(k8s, user_db) -> str:
+def run_db_backup(k8s, user_db, db=None) -> str:
     from app.core.crypto import decrypt_secret
     from app.api.databases import _safe_backup_filename
     from app.api.s3 import get_minio_client
@@ -99,14 +98,23 @@ def run_db_backup(k8s, user_db) -> str:
     )
     timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
     filename = f"backup_{user_db.db_name}_{timestamp}.sql"
-    object_name = f"{user_db.db_name}/{_safe_backup_filename(filename)}"
 
     data = dump.encode("utf-8")
     client = get_minio_client()
-    if not client.bucket_exists(DB_BACKUP_BUCKET):
-        client.make_bucket(DB_BACKUP_BUCKET)
+    from app.services.backup_storage import ensure_backup_bucket, database_location
+    from app.db import SessionLocal
+    own_session = db is None
+    session = db or SessionLocal()
+    try:
+        bucket = ensure_backup_bucket(session, user_db.owner_id, client)
+        session.commit()
+    finally:
+        if own_session:
+            session.close()
+    _, prefix = database_location(user_db)
+    object_name = prefix + _safe_backup_filename(filename)
     client.put_object(
-        bucket_name=DB_BACKUP_BUCKET,
+        bucket_name=bucket,
         object_name=object_name,
         data=BytesIO(data),
         length=len(data),
@@ -121,8 +129,9 @@ def prune_db_backups(user_db, retention: int):
     from app.api.s3 import get_minio_client
     try:
         client = get_minio_client()
-        prefix = f"{user_db.db_name}/"
-        names = [o.object_name for o in client.list_objects(DB_BACKUP_BUCKET, prefix=prefix, recursive=True)]
+        from app.services.backup_storage import database_location
+        bucket, prefix = database_location(user_db)
+        names = [o.object_name for o in client.list_objects(bucket, prefix=prefix, recursive=True)]
     except Exception as e:
         logger.warning(f"prune db backups: список для {user_db.db_name} недоступен: {e}")
         return
@@ -130,7 +139,7 @@ def prune_db_backups(user_db, retention: int):
     names.sort(reverse=True)
     for name in names[retention:]:
         try:
-            client.remove_object(DB_BACKUP_BUCKET, name)
+            client.remove_object(bucket, name)
             logger.info(f"Ротация: удалён старый бэкап БД {name}")
         except Exception as e:
             logger.warning(f"Ротация: не удалось удалить {name}: {e}")
@@ -149,21 +158,15 @@ def _execute_one(k8s, db, schedule):
             vm = db.query(VMTask).filter(VMTask.id == schedule.target_id).first()
             if not vm:
                 raise RuntimeError("ВМ не найдена")
-            # Плановый backup создаёт такой же полный clone-PVC, как ручной.
-            # Advisory lock держим до появления DataVolume, чтобы два due
-            # schedule не прошли проверку по одному и тому же снимку ёмкости.
-            from app.core.capacity import lock_host_capacity, ensure_storage_capacity
-            lock_host_capacity(db)
-            ensure_storage_capacity(
-                db, extra_gb=vm.disk_gb or 0, k8s=k8s,
-            )
-            run_vm_backup(k8s, vm.name)
-            prune_vm_backups(k8s, vm.name, schedule.retention)
+            # Полная S3-копия выполняется worker; результат обновит расписание.
+            from app.services.vm_archives import enqueue
+            enqueue(vm.name, "backup", k8s, retention=schedule.retention, db=db, schedule_id=schedule.id)
+            status = "queued"
         elif schedule.target_type == "database":
             udb = db.query(UserDatabase).filter(UserDatabase.id == schedule.target_id).first()
             if not udb:
                 raise RuntimeError("База данных не найдена")
-            run_db_backup(k8s, udb)
+            run_db_backup(k8s, udb, db=db)
             prune_db_backups(udb, schedule.retention)
         else:
             raise RuntimeError(f"Неизвестный тип цели: {schedule.target_type}")

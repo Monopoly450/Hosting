@@ -314,12 +314,16 @@ def known_storage_reservations_gb(db, k8s=None, *, require_backups: bool = False
     если передан k8s-клиент — бэкапы. Бэкапы требуют обращения к
     Kubernetes (для их размеров нет отдельной таблицы в БД), поэтому
     считаются, только когда клиент передан явно, а не при каждой проверке."""
-    from app.models.models import VMTask, UserVolume, UserDatabase
+    from app.models.models import VMTask, UserVolume, UserDatabase, VMArchive
     from app.core.k8s_client import DB_PVC_SIZE_GB
 
     total = sum(vm.disk_gb or 0 for vm in db.query(VMTask).all())
     total += sum(v.size_gb or 0 for v in db.query(UserVolume).all())
     total += db.query(UserDatabase).count() * DB_PVC_SIZE_GB
+    # Резерв существует ещё до создания CDI DataVolume воркером. Во время
+    # импорта учитываем консервативно и резерв, и уже появившиеся DV.
+    total += sum((r.restore_data or {}).get("reserved_gb", 0)
+                 for r in db.query(VMArchive).all() if r.operation and r.restore_state)
 
     if k8s is not None:
         total += backups_total_gb(k8s, strict=require_backups)
@@ -349,16 +353,15 @@ def backups_total_gb(k8s, *, strict: bool = False) -> float:
         if not (
             "hosting.antigravity.io/backup-source" in labels
             or "hosting.antigravity.io/restore-operation" in labels
+            or "hosting.antigravity.io/s3-restore" in labels
         ):
             continue
-        size_str = (dv.get("spec", {}).get("storage", {})
+        size_str = (dv.get("spec", {}).get("storage", dv.get("spec", {}).get("pvc", {}))
                     .get("resources", {}).get("requests", {}).get("storage", "0Gi"))
         try:
-            if size_str.endswith("Gi"):
-                total += float(size_str[:-2])
-            elif size_str.endswith("Mi"):
-                total += float(size_str[:-2]) / 1024
-        except ValueError:
+            from kubernetes.utils.quantity import parse_quantity
+            total += float(parse_quantity(size_str)) / 1024 ** 3
+        except (TypeError, ValueError):
             pass
     return total
 

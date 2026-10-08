@@ -202,13 +202,14 @@ class K8sClient:
         vm = self.custom_api.get_namespaced_custom_object(
             "kubevirt.io", "v1", namespace, "virtualmachines", name,
         )
-        return (
-            (vm.get("metadata") or {}).get("annotations") or {}
-        ).get(self.BACKUP_OPERATION)
+        annotations = (vm.get("metadata") or {}).get("annotations") or {}
+        return annotations.get(self.S3_OPERATION) or annotations.get(self.BACKUP_OPERATION)
 
     def ensure_no_backup_operation(self, name: str, namespace="default"):
         operation = self.active_backup_operation(name, namespace)
         if operation:
+            if operation.startswith(("s3-", "restore-")):
+                raise ValueError("Для ВМ выполняется S3-копирование или восстановление; дождитесь завершения")
             raise ValueError(
                 f"ВМ временно выключена для бэкапа {operation}. "
                 "Дождитесь завершения или отмените бэкап."
@@ -712,6 +713,7 @@ class K8sClient:
     BACKUP_RESTORE_OLD_PVC = "hosting.antigravity.io/backup-restore-old-pvc"
     BACKUP_RESTORE_RESTART_VM = "hosting.antigravity.io/backup-restore-restart-vm"
     VM_ACTION_GUARD = "hosting.antigravity.io/vm-action-guard"
+    S3_OPERATION = "hosting.antigravity.io/s3-operation"
     VM_ACTION_GUARD_SECONDS = 180
     BACKUP_ORPHAN_GRACE_SECONDS = 180
     BACKUP_MAX_RUNTIME_SECONDS = 6 * 60 * 60
@@ -747,6 +749,54 @@ class K8sClient:
             _return_http_data_only=True,
         )
 
+    def _assert_no_s3_operation(self, annotations):
+        if (annotations or {}).get(self.S3_OPERATION):
+            raise ValueError("Для ВМ выполняется копирование или восстановление S3")
+
+    def acquire_s3_operation(self, name: str, operation: str, namespace="default"):
+        vm = self.custom_api.get_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines", name,
+        )
+        meta = vm["metadata"]
+        annotations = meta.get("annotations") or {}
+        if annotations.get(self.S3_OPERATION) == operation:
+            return vm  # продолжение после перезапуска worker
+        self.ensure_no_backup_operation(name, namespace)
+        self._assert_no_s3_operation(annotations)
+        guard = annotations.get(self.VM_ACTION_GUARD)
+        if guard:
+            try:
+                started = float(guard.rsplit(":", 1)[-1])
+            except (TypeError, ValueError):
+                started = time.time()
+            if time.time() - started < self.VM_ACTION_GUARD_SECONDS:
+                raise ValueError("Дождитесь завершения запуска или перезапуска ВМ")
+        if self.active_snapshot_restore(name, namespace):
+            raise ValueError("Дождитесь завершения отката на локальный снимок")
+        operations = [{"op": "test", "path": "/metadata/resourceVersion",
+                       "value": meta["resourceVersion"]}]
+        if meta.get("annotations") is None:
+            operations.append({"op": "add", "path": "/metadata/annotations",
+                               "value": {self.S3_OPERATION: operation}})
+        else:
+            operations.append({"op": "add", "path": self._annotation_json_path(self.S3_OPERATION),
+                               "value": operation})
+        self._patch_vm_json(name, operations, namespace)
+        return vm
+
+    def clear_s3_operation(self, name: str, operation: str, namespace="default"):
+        vm = self.custom_api.get_namespaced_custom_object(
+            "kubevirt.io", "v1", namespace, "virtualmachines", name,
+        )
+        meta = vm["metadata"]
+        if (meta.get("annotations") or {}).get(self.S3_OPERATION) != operation:
+            return
+        self._patch_vm_json(name, [
+            {"op": "test", "path": "/metadata/resourceVersion", "value": meta["resourceVersion"]},
+            {"op": "test", "path": self._annotation_json_path(self.S3_OPERATION), "value": operation},
+            {"op": "remove", "path": self._annotation_json_path(self.S3_OPERATION)},
+        ], namespace)
+
     def acquire_backup_operation(self, vm: dict, backup_name: str,
                                  restart_vm: bool,
                                  source_pvc: str,
@@ -756,6 +806,7 @@ class K8sClient:
         name = meta.get("name")
         resource_version = meta.get("resourceVersion")
         annotations = meta.get("annotations")
+        self._assert_no_s3_operation(annotations)
         if not name or not resource_version:
             raise RuntimeError("Kubernetes не вернул name/resourceVersion ВМ")
         if (annotations or {}).get(self.BACKUP_OPERATION):
@@ -825,6 +876,7 @@ class K8sClient:
         )
         meta = vm.get("metadata") or {}
         annotations = meta.get("annotations")
+        self._assert_no_s3_operation(annotations)
         active_backup = (annotations or {}).get(self.BACKUP_OPERATION)
         if active_backup:
             raise ValueError(
@@ -882,6 +934,7 @@ class K8sClient:
         """CAS-lock до остановки ВМ и удаления её текущего диска."""
         meta = vm.get("metadata") or {}
         annotations = meta.get("annotations")
+        self._assert_no_s3_operation(annotations)
         if (annotations or {}).get(self.BACKUP_OPERATION):
             raise ValueError("Сначала дождитесь завершения текущего бэкапа")
         if (annotations or {}).get(self.BACKUP_RESTORE_OPERATION):
@@ -2175,7 +2228,7 @@ class K8sClient:
             "node": node_name,
             "created_at": creation_timestamp,
             "credentials": credentials,
-            "backup_operation": (
+            "backup_operation": (vm.get("metadata", {}).get("annotations") or {}).get(self.S3_OPERATION) or (
                 vm.get("metadata", {}).get("annotations") or {}
             ).get(self.BACKUP_OPERATION) or (
                 "restore:" + (

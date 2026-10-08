@@ -440,15 +440,11 @@ def list_database_backups(db_id: int, current_user: User = Depends(get_current_u
             
         from app.api.s3 import get_minio_client
         client = get_minio_client()
-        bucket = "database-backups"
-        
+        from app.services.backup_storage import list_database_objects
         try:
-            if not client.bucket_exists(bucket):
-                client.make_bucket(bucket)
-                
-            objects = client.list_objects(bucket, prefix=f"{user_db.db_name}/", recursive=True)
+            objects = list_database_objects(user_db, client).values()
             res = []
-            for obj in objects:
+            for _bucket, obj in objects:
                 filename = obj.object_name.split("/")[-1]
                 res.append({
                     "filename": filename,
@@ -493,16 +489,17 @@ def create_database_backup(db_id: int, current_user: User = Depends(get_current_
         
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"backup_{user_db.db_name}_{timestamp}.sql"
-        object_name = f"{user_db.db_name}/{_safe_backup_filename(filename)}"
         
         dump_bytes = dump_content.encode("utf-8")
         data_stream = BytesIO(dump_bytes)
         
         from app.api.s3 import get_minio_client
         client = get_minio_client()
-        bucket = "database-backups"
-        if not client.bucket_exists(bucket):
-            client.make_bucket(bucket)
+        from app.services.backup_storage import ensure_backup_bucket, database_location
+        bucket = ensure_backup_bucket(db, user_db.owner_id, client)
+        db.commit()
+        _, prefix = database_location(user_db)
+        object_name = prefix + _safe_backup_filename(filename)
             
         client.put_object(
             bucket_name=bucket,
@@ -533,10 +530,9 @@ def restore_database_backup(db_id: int, filename: str, current_user: User = Depe
             
         from app.api.s3 import get_minio_client
         client = get_minio_client()
-        bucket = "database-backups"
-        object_name = f"{user_db.db_name}/{_safe_backup_filename(filename)}"
-        
+        from app.services.backup_storage import find_database_object
         try:
+            bucket, object_name = find_database_object(user_db, _safe_backup_filename(filename), client)
             response = client.get_object(bucket, object_name)
             sql_content = response.read().decode("utf-8")
             response.close()
@@ -575,10 +571,9 @@ def delete_database_backup(db_id: int, filename: str, current_user: User = Depen
             
         from app.api.s3 import get_minio_client
         client = get_minio_client()
-        bucket = "database-backups"
-        object_name = f"{user_db.db_name}/{_safe_backup_filename(filename)}"
-        
+        from app.services.backup_storage import find_database_object
         try:
+            bucket, object_name = find_database_object(user_db, _safe_backup_filename(filename), client)
             client.remove_object(bucket, object_name)
             return {"status": "Success", "detail": "Резервная копия удалена"}
         except Exception as e:
@@ -599,10 +594,9 @@ def download_database_backup(db_id: int, filename: str, current_user: User = Dep
             
         from app.api.s3 import get_minio_client
         client = get_minio_client()
-        bucket = "database-backups"
-        object_name = f"{user_db.db_name}/{_safe_backup_filename(filename)}"
-        
+        from app.services.backup_storage import find_database_object
         try:
+            bucket, object_name = find_database_object(user_db, _safe_backup_filename(filename), client)
             response = client.get_object(bucket, object_name)
             from fastapi.responses import StreamingResponse
             return StreamingResponse(

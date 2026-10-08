@@ -1571,6 +1571,13 @@ def delete_vm(name: str, force: bool = False, client: K8sClient = Depends(get_k8
     check_vm_ownership(name, current_user)
     from app.db import SessionLocal
     from app.models.models import VMTask
+    from app.services.vm_archives import assert_idle
+    with SessionLocal() as archive_db:
+        assert_idle(archive_db, name)
+    try:
+        client.ensure_no_backup_operation(name)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error))
     try:
         if force:
             try:
@@ -1898,39 +1905,21 @@ def get_vm_metrics_history(name: str, range_hours: int = Query(1, ge=1, le=24), 
 def create_backup(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Создать резервную копию VM"""
     check_vm_ownership(name, current_user)
+    from app.services.vm_archives import enqueue
+    return enqueue(name, "backup", client)
 
-    # Бэкап — это полный клон PVC диска (см. create_vm_backup), а не разница,
-    # поэтому его размер известен заранее: он равен диску исходной ВМ. Это
-    # PVC на том же STORAGE_CLASS, что и всё остальное, и раньше место под
-    # него не проверялось вообще — бэкап запускался, даже если хранилищу уже
-    # нечего было ему предложить.
-    from app.db import SessionLocal
-    from app.models.models import VMTask
-    from app.core.capacity import lock_host_capacity, ensure_storage_capacity
-    db = SessionLocal()
-    try:
-        vm = db.query(VMTask).filter(VMTask.name == name).first()
-        if vm and vm.disk_gb:
-            lock_host_capacity(db)
-            ensure_storage_capacity(db, extra_gb=vm.disk_gb, k8s=client)
-        # Держим advisory lock до появления DataVolume в Kubernetes. Иначе два
-        # параллельных запроса отпускали lock сразу после проверки и оба
-        # резервировали полный размер одного диска из одного состояния пула.
-        try:
-            return client.create_vm_backup(name)
-        except ValueError as e:
-            raise HTTPException(status_code=409, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
 
 @router.get("/{name}/backups")
 def list_backups(name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Получить список резервных копий VM"""
     check_vm_ownership(name, current_user, need="viewer")
     try:
-        return client.list_vm_backups(name)
+        from app.services.vm_archives import list_archives
+        archives = list_archives(name, "backup")
+        # Существующие локальные копии сохраняются и остаются доступными.
+        return archives + [{**b, "storage": "local"} for b in client.list_vm_backups(name)]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1938,6 +1927,9 @@ def list_backups(name: str, client: K8sClient = Depends(get_k8s_client), current
 def delete_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     """Удалить резервную копию"""
     check_vm_ownership(name, current_user)
+    if backup_name.startswith("s3-"):
+        from app.services.vm_archives import delete_archive
+        return delete_archive(name, backup_name, "backup")
     try:
         backup = client.get_vm_backup(name, backup_name)
         annotations = (backup.get("metadata") or {}).get("annotations") or {}
@@ -1964,6 +1956,9 @@ def delete_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k
 @router.post("/{name}/restore/{backup_name}")
 def restore_vm_backup(name: str, backup_name: str, client: K8sClient = Depends(get_k8s_client), current_user: User = Depends(get_current_user)):
     check_vm_ownership(name, current_user)
+    if backup_name.startswith("s3-"):
+        from app.services.vm_archives import enqueue_restore
+        return enqueue_restore(name, backup_name, "backup", client)
     # Crash-safe restore сначала клонирует backup в новый DataVolume и только
     # после Succeeded переключает VM/удаляет старый диск. На время staging в
     # пуле живёт ещё один полный PVC, поэтому он обязан проходить ту же

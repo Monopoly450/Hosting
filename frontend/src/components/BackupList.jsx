@@ -40,7 +40,7 @@ const BackupList = ({
 
   const handleCreateBackup = async () => {
     if (vmStatus === 'Running' && !confirm(
-      `Для целостной копии виртуальная машина "${vmName}" будет выключена на время клонирования и включится автоматически после завершения. Продолжить?`
+      `Для полной копии в S3 виртуальная машина "${vmName}" будет выключена на время выгрузки дисков и включится автоматически после завершения. Продолжить?`
     )) return;
     setActionLoading('create');
     try {
@@ -51,7 +51,7 @@ const BackupList = ({
       }
       const data = await response.json().catch(() => ({}));
       if (data.will_restart) {
-        alert('Копирование запущено. Виртуальная машина выключена и включится автоматически после завершения бэкапа.');
+        alert('Копирование поставлено в очередь. Виртуальная машина будет выключена на время выгрузки и включится автоматически после завершения бэкапа.');
       }
       if (onRestoreStarted) await onRestoreStarted();
       fetchBackups();
@@ -119,6 +119,7 @@ const BackupList = ({
      сломанной, и восстановить её было нельзя: кнопка появляется только у
      Succeeded. */
   const IN_PROGRESS = [
+    'Exporting', 'Uploading', 'Finalizing',
     'Pending', 'PendingPopulation', 'PVCBound', 'WaitForFirstConsumer',
     'ImportScheduled', 'ImportInProgress', 'Importing',
     'CloneScheduled', 'CloneInProgress', 'CloneSource', 'Running',
@@ -128,6 +129,10 @@ const BackupList = ({
   ];
 
   const STATUS_LABELS = {
+    Exporting: 'Подготовка дисков',
+    Uploading: 'Выгрузка в S3',
+    Finalizing: 'Завершение',
+    Importing: 'Импорт дисков',
     Succeeded: 'Готова',
     Failed: 'Не удалась',
     Unknown: 'Состояние неизвестно',
@@ -233,7 +238,7 @@ const BackupList = ({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   {getStatusIcon(b)}
-                  <span>{b.name}</span>
+                  <span>{b.label || b.name}{b.storage === 's3' && <small style={{ display: 'block', color: 'var(--text-secondary)' }}>S3 · {b.bucket}</small>}</span>
                 </div>
                 <div style={{ display: 'flex', gap: '16px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>

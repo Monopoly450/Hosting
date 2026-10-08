@@ -472,6 +472,16 @@ def apply_firewall_reconcile_daemon():
         time.sleep(15)
 
 
+def s3_archive_daemon():
+    from .services.vm_archives import process_archives
+    while True:
+        try:
+            process_archives(k8s)
+        except Exception:
+            logger.exception("Ошибка фонового исполнителя S3-копий")
+        time.sleep(5)
+
+
 def scheduled_backup_daemon():
     """Планировщик автоматических бэкапов: раз в минуту проверяет расписания
     и запускает бэкапы ВМ/БД, у которых наступил срок, с ротацией старых копий."""
@@ -615,6 +625,7 @@ def main():
     # Планировщик запланированных бэкапов
     backup_thread = threading.Thread(target=scheduled_backup_daemon, daemon=True)
     backup_thread.start()
+    threading.Thread(target=s3_archive_daemon, daemon=True).start()
 
     # Возврат ВМ в работу после offline-бэкапа
     backup_restart_thread = threading.Thread(target=backup_restart_daemon, daemon=True)

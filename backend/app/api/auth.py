@@ -5,10 +5,10 @@ from collections import defaultdict
 import logging
 import time
 import json
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import SessionLocal
-from app.models.models import User, VMTask, Cluster, UserDatabase, UserBucket, UserVolume, UserMailbox, AppDeployment
+from app.models.models import User, VMTask, Cluster, UserDatabase, UserBucket, UserVolume, UserMailbox, AppDeployment, VMArchive
 from app.core.auth import hash_password, verify_password, create_access_token, get_current_user, check_admin, get_db
 
 # Простая защита от брутфорса: лимит на 5 неудачных попыток входа за 5 минут
@@ -233,12 +233,18 @@ async def delete_user(user_id: int, admin: User = Depends(check_admin), db: Asyn
         
     if user.username == "admin":
         raise HTTPException(status_code=400, detail="Нельзя удалить системного администратора")
+    active = await db.execute(select(VMArchive.name).where(
+        VMArchive.owner_id == user.id,
+        or_(VMArchive.operation.isnot(None), VMArchive.status.in_(("Pending", "Exporting", "Uploading", "Finalizing"))),
+    ).limit(1))
+    if active.first():
+        raise HTTPException(status_code=409, detail="Дождитесь завершения S3-операций пользователя")
 
     # Каскадно удаляем записи всех ресурсов пользователя, иначе внешние ключи
     # (owner_id) не дадут удалить пользователя и оставят «осиротевшие» строки.
     # ВНИМАНИЕ: реальные ресурсы в Kubernetes (ВМ, БД-поды, бакеты) при этом
     # не удаляются — их нужно снять отдельно перед удалением пользователя.
-    for model in (VMTask, UserDatabase, UserBucket, UserVolume, UserMailbox, Cluster, AppDeployment):
+    for model in (VMArchive, VMTask, UserDatabase, UserBucket, UserVolume, UserMailbox, Cluster, AppDeployment):
         await db.execute(delete(model).where(model.owner_id == user.id))
 
     await db.delete(user)
