@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Layers, Plus, Server, Activity, ArrowRight, X, Trash, Info, ChevronDown, ChevronUp, HardDrive, Cpu, Package, Key } from 'lucide-react';
 import Portal from './Portal';
 import CustomSelect from './CustomSelect';
-import { creationName, creationError } from '../utils/vmCreation';
+import CreationCloudInitFields from './CreationCloudInitFields';
+import { creationName, creationError, vmCreationPayload } from '../utils/vmCreation';
 
 const OS_VERSIONS = {
   ubuntu: [
@@ -283,7 +284,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
     e.preventDefault();
     try {
       const sanitizedClusterName = creationName(clusterName);
-      const sanitizedVms = clusterVms.map(vm => ({
+      const sanitizedVms = clusterVms.map(vm => vmCreationPayload({
         ...vm,
         name: creationName(vm.name)
       }));
@@ -735,8 +736,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                           )}
 
                           {/* Advanced Linux Settings */}
-                          {!['windows', 'proxmox', 'truenas'].includes(vm.os_type) && (
-                            <>
+                          <CreationCloudInitFields osType={vm.os_type}>
                               <div className="input-group">
                                 <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                   <Package size={16}/> Пакеты для установки (через запятую)
@@ -808,8 +808,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                                 />
                                 <small className="text-muted">#cloud-config дополняет поля выше; runcmd выполняется после базовой настройки. Русский текст разрешён в файлах и командах, названия ключей — латиницей.</small>
                               </div>
-                            </>
-                          )}
+                          </CreationCloudInitFields>
 
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '8px' }}>
                             <div>

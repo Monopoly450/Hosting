@@ -6,6 +6,22 @@ export function creationName(value) {
   return name;
 }
 
+export function supportsCreationCloudInit(osType) {
+  return !['windows', 'proxmox', 'truenas'].includes(String(osType).trim().toLowerCase());
+}
+
+export function vmCreationPayload(vm) {
+  const payload = { ...vm };
+  // Keep Linux drafts in the form, but never send hidden cloud-init fields
+  // when the user switches to an ISO-installed OS.
+  if (!supportsCreationCloudInit(vm.os_type)) {
+    for (const field of ['packages', 'network_drives', 'ssh_key', 'custom_user_data', 'cloud_init_template']) {
+      delete payload[field];
+    }
+  }
+  return payload;
+}
+
 const labels = {
   name: 'Имя', os_type: 'ОС', cpu_cores: 'CPU', memory_gb: 'RAM', disk_gb: 'Системный диск',
   packages: 'Пакеты', network_drives: 'Сетевые диски', ssh_key: 'SSH-ключ',

@@ -32,7 +32,8 @@ import CustomSelect from './components/CustomSelect';
 import Portal from './components/Portal';
 import SidebarResizer from './components/SidebarResizer';
 import DiskStorageNotice from './components/DiskStorageNotice';
-import { creationName, creationError } from './utils/vmCreation';
+import CreationCloudInitFields from './components/CreationCloudInitFields';
+import { creationName, creationError, vmCreationPayload } from './utils/vmCreation';
 
 const OS_VERSIONS = {
   ubuntu: [
@@ -375,7 +376,7 @@ const App = () => {
 
     setFormLoading(true);
     try {
-      const payload = {
+      const payload = vmCreationPayload({
         name: creationName(name),
         os_type: osType,
         custom_image: osType === 'custom' ? selectedCustomImage : undefined,
@@ -387,7 +388,7 @@ const App = () => {
         ssh_key: sshKey.trim() || undefined,
         packages: packages.trim() || undefined,
         network_drives: networkDrives.trim() || undefined
-      };
+      });
 
       const response = await fetch('/api/vms', {
         method: 'POST',
@@ -1330,8 +1331,7 @@ const App = () => {
 
 
 
-                        {!['windows', 'proxmox'].includes(osType) && (
-                          <>
+                        <CreationCloudInitFields osType={osType}>
                             <div className="input-group">
                               <label className="input-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Package size={16}/> Пакеты для установки (через запятую)</label>
                               <input 
@@ -1396,8 +1396,7 @@ const App = () => {
                               />
                               <small className="text-muted">YAML с #cloud-config дополняет настройки выше. Команды runcmd выполняются после базовой настройки. Русский текст в файлах и командах разрешён; имена ключей — латиницей.</small>
                             </div>
-                          </>
-                        )}
+                        </CreationCloudInitFields>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '8px' }}>
                           <div>
