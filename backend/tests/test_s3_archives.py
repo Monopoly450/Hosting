@@ -423,6 +423,18 @@ def test_mc_errors_do_not_expose_root_credentials(monkeypatch):
     assert error.value.__suppress_context__
 
 
+@pytest.mark.parametrize("error_number", [2, 8, 13])
+def test_unusable_mc_reports_rebuild_without_exposing_credentials(monkeypatch, error_number):
+    from app.services import backup_storage as storage
+    def fail(*args, **kwargs):
+        raise OSError(error_number, "unusable executable", "root-secret")
+    monkeypatch.setattr(storage.subprocess, "run", fail)
+    with pytest.raises(RuntimeError, match="пересоберите") as error:
+        storage._run_mc(["mc", "alias", "set", "root-secret"])
+    assert "root-secret" not in str(error.value)
+    assert error.value.__suppress_context__
+
+
 def test_backup_account_credentials_fit_minio_service_account_limits(db_env, monkeypatch):
     from app.core.crypto import decrypt_secret
     from app.models.models import UserBucket

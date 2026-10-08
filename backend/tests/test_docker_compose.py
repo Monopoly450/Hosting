@@ -39,6 +39,32 @@ def test_minio_builds_locally_when_upstream_images_are_unavailable():
     assert svc["command"] == 'server /data --console-address ":9001"'
 
 
+@pytest.mark.parametrize("arch,digest", [
+    ("amd64", "01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891"),
+    ("arm64", "14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c"),
+])
+def test_backend_mc_download_is_pinned_and_verified_for_target_architecture(arch, digest):
+    with open(os.path.join(ROOT, "backend", "Dockerfile"), encoding="utf-8") as stream:
+        dockerfile = stream.read()
+    block = re.search(r"RUN mc_arch=.*?(?=\n\n)", dockerfile, re.S)
+    assert block, "mc needs its own fail-fast install and executable check"
+    install = block.group()
+    assert 'dpkg --print-architecture' in install
+    assert 'uname -m' not in install
+    assert 'mc_release="RELEASE.2025-08-13T08-35-41Z"' in install
+    assert f'{arch}) mc_sha="{digest}"' in install
+    assert 'curl -fSL --retry 3' in install
+    assert 'https://github.com/minio/mc/releases/download/' in install
+    assert 'mc.linux-${mc_arch}.${mc_release}' in install
+    assert install.index('sha256sum --check') < install.index('chmod 755') < install.index('mc --version')
+    assert 'curl -sSL "https://dl.min.io' not in dockerfile
+
+
+def test_backend_and_worker_share_the_verified_mc_image_build():
+    services = _compose()["services"]
+    assert services["backend"]["build"] == services["worker"]["build"]
+
+
 def test_no_required_variable_on_a_profiled_service():
     """Общий случай, а не только cloudflared: `:?` на переменной сервиса,
     у которого есть `profiles:`, ломает compose для всех, кто этот профиль

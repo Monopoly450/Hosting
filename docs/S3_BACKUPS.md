@@ -27,6 +27,25 @@ docker compose up -d --build backend worker frontend
 worker ждёт готовности схемы. Нужны доступные MinIO, CDI и KubeVirt Export
 API; кластерные поды должны иметь доступ к MinIO по IP хоста и порту 9000.
 
+### Если `mc` выдаёт `exec format error`
+
+Эта ошибка означает, что контейнер не может запустить установленный
+MinIO Client. Пересоберите оба образа, чтобы заменить неисправный файл:
+
+```bash
+cd /root/Hosting
+git pull
+docker compose build --no-cache backend worker
+docker compose up -d backend worker
+docker compose exec -T backend mc --version
+docker compose exec -T worker mc --version
+```
+
+Обе команды должны показать версию `mc`. При сборке используются
+фиксированный официальный GitHub-релиз, архитектура целевого образа,
+проверка SHA-256 и пробный запуск утилиты. После обновления повторите
+создание копии на тестовой Linux-ВМ.
+
 ## Что именно сохраняется
 
 Снимок — полная дисковая точка восстановления, а не CSI/LVM-снимок и не

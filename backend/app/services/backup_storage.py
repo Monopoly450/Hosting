@@ -20,7 +20,9 @@ def bucket_name(owner_id: int) -> str:
 def _run_mc(command):
     try:
         subprocess.run(command, check=True, capture_output=True, timeout=30)
-    except (subprocess.SubprocessError, OSError):
+    except OSError:
+        raise RuntimeError("Утилита mc не запускается; пересоберите образы backend и worker") from None
+    except subprocess.SubprocessError:
         # CalledProcessError/TimeoutExpired содержат argv с секретами!
         raise RuntimeError("Не удалось настроить приватный S3-доступ к резервным копиям") from None
 
