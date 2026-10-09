@@ -3459,88 +3459,23 @@ class K8sClient:
         }
 
     def execute_db_backup(self, db_name: str, engine: str, db_user: str, db_password: str, namespace: str = "default") -> str:
-        """Создает SQL-дамп базы данных и возвращает его содержимое"""
+        """Создает полный SQL-дамп; ошибки процесса не попадают в архив."""
         core_api = client.CoreV1Api(self.api_client)
         pods = core_api.list_namespaced_pod(namespace, label_selector=f"app=db-{db_name}")
         if not pods.items:
             raise Exception("Под базы данных не найден или не запущен")
         pod_name = pods.items[0].metadata.name
 
-        if engine == "postgresql":
-            cmd = ["sh", "-c", f"PGPASSWORD='{db_password}' pg_dump -U {db_user} -d {db_name}"]
-        else: # mysql / mariadb
-            cmd = ["sh", "-c", f"mysqldump -u {db_user} -p'{db_password}' {db_name}"]
-
-        from kubernetes.stream import stream
-        try:
-            resp = stream(
-                core_api.connect_get_namespaced_pod_exec,
-                pod_name,
-                namespace,
-                command=cmd,
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False
-            )
-            
-            # Если в ответе есть ошибки подключения или авторизации, вызовем исключение
-            if "error" in resp.lower() and not "--" in resp:
-                raise Exception(resp)
-                
-            return resp
-        except Exception as e:
-            raise Exception(f"Не удалось создать резервную копию: {e}")
+        from app.services.db_archives import capture
+        return capture(pod_name, namespace, db_name, engine, db_user, db_password)
 
     def execute_db_restore(self, db_name: str, engine: str, db_user: str, db_password: str, sql_content: str, namespace: str = "default"):
-        """Восстанавливает базу данных из SQL-дампа"""
+        """Заменяет содержимое базы полным дампом с проверкой завершения."""
         core_api = client.CoreV1Api(self.api_client)
         pods = core_api.list_namespaced_pod(namespace, label_selector=f"app=db-{db_name}")
         if not pods.items:
             raise Exception("Под базы данных не найден или не запущен")
         pod_name = pods.items[0].metadata.name
 
-        if engine == "postgresql":
-            shell_cmd = f"PGPASSWORD='{db_password}' psql -U {db_user} -d {db_name}"
-        else: # mysql
-            shell_cmd = f"mysql -u {db_user} -p'{db_password}' {db_name}"
-
-        import subprocess
-        try:
-            # Восстанавливаем через kubectl exec с передачей stdin
-            cmd = ["kubectl", "exec", "-i", "-n", namespace, pod_name, "--", "sh", "-c", shell_cmd]
-            p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            stdout, stderr = p.communicate(input=sql_content)
-            if p.returncode != 0:
-                raise Exception(stderr or stdout)
-            return stdout or "Восстановление успешно завершено"
-        except FileNotFoundError:
-            # Fallback через base64 во временный файл в контейнере
-            from kubernetes.stream import stream
-            import base64
-            b64_content = base64.b64encode(sql_content.encode('utf-8')).decode('utf-8')
-            
-            write_cmd = ["sh", "-c", f"echo '{b64_content}' | base64 -d > /tmp/restore.sql"]
-            stream(
-                core_api.connect_get_namespaced_pod_exec,
-                pod_name,
-                namespace,
-                command=write_cmd,
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False
-            )
-            
-            run_cmd = ["sh", "-c", f"{shell_cmd} < /tmp/restore.sql && rm -f /tmp/restore.sql"]
-            resp = stream(
-                core_api.connect_get_namespaced_pod_exec,
-                pod_name,
-                namespace,
-                command=run_cmd,
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False
-            )
-            return resp
+        from app.services.db_archives import restore
+        return restore(pod_name, namespace, db_name, engine, db_user, db_password, sql_content)

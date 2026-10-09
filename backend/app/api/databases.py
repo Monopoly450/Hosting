@@ -463,7 +463,7 @@ def list_database_backups(db_id: int, current_user: User = Depends(get_current_u
 def create_database_backup(db_id: int, current_user: User = Depends(get_current_user)):
     db = SessionLocal()
     try:
-        user_db = db.query(UserDatabase).filter(UserDatabase.id == db_id).first()
+        user_db = db.query(UserDatabase).filter(UserDatabase.id == db_id).with_for_update().first()
         if not user_db:
             raise HTTPException(status_code=404, detail="База данных не найдена")
             
@@ -521,7 +521,8 @@ def create_database_backup(db_id: int, current_user: User = Depends(get_current_
 def restore_database_backup(db_id: int, filename: str, current_user: User = Depends(get_current_user)):
     db = SessionLocal()
     try:
-        user_db = db.query(UserDatabase).filter(UserDatabase.id == db_id).first()
+        # Serialize manual dump/restore for this database across API processes.
+        user_db = db.query(UserDatabase).filter(UserDatabase.id == db_id).with_for_update().first()
         if not user_db:
             raise HTTPException(status_code=404, detail="База данных не найдена")
             
@@ -534,9 +535,11 @@ def restore_database_backup(db_id: int, filename: str, current_user: User = Depe
         try:
             bucket, object_name = find_database_object(user_db, _safe_backup_filename(filename), client)
             response = client.get_object(bucket, object_name)
-            sql_content = response.read().decode("utf-8")
-            response.close()
-            response.release_conn()
+            try:
+                sql_content = response.read().decode("utf-8")
+            finally:
+                response.close()
+                response.release_conn()
         except Exception as e:
             raise HTTPException(status_code=404, detail=f"Резервная копия не найдена в хранилище: {e}")
             

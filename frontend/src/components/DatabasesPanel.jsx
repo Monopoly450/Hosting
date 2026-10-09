@@ -42,6 +42,7 @@ export default function DatabasesPanel() {
     const [dbBackups, setDbBackups] = useState([]);
     const [backupsLoading, setBackupsLoading] = useState(false);
     const [backupCreating, setBackupCreating] = useState(false);
+    const [backupRestoring, setBackupRestoring] = useState(null);
 
     const fetchDbTables = async () => {
         if (!connectDb) return;
@@ -105,7 +106,7 @@ export default function DatabasesPanel() {
     };
 
     const handleCreateBackup = async () => {
-        if (!connectDb) return;
+        if (!connectDb || backupRestoring || backupCreating) return;
         setBackupCreating(true);
         try {
             const res = await fetch(`/api/databases/${connectDb.id}/backups`, {
@@ -126,28 +127,36 @@ export default function DatabasesPanel() {
     };
 
     const handleRestoreBackup = async (filename) => {
-        if (!connectDb) return;
+        if (!connectDb || backupRestoring || backupCreating) return;
         if (!window.confirm(`Вы уверены, что хотите восстановить базу данных из резервной копии ${filename}? Все текущие данные будут перезаписаны.`)) {
             return;
         }
+        setBackupRestoring(filename);
         try {
             const res = await fetch(`/api/databases/${connectDb.id}/backups/${filename}/restore`, {
                 method: 'POST',
                 headers: getHeaders()
             });
-            if (!res.ok) {
-                const data = await res.json();
+            const data = await res.json();
+            if (!res.ok || data.status !== 'Success') {
                 throw new Error(data.detail || 'Ошибка восстановления');
             }
+            // Do not leave the pre-restore SQL result on screen, or rerun a
+            // potentially destructive query merely to refresh the view.
+            setQueryResult(null);
+            setQueryError('');
             alert('База данных успешно восстановлена!');
             fetchDbTables();
+            fetchDbMetrics();
         } catch (err) {
             alert(err.message || 'Ошибка восстановления резервной копии');
+        } finally {
+            setBackupRestoring(null);
         }
     };
 
     const handleDeleteBackup = async (filename) => {
-        if (!connectDb) return;
+        if (!connectDb || backupRestoring || backupCreating) return;
         if (!window.confirm(`Удалить резервную копию ${filename}?`)) {
             return;
         }
@@ -825,7 +834,7 @@ export default function DatabasesPanel() {
                                 <button 
                                     className="btn btn-primary btn-sm" 
                                     onClick={handleCreateBackup}
-                                    disabled={backupCreating}
+                                    disabled={backupCreating || !!backupRestoring}
                                     style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                                 >
                                     {backupCreating ? <span className="spinner" style={{ width: '12px', height: '12px' }} /> : <RefreshCw size={14} />}
@@ -833,8 +842,13 @@ export default function DatabasesPanel() {
                                 </button>
                             </div>
                             <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', margin: 0 }}>
-                                Резервные копии (дампы SQL) сохраняются во встроенное S3-хранилище (MinIO). Вы можете скачать дамп или мгновенно восстановить состояние базы.
+                                Дампы SQL сохраняются в S3-хранилище (MinIO). Восстановление заменяет текущие данные и удаляет объекты, созданные после копии. На время восстановления остановите приложения, записывающие в эту базу.
                             </p>
+                            {backupRestoring && (
+                                <p role="status" style={{ color: 'var(--accent-primary)', margin: 0 }}>
+                                    Восстанавливается {backupRestoring}. Дождитесь завершения операции.
+                                </p>
+                            )}
                         </div>
 
                         <div className="table-responsive">
@@ -870,6 +884,7 @@ export default function DatabasesPanel() {
                                                             className="btn btn-secondary btn-sm" 
                                                             style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
                                                             onClick={() => handleRestoreBackup(b.filename)}
+                                                            disabled={!!backupRestoring || backupCreating}
                                                         >
                                                             <RefreshCw size={12} /> Восстановить
                                                         </button>
@@ -884,6 +899,7 @@ export default function DatabasesPanel() {
                                                             className="btn btn-secondary btn-sm" 
                                                             style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}
                                                             onClick={() => handleDeleteBackup(b.filename)}
+                                                            disabled={!!backupRestoring || backupCreating}
                                                         >
                                                             Удалить
                                                         </button>
