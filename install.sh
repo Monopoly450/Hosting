@@ -432,18 +432,29 @@ install_k3s() (
     release_url="https://github.com/k3s-io/k3s/releases/download/${version/+/%2B}"
 
     k3s_download() {
-        log "Загрузка $1 (ограничение 10 минут, прогресс ниже)..."
-        timeout --kill-after=10s 600s curl -fL \
-            --connect-timeout 15 --max-time 300 \
+        local request_timeout="${4:-300}"
+        local total_timeout=$((request_timeout * 2))
+        log "Загрузка $1 (ограничение ${total_timeout} секунд, прогресс ниже)..."
+        timeout --kill-after=10s "${total_timeout}s" curl -fL \
+            --connect-timeout 15 --max-time "$request_timeout" \
             --speed-limit 1024 --speed-time 30 \
-            --retry 2 --retry-delay 2 --retry-max-time 450 \
-            "$2" -o "$3" || error "Не удалось скачать $1. Проверьте доступ сервера к $2 и повторите установку."
+            --retry 2 --retry-delay 2 --retry-max-time "$request_timeout" \
+            "${@:5}" "$2" -o "$3"
     }
 
     log "Установка K3s $version из официального GitHub-релиза..."
-    k3s_download "установщика K3s" "https://raw.githubusercontent.com/k3s-io/k3s/${version/+/%2B}/install.sh" "$temp_dir/install.sh"
-    k3s_download "контрольной суммы K3s" "$release_url/sha256sum-${arch}.txt" "$temp_dir/sha256sum.txt"
-    k3s_download "бинарного файла K3s" "$release_url/$binary" "$temp_dir/$binary"
+    if ! k3s_download "установщика K3s" "https://get.k3s.io" "$temp_dir/install.sh" 60; then
+        warn "get.k3s.io недоступен, пробую официальный GitHub API..."
+        k3s_download "установщика K3s через GitHub API" \
+            "https://api.github.com/repos/k3s-io/k3s/contents/install.sh?ref=${version/+/%2B}" \
+            "$temp_dir/install.sh" 60 -H 'Accept: application/vnd.github.raw+json' || \
+            error "Не удалось загрузить установщик K3s. Проверьте доступ к get.k3s.io и api.github.com."
+    fi
+    sh -n "$temp_dir/install.sh" || error "Полученный установщик K3s содержит некорректный shell-код."
+    k3s_download "контрольной суммы K3s" "$release_url/sha256sum-${arch}.txt" "$temp_dir/sha256sum.txt" 60 || \
+        error "Не удалось скачать контрольную сумму K3s. Проверьте доступ к github.com."
+    k3s_download "бинарного файла K3s" "$release_url/$binary" "$temp_dir/$binary" || \
+        error "Не удалось скачать K3s. Проверьте доступ к github.com и release-assets.githubusercontent.com."
     expected_sha=$(awk -v binary="$binary" '$2 == binary || $2 == "*" binary {print $1; exit}' "$temp_dir/sha256sum.txt")
     [[ "$expected_sha" =~ ^[[:xdigit:]]{64}$ ]] || error "В релизе K3s отсутствует корректная контрольная сумма $binary."
     printf '%s  %s\n' "$expected_sha" "$temp_dir/$binary" | sha256sum --check || error "Проверка SHA-256 K3s не пройдена."
