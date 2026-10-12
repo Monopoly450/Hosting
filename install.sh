@@ -548,41 +548,62 @@ CNI_CONF_DIR="/var/lib/rancher/k3s/agent/etc/cni/net.d"
 CNI_BIN_DIR="/var/lib/rancher/k3s/data/cni"
 [ -d "$CNI_BIN_DIR" ] || CNI_BIN_DIR="/var/lib/rancher/k3s/data/current/bin"
 
-log "Установка недостающих CNI-плагинов..."
-CNI_VERSION="v1.5.1"
-ARCH=$(uname -m)
-[ "$ARCH" = "x86_64" ] && ARCH="amd64"
-[ "$ARCH" = "aarch64" ] && ARCH="arm64"
+ensure_cni_plugins() {
+    local cni_dir="$1" bundled_dir="$2" plugin source_dir
+    local -a package_dirs=("${@:3}")
+    [ "${#package_dirs[@]}" -gt 0 ] || package_dirs=(/usr/lib/cni /usr/libexec/cni /opt/cni/bin)
+    local need_package=false
+    mkdir -p "$cni_dir"
+    for plugin in bridge host-local loopback portmap; do
+        [ -x "$cni_dir/$plugin" ] && continue
+        if [ -x "$bundled_dir/$plugin" ]; then
+            ln -sf "$bundled_dir/$plugin" "$cni_dir/$plugin"
+        else
+            need_package=true
+        fi
+    done
+    if [ "$need_package" = true ]; then
+        log "Часть CNI-плагинов отсутствует в K3s; устанавливаю пакет Ubuntu..."
+        apt-get install -y containernetworking-plugins || error "Не удалось установить CNI-плагины из Ubuntu."
+        for plugin in bridge host-local loopback portmap; do
+            [ -x "$cni_dir/$plugin" ] && continue
+            for source_dir in "${package_dirs[@]}"; do
+                if [ -x "$source_dir/$plugin" ]; then
+                    install -m 755 "$source_dir/$plugin" "$cni_dir/$plugin"
+                    break
+                fi
+            done
+        done
+    fi
+    for plugin in bridge host-local loopback portmap; do
+        [ -x "$cni_dir/$plugin" ] || error "CNI-плагин $plugin не найден в $cni_dir."
+    done
+}
+log "Проверка CNI-плагинов из установленного K3s..."
+ensure_cni_plugins "$CNI_BIN_DIR" /var/lib/rancher/k3s/data/current/bin
+log "CNI-плагины готовы."
 
-mkdir -p /tmp/cni-plugins
-curl -sSL "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz" | tar -xz -C /tmp/cni-plugins
-mkdir -p /var/lib/rancher/k3s/data/cni /var/lib/rancher/k3s/data/current/bin
-cp -n /tmp/cni-plugins/* /var/lib/rancher/k3s/data/cni/ 2>/dev/null || true
-cp -n /tmp/cni-plugins/* /var/lib/rancher/k3s/data/current/bin/ 2>/dev/null || true
-chmod +x /var/lib/rancher/k3s/data/cni/* /var/lib/rancher/k3s/data/current/bin/* 2>/dev/null || true
-rm -rf /tmp/cni-plugins
+MANIFEST_DIR="${PROJECT_DIR}/manifests/installer"
+log "Проверка локальных манифестов Kubernetes..."
+(cd "$MANIFEST_DIR" && sha256sum --check --quiet SHA256SUMS) || error "Манифесты отсутствуют или повреждены. Обновите репозиторий через git pull."
+KUBEVIRT_VERSION=$(jq -er '.kubevirt_version' "$MANIFEST_DIR/sources.json")
+CDI_VERSION=$(jq -er '.cdi_version' "$MANIFEST_DIR/sources.json")
+MULTUS_IMAGE=$(jq -er '.multus_image' "$MANIFEST_DIR/sources.json")
 
-log "Скачивание и патчинг манифеста Multus CNI..."
-MULTUS_URL="https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml"
-MULTUS_FALLBACK_URL="https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/v4.0.2/deployments/multus-daemonset-thick.yml"
-
-if ! curl -sSfL "$MULTUS_URL" > /tmp/multus-raw.yml; then
-    warn "Не удалось скачать манифест с master, пробую стабильную версию v4.0.2..."
-    curl -sSfL "$MULTUS_FALLBACK_URL" > /tmp/multus-raw.yml || error "Не удалось загрузить манифест Multus CNI. Проверьте сеть."
-fi
-
-cat /tmp/multus-raw.yml | \
+log "Настройка локального манифеста Multus CNI..."
+cat "$MANIFEST_DIR/multus-daemonset-thick.yml" | \
 sed "s|/etc/cni/net.d|${CNI_CONF_DIR}|g" | \
 sed "s|/opt/cni/bin|${CNI_BIN_DIR}|g" | \
 sed "s|mountPath: ${CNI_CONF_DIR}/multus.d|mountPath: /etc/cni/net.d/multus.d|g" | \
 sed "s|\"socketDir\": \"/host/run/multus/\"|\"socketDir\": \"/host/run/multus/\", \"binDir\": \"${CNI_BIN_DIR}\"|g" | \
 sed "s|path: ${CNI_BIN_DIR}|path: /var/lib/rancher/k3s/data|g" | \
 sed "s|mountPath: ${CNI_BIN_DIR}|mountPath: /var/lib/rancher/k3s/data|g" | \
-sed "s|mountPath: /host${CNI_BIN_DIR}|mountPath: /host/var/lib/rancher/k3s/data|g" > /tmp/multus-k3s.yml
+sed "s|mountPath: /host${CNI_BIN_DIR}|mountPath: /host/var/lib/rancher/k3s/data|g" | \
+sed "s|ghcr.io/k8snetworkplumbingwg/multus-cni:snapshot-thick|${MULTUS_IMAGE}|g" > /tmp/multus-k3s.yml
 
 [ -s /tmp/multus-k3s.yml ] || error "Созданный манифест Multus CNI пуст. Сбой патчинга."
 kubectl apply -f /tmp/multus-k3s.yml
-rm -f /tmp/multus-raw.yml /tmp/multus-k3s.yml
+rm -f /tmp/multus-k3s.yml
 
 kubectl patch daemonset kube-multus-ds -n kube-system --type='strategic' \
     -p='{"spec":{"template":{"spec":{"containers":[{"name":"kube-multus","resources":{"limits":{"memory":"500Mi"},"requests":{"memory":"100Mi"}}}]}}}}' || true
@@ -675,18 +696,15 @@ log "Сеть ВМ настроена (статические IP через clou
 
 step "Установка KubeVirt, CDI и снапшотов"
 log "Установка VolumeSnapshot CRDs..."
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml || true
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml || true
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml || true
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml || true
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml || true
+kubectl apply -f "$MANIFEST_DIR/snapshot.storage.k8s.io_volumesnapshotclasses.yaml" || true
+kubectl apply -f "$MANIFEST_DIR/snapshot.storage.k8s.io_volumesnapshotcontents.yaml" || true
+kubectl apply -f "$MANIFEST_DIR/snapshot.storage.k8s.io_volumesnapshots.yaml" || true
+kubectl apply -f "$MANIFEST_DIR/rbac-snapshot-controller.yaml" || true
+kubectl apply -f "$MANIFEST_DIR/setup-snapshot-controller.yaml" || true
 
-log "Получение актуальной версии KubeVirt..."
-KUBEVIRT_VERSION=$(curl -s https://api.github.com/repos/kubevirt/kubevirt/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-[ -z "$KUBEVIRT_VERSION" ] && KUBEVIRT_VERSION="v1.2.0"
 log "Установка KubeVirt ${KUBEVIRT_VERSION}..."
-kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml"
-kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml"
+kubectl apply -f "$MANIFEST_DIR/kubevirt-operator.yaml"
+kubectl apply -f "$MANIFEST_DIR/kubevirt-cr.yaml"
 
 if [ "$KVM_SUPPORTED" = false ]; then
     kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true,"featureGates":["HotplugVolumes","DeclarativeHotplugVolumes","WorkloadSnapshots","Snapshot","VMExport"]}}}}'
@@ -709,12 +727,9 @@ for i in {1..30}; do
     sleep 10
 done
 
-log "Получение актуальной версии CDI..."
-CDI_VERSION=$(curl -s https://api.github.com/repos/kubevirt/containerized-data-importer/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-[ -z "$CDI_VERSION" ] && CDI_VERSION="v1.59.0"
 log "Установка CDI ${CDI_VERSION}..."
-kubectl apply -f "https://github.com/kubevirt/containerized-data-importer/releases/download/${CDI_VERSION}/cdi-operator.yaml"
-kubectl apply -f "https://github.com/kubevirt/containerized-data-importer/releases/download/${CDI_VERSION}/cdi-cr.yaml"
+kubectl apply -f "$MANIFEST_DIR/cdi-operator.yaml"
+kubectl apply -f "$MANIFEST_DIR/cdi-cr.yaml"
 
 log "Ожидание готовности CDI..."
 kubectl rollout status deployment/cdi-operator -n cdi --timeout=120s
@@ -731,31 +746,44 @@ for i in {1..30}; do
     sleep 10
 done
 
-log "Установка virtctl..."
-ARCH=$(uname -m)
-[ "$ARCH" = "x86_64" ] && ARCH="amd64"
-[ "$ARCH" = "aarch64" ] && ARCH="arm64"
-curl -LO "https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/virtctl-${KUBEVIRT_VERSION}-linux-${ARCH}"
-chmod +x virtctl-${KUBEVIRT_VERSION}-linux-${ARCH}
-mv virtctl-${KUBEVIRT_VERSION}-linux-${ARCH} /usr/local/bin/virtctl
+# Панель управляет KubeVirt через Kubernetes API. virtctl для работы панели
+# не нужен и при необходимости устанавливается администратором отдельно.
 
 # ============================== 7. Helm + Prometheus ==============================
 
 step "Установка Helm и Prometheus (сбор метрик ВМ)"
 if ! command -v helm &> /dev/null; then
-    curl -fsSL -o /tmp/get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
-    chmod +x /tmp/get_helm.sh
-    /tmp/get_helm.sh
-    rm -f /tmp/get_helm.sh
+    install_helm() (
+        set -e
+        local arch digest temp_dir
+        arch=$(uname -m)
+        case "$arch" in
+            x86_64|amd64) arch=amd64; digest="dbb4c8fc8e19d159d1a63dda8db655f9ffa4aac1b9a6b188b34a40957119b286" ;;
+            aarch64|arm64) arch=arm64; digest="bfb14953295d5324d47ab55f3dfba6da28d46c848978c8fbf412d4271bdc29f1" ;;
+            *) error "Архитектура Helm не поддерживается: $arch" ;;
+        esac
+        temp_dir=$(mktemp -d)
+        trap 'rm -rf "$temp_dir"' EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+        log "Загрузка Helm v3.20.0 с get.helm.sh (до 30 минут)..."
+        timeout --kill-after=10s 1800s curl -fL --connect-timeout 15 --max-time 1800 \
+            --speed-limit 1024 --speed-time 30 --retry 2 --retry-delay 2 --retry-max-time 1800 \
+            "https://get.helm.sh/helm-v3.20.0-linux-${arch}.tar.gz" -o "$temp_dir/helm.tar.gz" || error "Не удалось скачать Helm с get.helm.sh."
+        printf '%s  %s\n' "$digest" "$temp_dir/helm.tar.gz" | sha256sum --check || error "Проверка SHA-256 Helm не пройдена."
+        tar -xzf "$temp_dir/helm.tar.gz" -C "$temp_dir" "linux-${arch}/helm"
+        install -m 755 "$temp_dir/linux-${arch}/helm" /usr/local/bin/helm
+    )
+    install_helm
     log "Helm установлен."
 else
     log "Helm уже установлен."
 fi
 
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
-helm repo update
+timeout --kill-after=10s 180s helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
+timeout --kill-after=10s 180s helm repo update || error "Не удалось обновить Helm-репозитории. Проверьте доступ сервера к адресам репозиториев."
 kubectl create namespace prometheus || true
-helm install prometheus prometheus-community/kube-prometheus-stack -n prometheus \
+timeout --kill-after=10s 600s helm install prometheus prometheus-community/kube-prometheus-stack -n prometheus \
   --set grafana.enabled=false \
   --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false || true
 log "Prometheus развёрнут в namespace prometheus."
@@ -954,7 +982,7 @@ log "Панель запущена."
 log "Ожидание готовности бэкенда (создаёт таблицы в базе)..."
 BACKEND_READY=false
 for _ in $(seq 1 60); do
-    if curl -sf -o /dev/null "http://127.0.0.1:8000/"; then
+    if curl -sf --connect-timeout 2 --max-time 5 -o /dev/null "http://127.0.0.1:8000/"; then
         BACKEND_READY=true
         break
     fi

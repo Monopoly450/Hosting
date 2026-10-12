@@ -1,0 +1,59 @@
+{
+  "multus_version": "v4.3.0",
+  "multus_image": "ghcr.io/k8snetworkplumbingwg/multus-cni:v4.3.0-thick@sha256:2b9671447f3ea4e7e56730843dbf59445b9307246f393b61386b896d56ae51c9",
+  "kubevirt_version": "v1.9.0",
+  "cdi_version": "v1.65.0",
+  "snapshotter_version": "v6.3.3",
+  "files": [
+    {
+      "file": "multus-daemonset-thick.yml",
+      "url": "https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/v4.3.0/deployments/multus-daemonset-thick.yml",
+      "sha256": "2d622f697809644a12704497bbf5c3256adc1e7f5b5504655e4993743651b585"
+    },
+    {
+      "file": "kubevirt-operator.yaml",
+      "url": "https://github.com/kubevirt/kubevirt/releases/download/v1.9.0/kubevirt-operator.yaml",
+      "sha256": "f11307caafc3c23ffedf9887d8beb5a4419e2694da242fa68f63d1ec820de2e0"
+    },
+    {
+      "file": "kubevirt-cr.yaml",
+      "url": "https://github.com/kubevirt/kubevirt/releases/download/v1.9.0/kubevirt-cr.yaml",
+      "sha256": "43106136dbce3312bdbfdeae612aacafc6c12da518d233f90645b4685d84a2af"
+    },
+    {
+      "file": "cdi-operator.yaml",
+      "url": "https://github.com/kubevirt/containerized-data-importer/releases/download/v1.65.0/cdi-operator.yaml",
+      "sha256": "e96d59abdf358c5161cb96adcfdcc6107efc3fb608ec93ade11578c94a222015"
+    },
+    {
+      "file": "cdi-cr.yaml",
+      "url": "https://github.com/kubevirt/containerized-data-importer/releases/download/v1.65.0/cdi-cr.yaml",
+      "sha256": "32df9a5a118efd486c918a139795a2200a3759e1cc55b0537986797120e75f32"
+    },
+    {
+      "file": "snapshot.storage.k8s.io_volumesnapshotclasses.yaml",
+      "url": "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml",
+      "sha256": "e0397fd4e3f81db22d7de4baeb333d333e802f05b7902d0a32f23cc70e693c47"
+    },
+    {
+      "file": "snapshot.storage.k8s.io_volumesnapshotcontents.yaml",
+      "url": "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml",
+      "sha256": "974db7292f4ee4bf335483536b44e8b339e32ae4ca3423e4fbeb2299f3d96660"
+    },
+    {
+      "file": "snapshot.storage.k8s.io_volumesnapshots.yaml",
+      "url": "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml",
+      "sha256": "d7939ea45a8798e11c0063dfdfe93e4d9e4b09a1160881f2cc403a6e8f0fa4d5"
+    },
+    {
+      "file": "rbac-snapshot-controller.yaml",
+      "url": "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml",
+      "sha256": "b7931022e9ca48641218fcf2a8732e77ec64c1b29cf5a3bde4b30c07a0f365a2"
+    },
+    {
+      "file": "setup-snapshot-controller.yaml",
+      "url": "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v6.3.3/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml",
+      "sha256": "4ea40c16daf49c5998d0afe174eb6f7b277a8ee5c2d040afbbb1681a0c1dc664"
+    }
+  ]
+}

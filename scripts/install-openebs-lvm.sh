@@ -231,8 +231,8 @@ if ! command -v helm &> /dev/null; then
     error "Helm не установлен. Запустите сначала install.sh из корня проекта."
 fi
 
-helm repo add openebs-lvm https://openebs.github.io/lvm-localpv --force-update
-helm repo update
+timeout --kill-after=10s 180s helm repo add openebs-lvm https://openebs.github.io/lvm-localpv --force-update
+timeout --kill-after=10s 180s helm repo update
 
 log "Установка OpenEBS LVM LocalPV драйвера..."
 # crds.csi.volumeSnapshots.enabled=false — иначе установка падает так:
@@ -254,7 +254,7 @@ log "Установка OpenEBS LVM LocalPV драйвера..."
 # проверенную версию: более старый чарт примет снимок, но не сможет его
 # восстановить; плавающий latest меняет production без ревью.
 OPEN_EBS_LVM_CHART_VERSION="${OPEN_EBS_LVM_CHART_VERSION:-1.9.0}"
-helm upgrade --install openebs-lvm openebs-lvm/lvm-localpv \
+timeout --kill-after=10s 600s helm upgrade --install openebs-lvm openebs-lvm/lvm-localpv \
   --version "$OPEN_EBS_LVM_CHART_VERSION" \
   --namespace openebs-lvm \
   --create-namespace \
