@@ -414,11 +414,53 @@ fi
 # ============================== 3. K3s ==============================
 
 step "Установка K3s (Kubernetes)"
-if ! command -v k3s &> /dev/null; then
-    curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable traefik --disable servicelb" sh -
+# Фиксированная версия обходит недоступный update.k3s.io. Все сетевые
+# операции выполняем сами, чтобы внутренний curl установщика не зависал.
+install_k3s() (
+    set -e
+    local version="${INSTALL_K3S_VERSION:-v1.36.5+k3s1}"
+    local arch binary release_url temp_dir expected_sha
+    [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\+k3s[0-9]+$ ]] || error "Некорректная версия K3s: $version"
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64|amd64) arch=amd64; binary=k3s ;;
+        aarch64|arm64) arch=arm64; binary=k3s-arm64 ;;
+        *) error "Архитектура K3s не поддерживается: $arch" ;;
+    esac
+    temp_dir=$(mktemp -d)
+    trap 'rm -rf "$temp_dir"' EXIT
+    release_url="https://github.com/k3s-io/k3s/releases/download/${version/+/%2B}"
+
+    k3s_download() {
+        log "Загрузка $1 (ограничение 10 минут, прогресс ниже)..."
+        timeout --kill-after=10s 600s curl -fL \
+            --connect-timeout 15 --max-time 300 \
+            --speed-limit 1024 --speed-time 30 \
+            --retry 2 --retry-delay 2 --retry-max-time 450 \
+            "$2" -o "$3" || error "Не удалось скачать $1. Проверьте доступ сервера к $2 и повторите установку."
+    }
+
+    log "Установка K3s $version из официального GitHub-релиза..."
+    k3s_download "установщика K3s" "https://raw.githubusercontent.com/k3s-io/k3s/${version/+/%2B}/install.sh" "$temp_dir/install.sh"
+    k3s_download "контрольной суммы K3s" "$release_url/sha256sum-${arch}.txt" "$temp_dir/sha256sum.txt"
+    k3s_download "бинарного файла K3s" "$release_url/$binary" "$temp_dir/$binary"
+    expected_sha=$(awk -v binary="$binary" '$2 == binary || $2 == "*" binary {print $1; exit}' "$temp_dir/sha256sum.txt")
+    [[ "$expected_sha" =~ ^[[:xdigit:]]{64}$ ]] || error "В релизе K3s отсутствует корректная контрольная сумма $binary."
+    printf '%s  %s\n' "$expected_sha" "$temp_dir/$binary" | sha256sum --check || error "Проверка SHA-256 K3s не пройдена."
+    chmod 755 "$temp_dir/$binary"
+    timeout --kill-after=5s 15s "$temp_dir/$binary" --version || error "Загруженный K3s не запускается."
+    install -m 755 "$temp_dir/$binary" /usr/local/bin/k3s
+    INSTALL_K3S_VERSION="$version" INSTALL_K3S_SKIP_DOWNLOAD=true \
+        INSTALL_K3S_EXEC="--disable traefik --disable servicelb" \
+        timeout --kill-after=10s 180s sh "$temp_dir/install.sh" || error "Не удалось настроить или запустить K3s. Проверьте: journalctl -u k3s -n 100 --no-pager"
+)
+
+if ! command -v k3s &> /dev/null || [ ! -s /etc/systemd/system/k3s.service ] || [ ! -s /etc/rancher/k3s/k3s.yaml ]; then
+    install_k3s
     log "K3s установлен."
 else
     log "K3s уже установлен."
+    timeout --kill-after=10s 180s systemctl enable --now k3s || error "Не удалось запустить K3s. Проверьте: journalctl -u k3s -n 100 --no-pager"
 fi
 
 log "Настройка доступа к Kubernetes API (kubeconfig)..."
@@ -437,10 +479,17 @@ if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
     fi
 fi
 
-log "Ожидание готовности ноды Kubernetes..."
-until kubectl get nodes 2>/dev/null | grep -q "Ready"; do
+log "Ожидание регистрации ноды Kubernetes (до 3 минут)..."
+NODE_DEADLINE=$((SECONDS + 180))
+until kubectl get nodes --request-timeout=10s -o name 2>/dev/null | grep -q '^node/'; do
+    if [ "$SECONDS" -ge "$NODE_DEADLINE" ]; then
+        error "K3s не зарегистрировал ноду за 3 минуты. Проверьте: journalctl -u k3s -n 100 --no-pager"
+    fi
     sleep 3
 done
+log "Ожидание состояния Ready ноды Kubernetes (до 3 минут)..."
+timeout --kill-after=10s 190s kubectl wait --for=condition=Ready node --all \
+    --timeout=180s --request-timeout=10s || error "Нода K3s не перешла в Ready. Проверьте: kubectl get nodes; journalctl -u k3s -n 100 --no-pager"
 log "Kubernetes нода готова."
 
 # ============================== 4. Multus CNI ==============================
