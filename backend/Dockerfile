@@ -25,7 +25,9 @@ RUN mc_arch="$(dpkg --print-architecture)" \
         arm64) mc_sha="14c8c9616cfce4636add161304353244e8de383b2e2752c0e9dad01d4c27c12c" ;; \
         *) printf 'Unsupported mc architecture: %s\n' "$mc_arch" >&2; exit 1 ;; \
     esac \
-    && curl -fSL --retry 3 "https://github.com/minio/mc/releases/download/${mc_release}/mc.linux-${mc_arch}.${mc_release}" -o /usr/local/bin/mc \
+    && curl -fSL --retry 3 --retry-delay 2 --retry-max-time 300 \
+        --connect-timeout 15 --max-time 120 --speed-limit 1024 --speed-time 30 \
+        "https://github.com/minio/mc/releases/download/${mc_release}/mc.linux-${mc_arch}.${mc_release}" -o /usr/local/bin/mc \
     && printf '%s  /usr/local/bin/mc\n' "$mc_sha" | sha256sum --check \
     && chmod 755 /usr/local/bin/mc \
     && mc --version

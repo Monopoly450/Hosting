@@ -95,8 +95,14 @@ if [ "$KVM_SUPPORTED" = true ]; then
         warn "CPU не сообщает о поддержке vmx/svm — вложенная виртуализация недоступна."
     fi
     if [ -n "$NESTED_MOD" ]; then
-        echo Y > "/sys/module/${NESTED_MOD}/parameters/nested" 2>/dev/null || \
-            modprobe -r "$NESTED_MOD" 2>/dev/null && modprobe "$NESTED_MOD" nested=1 2>/dev/null || true
+        NESTED_STATE=$(cat "/sys/module/${NESTED_MOD}/parameters/nested" 2>/dev/null || echo "?")
+        if [ "$NESTED_STATE" != "Y" ] && [ "$NESTED_STATE" != "1" ]; then
+            if ! { echo Y > "/sys/module/${NESTED_MOD}/parameters/nested"; } 2>/dev/null; then
+                if modprobe -r "$NESTED_MOD" 2>/dev/null; then
+                    modprobe "$NESTED_MOD" nested=1 2>/dev/null || true
+                fi
+            fi
+        fi
         NESTED_STATE=$(cat "/sys/module/${NESTED_MOD}/parameters/nested" 2>/dev/null || echo "?")
         if [ "$NESTED_STATE" = "Y" ] || [ "$NESTED_STATE" = "1" ]; then
             log "Вложенная виртуализация включена (${NESTED_MOD})."
@@ -136,17 +142,9 @@ else
     log "Docker уже установлен."
 fi
 
-log "Проверка и установка MinIO Client (mc)..."
-if ! command -v mc &> /dev/null; then
-    ARCH=$(uname -m)
-    [ "$ARCH" = "x86_64" ] && ARCH="amd64"
-    [ "$ARCH" = "aarch64" ] && ARCH="arm64"
-    curl -sSL "https://dl.min.io/client/mc/release/linux-${ARCH}/mc" -o /usr/local/bin/mc
-    chmod +x /usr/local/bin/mc
-    log "MinIO Client установлен."
-else
-    log "MinIO Client уже установлен."
-fi
+# mc используется только backend и worker. Их Dockerfile устанавливает
+# проверенный клиент; отдельная загрузка на хосте не нужна.
+log "MinIO Client (mc) будет установлен при сборке контейнеров backend и worker."
 
 # ============================== Пароли (.env) ==============================
 #
