@@ -419,7 +419,9 @@ step "Установка K3s (Kubernetes)"
 install_k3s() (
     set -e
     local version="${INSTALL_K3S_VERSION:-v1.36.5+k3s1}"
-    local arch binary release_url temp_dir expected_sha
+    local arch binary release_url temp_dir expected_sha mirror_url binary_valid
+    local rancher_url sourceforge_url
+    local -a download_urls
     [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\+k3s[0-9]+$ ]] || error "Некорректная версия K3s: $version"
     arch=$(uname -m)
     case "$arch" in
@@ -429,7 +431,25 @@ install_k3s() (
     esac
     temp_dir=$(mktemp -d)
     trap 'rm -rf "$temp_dir"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     release_url="https://github.com/k3s-io/k3s/releases/download/${version/+/%2B}"
+    rancher_url="https://rancher-mirror.rancher.cn/k3s/${version/+/-}"
+    sourceforge_url="https://downloads.sourceforge.net/project/k3s.mirror/${version/+/%2B}"
+    case "${AEGIS_K3S_MIRROR:-auto}" in
+        auto|github) download_urls=("$release_url" "$rancher_url" "$sourceforge_url") ;;
+        rancher) download_urls=("$rancher_url" "$sourceforge_url" "$release_url") ;;
+        sourceforge) download_urls=("$sourceforge_url" "$rancher_url" "$release_url") ;;
+        *) error "AEGIS_K3S_MIRROR: допустимы auto, github, rancher, sourceforge." ;;
+    esac
+
+    # SHA-256 взяты из официального релиза. Зеркало не определяет, какому
+    # бинарному файлу доверять; для стандартной версии GitHub не нужен.
+    case "$version:$arch" in
+        v1.36.5+k3s1:amd64) expected_sha="d73847bcd3c5fccef0115b372e2f9a91f3032dc84bbf71518a4617565294d313" ;;
+        v1.36.5+k3s1:arm64) expected_sha="135e34cb9e8a1cfae3cb55577789e93501efe7edc080a8b2630458a85b07721e" ;;
+        *) expected_sha="${INSTALL_K3S_SHA256:-}" ;;
+    esac
 
     k3s_download() {
         local request_timeout="${4:-300}"
@@ -442,7 +462,7 @@ install_k3s() (
             "${@:5}" "$2" -o "$3"
     }
 
-    log "Установка K3s $version из официального GitHub-релиза..."
+    log "Установка K3s $version (источник: ${AEGIS_K3S_MIRROR:-auto})..."
     if ! k3s_download "установщика K3s" "https://get.k3s.io" "$temp_dir/install.sh" 60; then
         warn "get.k3s.io недоступен, пробую официальный GitHub API..."
         k3s_download "установщика K3s через GitHub API" \
@@ -451,13 +471,26 @@ install_k3s() (
             error "Не удалось загрузить установщик K3s. Проверьте доступ к get.k3s.io и api.github.com."
     fi
     sh -n "$temp_dir/install.sh" || error "Полученный установщик K3s содержит некорректный shell-код."
-    k3s_download "контрольной суммы K3s" "$release_url/sha256sum-${arch}.txt" "$temp_dir/sha256sum.txt" 60 || \
-        error "Не удалось скачать контрольную сумму K3s. Проверьте доступ к github.com."
-    k3s_download "бинарного файла K3s" "$release_url/$binary" "$temp_dir/$binary" || \
-        error "Не удалось скачать K3s. Проверьте доступ к github.com и release-assets.githubusercontent.com."
-    expected_sha=$(awk -v binary="$binary" '$2 == binary || $2 == "*" binary {print $1; exit}' "$temp_dir/sha256sum.txt")
+    if [ -z "$expected_sha" ]; then
+        k3s_download "контрольной суммы K3s" "$release_url/sha256sum-${arch}.txt" "$temp_dir/sha256sum.txt" 60 || \
+            error "Не удалось скачать контрольную сумму нестандартной версии K3s. Задайте INSTALL_K3S_SHA256 из официального релиза."
+        expected_sha=$(awk -v binary="$binary" '$2 == binary || $2 == "*" binary {print $1; exit}' "$temp_dir/sha256sum.txt")
+    fi
     [[ "$expected_sha" =~ ^[[:xdigit:]]{64}$ ]] || error "В релизе K3s отсутствует корректная контрольная сумма $binary."
-    printf '%s  %s\n' "$expected_sha" "$temp_dir/$binary" | sha256sum --check || error "Проверка SHA-256 K3s не пройдена."
+    binary_valid=false
+    for mirror_url in "${download_urls[@]}"; do
+        log "Источник бинарного файла K3s: $mirror_url"
+        if ! k3s_download "бинарного файла K3s" "$mirror_url/$binary" "$temp_dir/$binary"; then
+            warn "Источник недоступен, пробую следующий..."
+            continue
+        fi
+        if printf '%s  %s\n' "$expected_sha" "$temp_dir/$binary" | sha256sum --check; then
+            binary_valid=true
+            break
+        fi
+        warn "SHA-256 файла из $mirror_url не совпал с официальным; пробую следующий источник."
+    done
+    [ "$binary_valid" = true ] || error "Не удалось скачать проверенный K3s ни с GitHub, ни с зеркал Rancher/SourceForge."
     chmod 755 "$temp_dir/$binary"
     timeout --kill-after=5s 15s "$temp_dir/$binary" --version || error "Загруженный K3s не запускается."
     install -m 755 "$temp_dir/$binary" /usr/local/bin/k3s
