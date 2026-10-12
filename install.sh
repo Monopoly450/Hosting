@@ -454,6 +454,11 @@ install_k3s() (
     k3s_download() {
         local request_timeout="${4:-300}"
         local total_timeout=$((request_timeout * 2))
+        # Большой файл на медленном зеркале может скачиваться 10–20 минут.
+        # Общий лимит включает повторы и остаётся не больше 30 минут.
+        if [ "$total_timeout" -gt 1800 ]; then
+            total_timeout=1800
+        fi
         log "Загрузка $1 (ограничение ${total_timeout} секунд, прогресс ниже)..."
         timeout --kill-after=10s "${total_timeout}s" curl -fL \
             --connect-timeout 15 --max-time "$request_timeout" \
@@ -480,7 +485,7 @@ install_k3s() (
     binary_valid=false
     for mirror_url in "${download_urls[@]}"; do
         log "Источник бинарного файла K3s: $mirror_url"
-        if ! k3s_download "бинарного файла K3s" "$mirror_url/$binary" "$temp_dir/$binary"; then
+        if ! k3s_download "бинарного файла K3s" "$mirror_url/$binary" "$temp_dir/$binary" 1800; then
             warn "Источник недоступен, пробую следующий..."
             continue
         fi
