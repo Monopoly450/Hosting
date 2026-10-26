@@ -1122,3 +1122,54 @@ def test_both_creation_paths_use_the_same_rule():
     for module in ("vms.py", "clusters.py"):
         with open(os.path.join(root, "app", "api", module), encoding="utf-8") as f:
             assert "template_rejection_reason" in f.read(), module
+
+
+def test_os_image_urls_consistent_between_backend_and_frontend():
+    """Ссылки на образы ОС в App.jsx, ClusterPanel.jsx и vms.py должны совпадать
+    и не содержать устаревших/удалённых URL."""
+    import os
+    import re
+    from app.api.vms import (
+        DEFAULT_PROXMOX_ISO,
+        DEFAULT_TRUENAS_ISO,
+        DEFAULT_WINDOWS_ISO,
+        LINUX_CLOUD_IMAGES,
+    )
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    app_jsx = os.path.join(repo_root, "frontend", "src", "App.jsx")
+    cluster_jsx = os.path.join(repo_root, "frontend", "src", "components", "ClusterPanel.jsx")
+
+    def _extract_os_versions_block(path: str) -> str:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        match = re.search(r"const OS_VERSIONS = \{(.*?)\n\};", text, re.S)
+        assert match, f"OS_VERSIONS not found in {path}"
+        return match.group(1)
+
+    app_block = _extract_os_versions_block(app_jsx)
+    cluster_block = _extract_os_versions_block(cluster_jsx)
+    assert app_block == cluster_block, "OS_VERSIONS в App.jsx и ClusterPanel.jsx разъехались"
+
+    broken_fragments = (
+        "LinkID=2195279",
+        "LinkID=2195278",
+        "proxmox-ve_8.2-1.iso",
+        "proxmox-ve_8.1-1.iso",
+        "generic_alpine-3.21.3",
+        "download.fedoraproject.org/pub/fedora/linux/releases/41/",
+    )
+    for fragment in broken_fragments:
+        assert fragment not in app_block, f"Устаревший URL {fragment} остался в OS_VERSIONS"
+
+    expected_defaults = {
+        **{k: v[0] for k, v in LINUX_CLOUD_IMAGES.items()},
+        "windows": DEFAULT_WINDOWS_ISO,
+        "proxmox": DEFAULT_PROXMOX_ISO,
+        "truenas": DEFAULT_TRUENAS_ISO,
+    }
+    for os_key, default_url in expected_defaults.items():
+        assert default_url in app_block, f"Дефолтный образ для {os_key} ({default_url}) отсутствует в OS_VERSIONS"
+        for fragment in broken_fragments:
+            assert fragment not in default_url, f"Устаревший URL {fragment} в vms.py для {os_key}"
+

@@ -21,13 +21,13 @@ const OS_VERSIONS = {
   ],
   windows: [
     { label: 'Windows Server 2022', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195280' },
-    { label: 'Windows Server 2019', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195279' },
-    { label: 'Windows Server 2016', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195278' }
+    { label: 'Windows Server 2019', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195167' },
+    { label: 'Windows Server 2016', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195174' }
   ],
   proxmox: [
     { label: 'Proxmox VE 9.2', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_9.2-1.iso' },
-    { label: 'Proxmox VE 8.2', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_8.2-1.iso' },
-    { label: 'Proxmox VE 8.1', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_8.1-1.iso' },
+    { label: 'Proxmox VE 9.1', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_9.1-1.iso' },
+    { label: 'Proxmox VE 8.4', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_8.4-1.iso' },
     { label: 'Proxmox VE 7.4', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_7.4-1.iso' }
   ],
   bitrix: [
@@ -42,7 +42,9 @@ const OS_VERSIONS = {
     { label: 'Rocky Linux 8', value: 'https://download.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud.latest.x86_64.qcow2' }
   ],
   fedora: [
-    { label: 'Fedora 41', value: 'https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2' }
+    { label: 'Fedora 43', value: 'https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2' },
+    { label: 'Fedora 42', value: 'https://download.fedoraproject.org/pub/fedora/linux/releases/42/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-42-1.1.x86_64.qcow2' },
+    { label: 'Fedora 41', value: 'https://archives.fedoraproject.org/pub/archive/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2' }
   ],
   opensuse: [
     { label: 'openSUSE Leap 15.6', value: 'https://download.opensuse.org/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2' }
@@ -51,7 +53,7 @@ const OS_VERSIONS = {
     { label: 'Arch Linux (latest)', value: 'https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2' }
   ],
   alpine: [
-    { label: 'Alpine Linux 3.21', value: 'https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/generic_alpine-3.21.3-x86_64-bios-cloudinit-r0.qcow2' }
+    { label: 'Alpine Linux 3.21', value: 'https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/generic_alpine-3.21.7-x86_64-bios-cloudinit-r0.qcow2' }
   ],
   truenas: [
     { label: 'TrueNAS SCALE 24.04', value: 'https://download.truenas.com/TrueNAS-SCALE-Dragonfish/24.04.2.5/TrueNAS-SCALE-24.04.2.5.iso' }
@@ -675,7 +677,7 @@ const ClusterPanel = ({ vms, onRefreshVms }) => {
                                 { id: 'centos', name: 'CentOS', desc: 'Stream 9', color: '#84cc16' },
                                 { id: 'almalinux', name: 'AlmaLinux', desc: 'v9', color: '#0a3d91' },
                                 { id: 'rocky', name: 'Rocky', desc: 'Linux 9', color: '#10b981' },
-                                { id: 'fedora', name: 'Fedora', desc: 'v41', color: '#3c6eb4' },
+                                { id: 'fedora', name: 'Fedora', desc: 'v43', color: '#3c6eb4' },
                                 { id: 'opensuse', name: 'openSUSE', desc: 'Leap 15.6', color: '#73ba25' },
                                 { id: 'arch', name: 'Arch', desc: 'rolling', color: '#1793d1' },
                                 { id: 'alpine', name: 'Alpine', desc: '3.21', color: '#0d597f' },
