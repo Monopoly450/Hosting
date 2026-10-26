@@ -129,6 +129,10 @@ def process_vm_task(db: Session, task_id: int):
             
         # KubeVirt не принимает inline cloud-init больше 2048 байт —
         # выносим его в Secret до создания ВМ.
+        try:
+            k8s.reconcile_cdi_storage()
+        except Exception as cdi_err:
+            logger.debug(f"reconcile_cdi_storage warning: {cdi_err}")
         externalize_cloudinit(k8s, manifest, task.name)
         k8s.create_vm_from_manifest(manifest)
         k8s.create_credentials_secret(task.name, username, generated_password)
@@ -204,6 +208,10 @@ def process_clone_task(db: Session, task_id: int, source_name: str):
 
         # KubeVirt не принимает inline cloud-init больше 2048 байт —
         # выносим его в Secret до создания ВМ.
+        try:
+            k8s.reconcile_cdi_storage()
+        except Exception as cdi_err:
+            logger.debug(f"reconcile_cdi_storage warning: {cdi_err}")
         externalize_cloudinit(k8s, manifest, task.name)
         k8s.create_vm_from_manifest(manifest)
         k8s.create_credentials_secret(task.name, username, generated_password)
@@ -544,6 +552,11 @@ def main():
     # этого ожидания на свежем сервере воркер захлёбывался ошибками
     # `relation "domains" does not exist` и не поднимал прокси доменов.
     wait_for_schema(engine)
+
+    try:
+        k8s.reconcile_cdi_storage()
+    except Exception as e:
+        logger.debug(f"reconcile_cdi_storage at worker startup: {e}")
 
     # Очистка ограничений, сохранённых до удаления этой функции из панели.
     disk_cleanup_thread = threading.Thread(target=clear_legacy_disk_limits_daemon, daemon=True)

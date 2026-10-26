@@ -1152,15 +1152,17 @@ def test_os_image_urls_consistent_between_backend_and_frontend():
     assert app_block == cluster_block, "OS_VERSIONS в App.jsx и ClusterPanel.jsx разъехались"
 
     broken_fragments = (
+        "go.microsoft.com/fwlink",
         "LinkID=2195279",
         "LinkID=2195278",
         "proxmox-ve_8.2-1.iso",
         "proxmox-ve_8.1-1.iso",
         "generic_alpine-3.21.3",
-        "download.fedoraproject.org/pub/fedora/linux/releases/41/",
+        "download.fedoraproject.org/pub/fedora/linux/releases/",
+        "download.opensuse.org/repositories/Cloud:/Images:/",
     )
     for fragment in broken_fragments:
-        assert fragment not in app_block, f"Устаревший URL {fragment} остался в OS_VERSIONS"
+        assert fragment not in app_block, f"Устаревший/редиректный URL {fragment} остался в OS_VERSIONS"
 
     expected_defaults = {
         **{k: v[0] for k, v in LINUX_CLOUD_IMAGES.items()},
@@ -1172,4 +1174,129 @@ def test_os_image_urls_consistent_between_backend_and_frontend():
         assert default_url in app_block, f"Дефолтный образ для {os_key} ({default_url}) отсутствует в OS_VERSIONS"
         for fragment in broken_fragments:
             assert fragment not in default_url, f"Устаревший URL {fragment} в vms.py для {os_key}"
+
+
+def test_normalize_image_url_and_windows_iso_size():
+    """Даже если браузер прислал старый URL из кеша, бэкенд переписывает его
+    на прямую ссылку, а том под ISO получает 10Gi (чтобы влезал Windows Server 2016 6.5 ГБ)."""
+    from app.api.vms import (
+        DEFAULT_WINDOWS_2016_ISO,
+        DEFAULT_WINDOWS_2019_ISO,
+        DEFAULT_WINDOWS_ISO,
+        VMCreationRequest,
+        generate_windows_manifest,
+        normalize_image_url,
+    )
+
+    assert normalize_image_url("https://go.microsoft.com/fwlink/p/?LinkID=2195280") == DEFAULT_WINDOWS_ISO
+    assert normalize_image_url("https://go.microsoft.com/fwlink/p/?LinkID=2195279") == DEFAULT_WINDOWS_2019_ISO
+    assert normalize_image_url("https://go.microsoft.com/fwlink/p/?LinkID=2195278") == DEFAULT_WINDOWS_2016_ISO
+
+    req = VMCreationRequest(
+        name="win-test",
+        os_type="windows",
+        cpu_cores=4,
+        memory_gb=4,
+        disk_gb=60,
+        iso_url="https://go.microsoft.com/fwlink/p/?LinkID=2195278",
+    )
+    manifest = generate_windows_manifest(req)
+    iso_dv = next(
+        dv for dv in manifest["spec"]["dataVolumeTemplates"]
+        if dv["metadata"]["name"] == "win-test-iso"
+    )
+    assert iso_dv["spec"]["source"]["http"]["url"] == DEFAULT_WINDOWS_2016_ISO
+    assert iso_dv["spec"]["storage"]["resources"]["requests"]["storage"] == "10Gi"
+
+
+def test_reconcile_cdi_storage_fixes_scratch_and_stuck_vm_imports():
+    """reconcile_cdi_storage переключает scratchSpaceStorageClass на local-path,
+    чистит зависшие -scratch PVC на openebs-lvm и обновляет застрявшие в импорте ВМ."""
+    from types import SimpleNamespace
+    from app.api.vms import DEFAULT_WINDOWS_2019_ISO
+    from app.core.k8s_client import K8sClient
+
+    cluster_patches = []
+    vm_patches = []
+    deleted_dvs = []
+    deleted_pvcs = []
+
+    class FakeCustomApi:
+        def patch_cluster_custom_object(self, group, version, plural, name, body):
+            cluster_patches.append((plural, name, body))
+
+        def list_namespaced_custom_object(self, group, version, namespace, plural):
+            return {
+                "items": [
+                    {
+                        "metadata": {
+                            "name": "win19",
+                            "labels": {"hosting.antigravity.io/template": "windows"},
+                        },
+                        "spec": {
+                            "dataVolumeTemplates": [
+                                {
+                                    "metadata": {"name": "win19-iso"},
+                                    "spec": {
+                                        "source": {
+                                            "http": {"url": "https://go.microsoft.com/fwlink/p/?LinkID=2195279"}
+                                        },
+                                        "storage": {
+                                            "storageClassName": "openebs-lvm",
+                                            "resources": {"requests": {"storage": "6Gi"}},
+                                        },
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+
+        def get_namespaced_custom_object(self, group, version, namespace, plural, name):
+            return {"status": {"phase": "ImportScheduled"}}
+
+        def patch_namespaced_custom_object(self, group, version, namespace, plural, name, body):
+            vm_patches.append((name, body))
+
+        def delete_namespaced_custom_object(self, group, version, namespace, plural, name):
+            deleted_dvs.append(name)
+
+    class FakeCoreApi:
+        def list_namespaced_persistent_volume_claim(self, namespace):
+            return SimpleNamespace(
+                items=[
+                    SimpleNamespace(
+                        metadata=SimpleNamespace(name="win19-iso-scratch"),
+                        spec=SimpleNamespace(storage_class_name="openebs-lvm"),
+                        status=SimpleNamespace(phase="Pending"),
+                    )
+                ]
+            )
+
+        def delete_namespaced_persistent_volume_claim(self, name, namespace):
+            deleted_pvcs.append(name)
+
+    class FakeStorageApi:
+        def patch_storage_class(self, name, body):
+            pass
+
+    k8s = K8sClient.__new__(K8sClient)
+    k8s.custom_api = FakeCustomApi()
+    k8s.core_api = FakeCoreApi()
+    k8s.storage_api = FakeStorageApi()
+
+    assert k8s.reconcile_cdi_storage("default") is True
+    assert any(
+        p[0] == "cdis" and p[2]["spec"]["config"]["scratchSpaceStorageClass"] == "local-path"
+        for p in cluster_patches
+    )
+    assert len(vm_patches) == 1
+    patched_dvt = vm_patches[0][1]["spec"]["dataVolumeTemplates"][0]
+    assert patched_dvt["spec"]["storage"]["storageClassName"] == "local-path"
+    assert patched_dvt["spec"]["storage"]["resources"]["requests"]["storage"] == "10Gi"
+    assert patched_dvt["spec"]["source"]["http"]["url"] == DEFAULT_WINDOWS_2019_ISO
+    assert "win19-iso" in deleted_dvs
+    assert "win19-iso-scratch" in deleted_pvcs
+
 

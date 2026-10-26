@@ -161,7 +161,9 @@ def generate_random_password(length=12) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 # Базовые константы-шаблоны для генерации манифестов
-DEFAULT_WINDOWS_ISO = "https://go.microsoft.com/fwlink/p/?LinkID=2195280"
+DEFAULT_WINDOWS_ISO = "https://software-static.download.prss.microsoft.com/sg/download/888969d5-f34g-4e03-ac9d-1f9786c66749/SERVER_EVAL_x64FRE_en-us.iso"
+DEFAULT_WINDOWS_2019_ISO = "https://software-static.download.prss.microsoft.com/dbazure/988969d5-f34g-4e03-ac9d-1f9786c66749/17763.3650.221105-1748.rs5_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso"
+DEFAULT_WINDOWS_2016_ISO = "https://software-static.download.prss.microsoft.com/pr/download/Windows_Server_2016_Datacenter_EVAL_en-us_14393_refresh.ISO"
 DEFAULT_UBUNTU_IMAGE = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 DEFAULT_CENTOS_IMAGE = "https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2"
 DEFAULT_DEBIAN_IMAGE = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
@@ -180,11 +182,36 @@ LINUX_CLOUD_IMAGES = {
     "bitrix":    (DEFAULT_CENTOS_IMAGE, "cloud-user"),
     "almalinux": ("https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2", "almalinux"),
     "rocky":     ("https://download.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2", "rocky"),
-    "fedora":    ("https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2", "fedora"),
-    "opensuse":  ("https://download.opensuse.org/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2", "opensuse"),
+    "fedora":    ("https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2", "fedora"),
+    "opensuse":  ("https://ftp.gwdg.de/pub/opensuse/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2", "opensuse"),
     "arch":      ("https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2", "arch"),
-    "alpine":    ("https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/generic_alpine-3.21.7-x86_64-bios-cloudinit-r0.qcow2", "alpine"),
+    "alpine":    ("https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.7-x86_64-bios-cloudinit-r0.qcow2", "alpine"),
 }
+
+# Карта замены устаревших/редиректных URL на прямые рабочие ссылки (защита от закешированного JS-бандла в браузере и старых задач)
+LEGACY_IMAGE_URL_MAP = {
+    "https://go.microsoft.com/fwlink/p/?LinkID=2195280": DEFAULT_WINDOWS_ISO,
+    "https://go.microsoft.com/fwlink/p/?LinkID=2195279": DEFAULT_WINDOWS_2019_ISO,
+    "https://go.microsoft.com/fwlink/p/?LinkID=2195167": DEFAULT_WINDOWS_2019_ISO,
+    "https://go.microsoft.com/fwlink/p/?LinkID=2195278": DEFAULT_WINDOWS_2016_ISO,
+    "https://go.microsoft.com/fwlink/p/?LinkID=2195174": DEFAULT_WINDOWS_2016_ISO,
+    "https://enterprise.proxmox.com/iso/proxmox-ve_8.2-1.iso": "https://enterprise.proxmox.com/iso/proxmox-ve_8.4-1.iso",
+    "https://enterprise.proxmox.com/iso/proxmox-ve_8.1-1.iso": "https://enterprise.proxmox.com/iso/proxmox-ve_8.4-1.iso",
+    "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2": "https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2",
+    "https://download.fedoraproject.org/pub/fedora/linux/releases/42/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-42-1.1.x86_64.qcow2": "https://archives.fedoraproject.org/pub/archive/fedora/linux/releases/42/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-42-1.1.x86_64.qcow2",
+    "https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2": "https://archives.fedoraproject.org/pub/archive/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2",
+    "https://download.opensuse.org/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2": "https://ftp.gwdg.de/pub/opensuse/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2",
+    "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/generic_alpine-3.21.3-x86_64-bios-cloudinit-r0.qcow2": "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.7-x86_64-bios-cloudinit-r0.qcow2",
+    "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/generic_alpine-3.21.7-x86_64-bios-cloudinit-r0.qcow2": "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.7-x86_64-bios-cloudinit-r0.qcow2",
+}
+
+
+def normalize_image_url(url: Optional[str], os_type: str = "") -> Optional[str]:
+    """Заменяет устаревшие/редиректные URL образов на проверенные прямые ссылки."""
+    if not url:
+        return url
+    cleaned = url.strip()
+    return LEGACY_IMAGE_URL_MAP.get(cleaned, cleaned)
 
 
 def default_user_for(os_type: str) -> str:
@@ -200,7 +227,7 @@ def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
     vm_storage_class = system_storage_class(settings.STORAGE_CLASS)
     access_mode = "ReadWriteMany" if "nfs" in vm_storage_class.lower() else "ReadWriteOnce"
     default_image, default_user = LINUX_CLOUD_IMAGES.get(req.os_type, (DEFAULT_UBUNTU_IMAGE, "ubuntu"))
-    image_url = req.iso_url or default_image
+    image_url = normalize_image_url(req.iso_url, req.os_type) or default_image
 
     # Пакеты и команды шаблона окружения — под конкретное семейство ОС.
     # Раньше здесь были захардкожены дебиановские имена (apache2, docker.io,
@@ -553,12 +580,13 @@ local-hostname: {req.name}
 def generate_windows_manifest(req: VMCreationRequest) -> dict:
     from app.core.capacity import system_storage_class
     # У каждой ISO-ОС свой установочный образ
+    req_iso = normalize_image_url(req.iso_url, req.os_type)
     if req.os_type == "proxmox":
-        iso_url = req.iso_url or DEFAULT_PROXMOX_ISO
+        iso_url = req_iso or DEFAULT_PROXMOX_ISO
     elif req.os_type == "truenas":
-        iso_url = req.iso_url or DEFAULT_TRUENAS_ISO
+        iso_url = req_iso or DEFAULT_TRUENAS_ISO
     else:
-        iso_url = req.iso_url or DEFAULT_WINDOWS_ISO
+        iso_url = req_iso or DEFAULT_WINDOWS_ISO
     # Если ОС создаётся из кастомного загруженного ISO
     if req.os_type == "custom" and req.custom_image:
         host_ip = get_host_ip()
@@ -725,7 +753,7 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                             "volumeMode": "Filesystem",
                             "resources": {
                                 "requests": {
-                                    "storage": "6Gi"
+                                    "storage": "10Gi"
                                 }
                             }
                         }
@@ -1542,7 +1570,7 @@ def create_vm(req: VMCreationRequest, client: K8sClient = Depends(get_k8s_client
             network_drives=req.network_drives,
             cloud_init_template=req.cloud_init_template,
             custom_user_data=req.custom_user_data,
-            iso_url=req.iso_url,
+            iso_url=normalize_image_url(req.iso_url, req.os_type),
             ssh_key=req.ssh_key,
             owner_id=current_user.id,
             status="Pending"

@@ -102,6 +102,7 @@ def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_c
                 continue
 
 
+            from app.api.vms import normalize_image_url
             task = VMTask(
                 name=vm_req.name,
                 cluster_id=cluster.id,
@@ -115,7 +116,7 @@ def create_cluster(req: ClusterCreateRequest, current_user: User = Depends(get_c
                 network_drives=vm_req.network_drives,
                 cloud_init_template=vm_req.cloud_init_template,
                 custom_user_data=vm_req.custom_user_data,
-                iso_url=vm_req.iso_url,
+                iso_url=normalize_image_url(vm_req.iso_url, vm_req.os_type),
                 ssh_key=vm_req.ssh_key,
                 # СТАТИЧЕСКИЙ IP в изолированной сети кластера — не меняется никогда.
                 # 192.168.100.10, .11, .12 ... по порядку ВМ в кластере.

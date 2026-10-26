@@ -3396,6 +3396,147 @@ class K8sClient:
                 logger.warning(f"Не удалось перезапустить {deploy_name}: {e}")
         return True
 
+    def reconcile_cdi_storage(self, namespace: str = "default") -> bool:
+        """Гарантирует, что CDI использует local-path для scratchSpaceStorageClass,
+        и автоматически исправляет зависшие в импорте DataVolume/PVC со старым
+        классом openebs-lvm, малым объёмом ISO (6Gi -> 10Gi) или устаревшими URL."""
+        from app.core.capacity import is_lvm_storage_class, system_storage_class
+        from app.api.vms import normalize_image_url
+
+        target_sc = system_storage_class(settings.STORAGE_CLASS)
+        changed = False
+
+        # 1. Патчим глобальный конфиг CDI (scratchSpaceStorageClass -> local-path)
+        try:
+            self.custom_api.patch_cluster_custom_object(
+                "cdi.kubevirt.io", "v1beta1", "cdis", "cdi",
+                {"spec": {"config": {"scratchSpaceStorageClass": target_sc}}},
+            )
+        except Exception as e:
+            logger.debug(f"reconcile_cdi_storage (cdi patch): {e}")
+
+        # 2. Патчим StorageProfile local-path для корректного режима ReadWriteOnce/Filesystem
+        try:
+            self.custom_api.patch_cluster_custom_object(
+                "cdi.kubevirt.io", "v1beta1", "storageprofiles", target_sc,
+                {
+                    "spec": {
+                        "claimPropertySets": [
+                            {"accessModes": ["ReadWriteOnce"], "volumeMode": "Filesystem"}
+                        ]
+                    }
+                },
+            )
+        except Exception as e:
+            logger.debug(f"reconcile_cdi_storage (storageprofile patch): {e}")
+
+        # 3. Разрешаем расширение томов на local-path
+        try:
+            self.storage_api.patch_storage_class(target_sc, {"allowVolumeExpansion": True})
+        except Exception as e:
+            logger.debug(f"reconcile_cdi_storage (storageclass patch): {e}")
+
+        # 4. Удаляем зависшие в Pending scratch-PVC на openebs-lvm, чтобы CDI пересоздал их на local-path
+        try:
+            pvcs = self.core_api.list_namespaced_persistent_volume_claim(namespace)
+            for pvc in (pvcs.items if pvcs else []) or []:
+                pvc_name = getattr(getattr(pvc, "metadata", None), "name", "") or ""
+                pvc_sc = getattr(getattr(pvc, "spec", None), "storage_class_name", None)
+                pvc_phase = getattr(getattr(pvc, "status", None), "phase", None)
+                if pvc_name.endswith("-scratch") and is_lvm_storage_class(pvc_sc) and pvc_phase != "Bound":
+                    logger.info(f"Удаляю зависший scratch-PVC {pvc_name} (storageClass={pvc_sc}, phase={pvc_phase})")
+                    try:
+                        self.core_api.delete_namespaced_persistent_volume_claim(pvc_name, namespace)
+                        changed = True
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.debug(f"reconcile_cdi_storage (scratch pvc cleanup): {e}")
+
+        # 5. Проверяем существующие ВМ, у которых DataVolume застрял в импорте со старым URL, 6Gi ISO или openebs-lvm
+        try:
+            vms_resp = self.custom_api.list_namespaced_custom_object(
+                "kubevirt.io", "v1", namespace, "virtualmachines"
+            )
+            for vm in (vms_resp or {}).get("items", []) or []:
+                vm_name = (vm.get("metadata") or {}).get("name")
+                if not vm_name:
+                    continue
+                dvt_list = (vm.get("spec") or {}).get("dataVolumeTemplates") or []
+                if not dvt_list:
+                    continue
+
+                vm_dvt_modified = False
+                dvs_to_recreate = []
+                os_type = ((vm.get("metadata") or {}).get("labels") or {}).get(
+                    "hosting.antigravity.io/template", ""
+                )
+
+                for dvt in dvt_list:
+                    dv_name = (dvt.get("metadata") or {}).get("name")
+                    if not dv_name:
+                        continue
+                    dv_spec = dvt.get("spec") or {}
+                    storage = dv_spec.get("storage") or {}
+                    sc = storage.get("storageClassName")
+                    req_storage = ((storage.get("resources") or {}).get("requests") or {}).get("storage")
+                    http_src = (dv_spec.get("source") or {}).get("http") or {}
+                    old_url = http_src.get("url")
+                    new_url = normalize_image_url(old_url, os_type) if old_url else old_url
+
+                    needs_fix = False
+                    if is_lvm_storage_class(sc):
+                        storage["storageClassName"] = target_sc
+                        needs_fix = True
+                    if dv_name.endswith("-iso") and req_storage == "6Gi":
+                        storage.setdefault("resources", {}).setdefault("requests", {})["storage"] = "10Gi"
+                        needs_fix = True
+                    if old_url and new_url != old_url:
+                        http_src["url"] = new_url
+                        needs_fix = True
+
+                    if needs_fix:
+                        # Проверяем, не завершился ли уже импорт этого DataVolume
+                        dv_succeeded = False
+                        try:
+                            dv_obj = self.custom_api.get_namespaced_custom_object(
+                                "cdi.kubevirt.io", "v1beta1", namespace, "datavolumes", dv_name
+                            )
+                            if ((dv_obj.get("status") or {}).get("phase") == "Succeeded"):
+                                dv_succeeded = True
+                        except Exception:
+                            pass
+                        if not dv_succeeded:
+                            vm_dvt_modified = True
+                            dvs_to_recreate.append(dv_name)
+
+                if vm_dvt_modified:
+                    logger.info(f"Обновляю dataVolumeTemplates для ВМ {vm_name} и перезапускаю импорт: {dvs_to_recreate}")
+                    try:
+                        self.custom_api.patch_namespaced_custom_object(
+                            "kubevirt.io", "v1", namespace, "virtualmachines", vm_name,
+                            {"spec": {"dataVolumeTemplates": dvt_list}},
+                        )
+                    except Exception as e:
+                        logger.warning(f"Не удалось пропатчить dataVolumeTemplates ВМ {vm_name}: {e}")
+                    for dv_name in dvs_to_recreate:
+                        try:
+                            self.custom_api.delete_namespaced_custom_object(
+                                "cdi.kubevirt.io", "v1beta1", namespace, "datavolumes", dv_name
+                            )
+                        except Exception:
+                            pass
+                        for pvc_candidate in (dv_name, f"{dv_name}-scratch"):
+                            try:
+                                self.core_api.delete_namespaced_persistent_volume_claim(pvc_candidate, namespace)
+                            except Exception:
+                                pass
+                    changed = True
+        except Exception as e:
+            logger.debug(f"reconcile_cdi_storage (vm dvt check): {e}")
+
+        return changed
+
     def _get_ready_db_pod(self, db_name: str, namespace: str = "default", wait_timeout: float = 20.0):
         """Находит запущенный и готовый под базы данных (при необходимости лечит зависший PVC и ждёт старта)."""
         core_api = client.CoreV1Api(self.api_client)

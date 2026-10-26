@@ -20,9 +20,9 @@ const OS_VERSIONS = {
     { label: 'Debian 11 (Bullseye)', value: 'https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-generic-amd64.qcow2' }
   ],
   windows: [
-    { label: 'Windows Server 2022', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195280' },
-    { label: 'Windows Server 2019', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195167' },
-    { label: 'Windows Server 2016', value: 'https://go.microsoft.com/fwlink/p/?LinkID=2195174' }
+    { label: 'Windows Server 2022', value: 'https://software-static.download.prss.microsoft.com/sg/download/888969d5-f34g-4e03-ac9d-1f9786c66749/SERVER_EVAL_x64FRE_en-us.iso' },
+    { label: 'Windows Server 2019', value: 'https://software-static.download.prss.microsoft.com/dbazure/988969d5-f34g-4e03-ac9d-1f9786c66749/17763.3650.221105-1748.rs5_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso' },
+    { label: 'Windows Server 2016', value: 'https://software-static.download.prss.microsoft.com/pr/download/Windows_Server_2016_Datacenter_EVAL_en-us_14393_refresh.ISO' }
   ],
   proxmox: [
     { label: 'Proxmox VE 9.2', value: 'https://enterprise.proxmox.com/iso/proxmox-ve_9.2-1.iso' },
@@ -42,18 +42,18 @@ const OS_VERSIONS = {
     { label: 'Rocky Linux 8', value: 'https://download.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud.latest.x86_64.qcow2' }
   ],
   fedora: [
-    { label: 'Fedora 43', value: 'https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2' },
-    { label: 'Fedora 42', value: 'https://download.fedoraproject.org/pub/fedora/linux/releases/42/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-42-1.1.x86_64.qcow2' },
+    { label: 'Fedora 43', value: 'https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2' },
+    { label: 'Fedora 42', value: 'https://archives.fedoraproject.org/pub/archive/fedora/linux/releases/42/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-42-1.1.x86_64.qcow2' },
     { label: 'Fedora 41', value: 'https://archives.fedoraproject.org/pub/archive/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2' }
   ],
   opensuse: [
-    { label: 'openSUSE Leap 15.6', value: 'https://download.opensuse.org/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2' }
+    { label: 'openSUSE Leap 15.6', value: 'https://ftp.gwdg.de/pub/opensuse/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2' }
   ],
   arch: [
     { label: 'Arch Linux (latest)', value: 'https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2' }
   ],
   alpine: [
-    { label: 'Alpine Linux 3.21', value: 'https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/generic_alpine-3.21.7-x86_64-bios-cloudinit-r0.qcow2' }
+    { label: 'Alpine Linux 3.21', value: 'https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.7-x86_64-bios-cloudinit-r0.qcow2' }
   ],
   truenas: [
     { label: 'TrueNAS SCALE 24.04', value: 'https://download.truenas.com/TrueNAS-SCALE-Dragonfish/24.04.2.5/TrueNAS-SCALE-24.04.2.5.iso' }

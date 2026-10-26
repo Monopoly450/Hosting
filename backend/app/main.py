@@ -122,6 +122,14 @@ async def startup_event():
         except Exception as enc_err:
             logger.warning(f"Не удалось зашифровать старые секреты: {enc_err}")
 
+    # 7. Синхронизация настроек CDI (scratchSpaceStorageClass -> local-path) и лечение зависших импортов
+    try:
+        import asyncio as _asyncio_init
+        from app.core.k8s_client import K8sClient
+        await _asyncio_init.to_thread(lambda: K8sClient().reconcile_cdi_storage())
+    except Exception as cdi_err:
+        logger.debug(f"Пропуск reconcile_cdi_storage на старте: {cdi_err}")
+
 
 # Настройка CORS.
 # Wildcard-источник ("*") несовместим с allow_credentials=True по спецификации
