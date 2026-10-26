@@ -221,3 +221,119 @@ def test_dump_failure_never_uploads_a_successful_backup(api_env):
         databases.create_database_backup(8, NS(id=1))
     assert error.value.status_code == 500
     s3.put_object.assert_not_called()
+
+
+def test_create_private_db_sets_pgdata_and_system_storage_class(monkeypatch):
+    k8s = K8sClient.__new__(K8sClient)
+    k8s.api_client = None
+    k8s.core_api = MagicMock()
+    apps = MagicMock()
+    monkeypatch.setattr("app.core.k8s_client.client.AppsV1Api", lambda *a: apps)
+    monkeypatch.setattr(k8s, "update_db_network_policy", MagicMock())
+    monkeypatch.setattr(k8s, "reconcile_private_db_storage", MagicMock())
+
+    k8s.create_private_db("hghh", "postgresql", "user_hghh", "secret")
+
+    pvc_body = k8s.core_api.create_namespaced_persistent_volume_claim.call_args.args[1]
+    assert pvc_body["spec"]["storageClassName"] == "local-path"
+    deploy_body = apps.create_namespaced_deployment.call_args.args[1]
+    container = deploy_body["spec"]["template"]["spec"]["containers"][0]
+    env_map = {item["name"]: item["value"] for item in container["env"]}
+    assert env_map["PGDATA"] == "/var/lib/postgresql/data/pgdata"
+
+
+def test_reconcile_private_db_storage_migrates_stuck_lvm_pvc_to_local_path(monkeypatch):
+    k8s = K8sClient.__new__(K8sClient)
+    k8s.api_client = None
+    core = MagicMock()
+    apps = MagicMock()
+    monkeypatch.setattr("app.core.k8s_client.client.CoreV1Api", lambda *a: core)
+    monkeypatch.setattr("app.core.k8s_client.client.AppsV1Api", lambda *a: apps)
+    monkeypatch.setattr("app.core.k8s_client.time.sleep", lambda *_: None)
+
+    deploy = NS(
+        status=NS(ready_replicas=0),
+        spec=NS(
+            template=NS(
+                spec=NS(
+                    containers=[
+                        NS(
+                            name="db",
+                            image="postgres:15-alpine",
+                            env=[NS(name="POSTGRES_DB", value="hghh")],
+                        )
+                    ]
+                )
+            )
+        ),
+    )
+    apps.read_namespaced_deployment.return_value = deploy
+    from kubernetes.client.rest import ApiException
+    core.read_namespaced_persistent_volume_claim.side_effect = [
+        NS(spec=NS(storage_class_name="openebs-lvm"), status=NS(phase="Pending")),
+        ApiException(status=404),
+    ]
+    core.list_namespaced_pod.return_value = NS(items=[NS(metadata=NS(name="db-deploy-hghh-old"))])
+
+    assert k8s.reconcile_private_db_storage("hghh", "default") is True
+    core.delete_namespaced_persistent_volume_claim.assert_called_once_with("db-pvc-hghh", "default")
+    created_pvc = core.create_namespaced_persistent_volume_claim.call_args.args[1]
+    assert created_pvc["spec"]["storageClassName"] == "local-path"
+    final_patch = apps.patch_namespaced_deployment.call_args.args[2]
+    assert final_patch["spec"]["replicas"] == 1
+    patched_env = final_patch["spec"]["template"]["spec"]["containers"][0]["env"]
+    assert {"name": "PGDATA", "value": "/var/lib/postgresql/data/pgdata"} in patched_env
+
+
+def test_execute_db_query_waits_for_running_container_and_retries_startup(monkeypatch):
+    k8s = K8sClient.__new__(K8sClient)
+    k8s.api_client = None
+    core = MagicMock()
+    monkeypatch.setattr("app.core.k8s_client.client.CoreV1Api", lambda *a: core)
+    monkeypatch.setattr("app.core.k8s_client.time.sleep", lambda *_: None)
+    monkeypatch.setattr(k8s, "reconcile_private_db_storage", MagicMock(return_value=True))
+
+    pending_pod = NS(
+        metadata=NS(name="db-deploy-hghh-1", deletion_timestamp=None),
+        status=NS(
+            phase="Pending",
+            container_statuses=[
+                NS(name="db", ready=False, state=NS(running=None, waiting=NS(reason="ContainerCreating")))
+            ],
+        ),
+    )
+    running_pod = NS(
+        metadata=NS(name="db-deploy-hghh-2", deletion_timestamp=None),
+        status=NS(
+            phase="Running",
+            container_statuses=[
+                NS(name="db", ready=True, state=NS(running=NS(), waiting=None))
+            ],
+        ),
+    )
+    core.list_namespaced_pod.side_effect = [
+        NS(items=[pending_pod]),
+        NS(items=[running_pod]),
+        NS(items=[running_pod]),
+    ]
+
+    calls = []
+
+    class DummyPopen:
+        def __init__(self, cmd, **kwargs):
+            calls.append(cmd)
+            self.returncode = 1 if len(calls) == 1 else 0
+
+        def communicate(self, input=None, timeout=None):
+            if len(calls) == 1:
+                return "", 'error: unable to upgrade connection: container not found ("db")'
+            return "CREATE TABLE\n", ""
+
+    monkeypatch.setattr("subprocess.Popen", DummyPopen)
+
+    out = k8s.execute_db_query(
+        "hghh", "postgresql", "user_hghh", "secret", "CREATE TABLE users (id int);"
+    )
+    assert out == "CREATE TABLE\n"
+    assert len(calls) == 2
+    assert calls[-1][5] == "db-deploy-hghh-2"

@@ -205,6 +205,10 @@ default_lvm_pool_gb() {
         return
     fi
     local pool=$(( avail * 60 / 100 ))
+    local max_pool=$(( avail * 80 / 100 ))
+    if [ "$pool" -lt 10 ] && [ "$max_pool" -ge 10 ]; then
+        pool=10
+    fi
     echo "$pool"
 }
 
@@ -237,6 +241,8 @@ normalize_env_storage_classes() {
     if grep -qiE '^STORAGE_CLASS=(openebs-lvm|.*lvm.*|.*vg-.*)$' "$env_file" 2>/dev/null; then
         log "В .env обнаружен LVM в STORAGE_CLASS — перевожу системные диски ВМ и БД на local-path (LVM используется только для подключаемых сетевых дисков)."
         sed -i 's/^STORAGE_CLASS=.*/STORAGE_CLASS=local-path/' "$env_file"
+    elif ! grep -qE '^STORAGE_CLASS=' "$env_file" 2>/dev/null; then
+        echo "STORAGE_CLASS=local-path" >> "$env_file"
     fi
     if ! grep -qE '^NETWORK_STORAGE_CLASS=' "$env_file" 2>/dev/null; then
         echo "NETWORK_STORAGE_CLASS=openebs-lvm" >> "$env_file"
@@ -749,14 +755,18 @@ for i in {1..30}; do
     STATUS=$(kubectl get cdi cdi -n cdi -o jsonpath='{.status.phase}' 2>/dev/null || echo "Waiting")
     if [ "$STATUS" = "Deployed" ]; then
         log "CDI развёрнут."
-        kubectl patch cdi cdi --type=merge --patch '{"spec": {"config": {"scratchSpaceStorageClass": "local-path"}}}' || true
-        kubectl patch storageprofile local-path --type=merge -p '{"spec": {"claimPropertySets": [{"accessModes": ["ReadWriteOnce"], "volumeMode": "Filesystem"}]}}' || true
-        kubectl patch storageclass local-path -p '{"allowVolumeExpansion": true}' || true
         break
     fi
     log "Статус CDI: $STATUS..."
     sleep 10
 done
+for _ in {1..15}; do
+    kubectl get storageprofile local-path &>/dev/null && break
+    sleep 2
+done
+kubectl patch cdi cdi --type=merge --patch '{"spec": {"config": {"scratchSpaceStorageClass": "local-path"}}}' || true
+kubectl patch storageprofile local-path --type=merge -p '{"spec": {"claimPropertySets": [{"accessModes": ["ReadWriteOnce"], "volumeMode": "Filesystem"}]}}' || true
+kubectl patch storageclass local-path -p '{"allowVolumeExpansion": true}' || true
 
 # Панель управляет KubeVirt через Kubernetes API. virtctl для работы панели
 # не нужен и при необходимости устанавливается администратором отдельно.
@@ -795,9 +805,11 @@ fi
 timeout --kill-after=10s 180s helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
 timeout --kill-after=10s 180s helm repo update || error "Не удалось обновить Helm-репозитории. Проверьте доступ сервера к адресам репозиториев."
 kubectl create namespace prometheus || true
-timeout --kill-after=10s 600s helm install prometheus prometheus-community/kube-prometheus-stack -n prometheus \
-  --set grafana.enabled=false \
-  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false || true
+if ! helm status prometheus -n prometheus &>/dev/null; then
+    timeout --kill-after=10s 600s helm install prometheus prometheus-community/kube-prometheus-stack -n prometheus \
+      --set grafana.enabled=false \
+      --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false || true
+fi
 log "Prometheus развёрнут в namespace prometheus."
 
 # ============================== 8. LVM-хранилище ==============================
@@ -808,6 +820,16 @@ STORAGE_CLASS=$(grep -E '^STORAGE_CLASS=' "${PROJECT_DIR}/.env" 2>/dev/null | ta
 NETWORK_STORAGE_CLASS=$(grep -E '^NETWORK_STORAGE_CLASS=' "${PROJECT_DIR}/.env" 2>/dev/null | tail -n1 | cut -d= -f2-)
 [ -z "$NETWORK_STORAGE_CLASS" ] && NETWORK_STORAGE_CLASS="openebs-lvm"
 [ -z "$LVM_POOL_GB" ] && LVM_POOL_GB=$(default_lvm_pool_gb)
+if [ ! -e /var/lib/aegis/lvm-storage.img ] && [[ "$LVM_POOL_GB" =~ ^[0-9]+$ ]]; then
+    CURRENT_FREE_GB=$(df -BG --output=avail /var/lib 2>/dev/null | tail -n1 | tr -dc '0-9')
+    if [ -n "$CURRENT_FREE_GB" ]; then
+        CURRENT_MAX_LVM_GB=$(( CURRENT_FREE_GB * 80 / 100 ))
+        if [ "$LVM_POOL_GB" -gt "$CURRENT_MAX_LVM_GB" ] && [ "$CURRENT_MAX_LVM_GB" -ge 10 ]; then
+            warn "После загрузки образов K3s/KubeVirt свободное место в /var/lib уменьшилось — корректирую размер LVM-пула с ${LVM_POOL_GB} до ${CURRENT_MAX_LVM_GB} ГБ."
+            LVM_POOL_GB="$CURRENT_MAX_LVM_GB"
+        fi
+    fi
+fi
 log "Пул LVM для сетевых дисков: ${LVM_POOL_GB} ГБ (${NETWORK_STORAGE_CLASS}), системные диски ВМ и БД: ${STORAGE_CLASS:-local-path}"
 EXPECTED_LVM_CHART_VERSION="${OPEN_EBS_LVM_CHART_VERSION:-1.9.0}"
 LVM_SETUP_OK=false
@@ -957,7 +979,7 @@ After=docker.service k3s.service aegis-network.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=${PROJECT_DIR}
+WorkingDirectory="${PROJECT_DIR}"
 ExecStart=/usr/bin/docker compose up -d
 ExecReload=/usr/bin/docker compose restart
 

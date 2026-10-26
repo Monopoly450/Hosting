@@ -183,6 +183,18 @@ def list_databases(current_user: User = Depends(get_current_user)):
             
             # Получаем динамический статус пода базы из K8s
             real_status = k8s.get_private_db_status(d.db_name)
+            if real_status == "Error":
+                try:
+                    k8s.create_private_db(
+                        db_name=d.db_name,
+                        engine=d.db_type,
+                        db_user=d.db_user,
+                        db_password=decrypt_secret(d.db_password),
+                        vm_name=vm_name,
+                    )
+                    real_status = k8s.get_private_db_status(d.db_name)
+                except Exception as heal_err:
+                    logger.warning(f"Failed to recreate missing K8s DB resources for {d.db_name}: {heal_err}")
             
             res.append(DatabaseResponse(
                 id=d.id,
@@ -336,6 +348,22 @@ def execute_sql_query(db_id: int, req: SQLQueryRequest, current_user: User = Dep
         from app.core.k8s_client import K8sClient
         k8s = K8sClient()
         db_password = decrypt_secret(user_db.db_password)
+        if k8s.get_private_db_status(user_db.db_name) == "Error":
+            vm_name = None
+            if user_db.associated_vm_id:
+                vm = db.query(VMTask).filter(VMTask.id == user_db.associated_vm_id).first()
+                if vm:
+                    vm_name = vm.name
+            try:
+                k8s.create_private_db(
+                    db_name=user_db.db_name,
+                    engine=user_db.db_type,
+                    db_user=user_db.db_user,
+                    db_password=db_password,
+                    vm_name=vm_name,
+                )
+            except Exception as heal_err:
+                logger.warning(f"Failed to recreate missing K8s DB resources for {user_db.db_name}: {heal_err}")
         
         try:
             raw_output = k8s.execute_db_query(

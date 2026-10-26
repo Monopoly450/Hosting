@@ -58,8 +58,8 @@ export default function DatabasesPanel() {
                     setSqlQuery(`SELECT * FROM ${data[0]} LIMIT 10;`);
                 } else {
                     setSqlQuery(connectDb.engine === 'postgresql' 
-                        ? '-- Создайте таблицу:\n-- CREATE TABLE users (id SERIAL PRIMARY KEY, name VARCHAR(50));' 
-                        : '-- Создайте таблицу:\n-- CREATE TABLE users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50));');
+                        ? '-- Создайте таблицу:\nCREATE TABLE users (id SERIAL PRIMARY KEY, name VARCHAR(50));' 
+                        : '-- Создайте таблицу:\nCREATE TABLE users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50));');
                 }
             }
         } catch (err) {

@@ -61,6 +61,11 @@ def _run(pod: str, namespace: str, script: str, password: str, *, sql: str = Non
         # Neither exception argv nor a password should reach logs/API responses.
         if password:
             detail = detail.replace(password, "[скрыто]")
+        if "unable to upgrade connection: container not found" in detail or 'container not found ("db")' in detail:
+            detail = (
+                "Контейнер базы данных ещё не запущен (ожидает диск или перезапускается). "
+                "Подождите 10–15 секунд и повторите операцию."
+            )
         raise RuntimeError(detail) from None
     return result.stdout
 

@@ -3004,11 +3004,13 @@ class K8sClient:
         image = "postgres:15-alpine" if engine == "postgresql" else "mariadb:10.11-jammy"
         
         env = []
+        sub_path = None
         if engine == "postgresql":
             env = [
                 {"name": "POSTGRES_DB", "value": db_name},
                 {"name": "POSTGRES_USER", "value": db_user},
                 {"name": "POSTGRES_PASSWORD", "value": db_password},
+                {"name": "PGDATA", "value": "/var/lib/postgresql/data/pgdata"},
             ]
             mount_path = "/var/lib/postgresql/data"
         else:
@@ -3023,6 +3025,14 @@ class K8sClient:
                 {"name": "MARIADB_ROOT_PASSWORD", "value": mariadb_root_pw},
             ]
             mount_path = "/var/lib/mysql"
+            sub_path = "mysql"
+
+        volume_mount = {
+            "name": "data",
+            "mountPath": mount_path,
+        }
+        if sub_path:
+            volume_mount["subPath"] = sub_path
 
         deploy_body = {
             "apiVersion": "apps/v1",
@@ -3055,10 +3065,7 @@ class K8sClient:
                                     }
                                 ],
                                 "volumeMounts": [
-                                    {
-                                        "name": "data",
-                                        "mountPath": mount_path
-                                    }
+                                    volume_mount
                                 ],
                                 "resources": {
                                     "requests": {
@@ -3119,6 +3126,12 @@ class K8sClient:
 
         # 4. Создаем NetworkPolicy для изоляции
         self.update_db_network_policy(db_name, vm_name, namespace)
+
+        # 5. Если БД уже существовала со старым PVC на openebs-lvm или без PGDATA — мигрируем
+        try:
+            self.reconcile_private_db_storage(db_name, namespace)
+        except Exception as e:
+            logger.warning(f"Не удалось проверить/обновить хранилище БД {db_name}: {e}")
 
     def delete_private_db(self, db_name: str, namespace: str = "default"):
         """Удаляет все ресурсы приватного пода базы данных в K8s"""
@@ -3196,6 +3209,220 @@ class K8sClient:
             else:
                 raise e
 
+    @staticmethod
+    def _is_db_pod_ready(pod) -> bool:
+        meta = getattr(pod, "metadata", None)
+        if meta is not None and getattr(meta, "deletion_timestamp", None) is not None:
+            return False
+        status = getattr(pod, "status", None)
+        if status is None:
+            # В модульных тестах объект пода может содержать только metadata.name
+            return True
+        phase = getattr(status, "phase", None)
+        if phase and phase != "Running":
+            return False
+        container_statuses = getattr(status, "container_statuses", None)
+        if container_statuses:
+            for cs in container_statuses:
+                if getattr(cs, "name", "db") == "db":
+                    state = getattr(cs, "state", None)
+                    if state is not None and getattr(state, "running", None) is None:
+                        return False
+                    if getattr(cs, "ready", True) is False:
+                        return False
+        return True
+
+    @classmethod
+    def _select_ready_db_pod(cls, pods: list):
+        for pod in pods or []:
+            if cls._is_db_pod_ready(pod):
+                return pod
+        return None
+
+    def _describe_db_pod_not_ready(self, db_name: str, pods: list, namespace: str = "default") -> str:
+        if not pods:
+            return "Под базы данных не найден или ещё не создан в кластере"
+        active_pods = [
+            p for p in pods
+            if not getattr(getattr(p, "metadata", None), "deletion_timestamp", None)
+        ] or list(pods)
+        pod = active_pods[0]
+        status = getattr(pod, "status", None)
+        container_statuses = getattr(status, "container_statuses", None) or []
+        for cs in container_statuses:
+            state = getattr(cs, "state", None)
+            waiting = getattr(state, "waiting", None) if state else None
+            reason = getattr(waiting, "reason", None) if waiting else None
+            if reason in {"ErrImagePull", "ImagePullBackOff"}:
+                return f"Не удалось загрузить образ контейнера СУБД ({reason}). Проверьте доступ кластера к реестру образов."
+            if reason == "CrashLoopBackOff":
+                return "Контейнер базы данных перезапускается (CrashLoopBackOff). Подождите 10–15 секунд и повторите запрос."
+            if reason in {"ContainerCreating", "PodInitializing"}:
+                return f"Контейнер базы данных ещё запускается ({reason}). Подождите 10–15 секунд и повторите запрос."
+        try:
+            core_api = client.CoreV1Api(self.api_client)
+            pvc = core_api.read_namespaced_persistent_volume_claim(f"db-pvc-{db_name}", namespace)
+            pvc_phase = getattr(getattr(pvc, "status", None), "phase", None)
+            if pvc_phase == "Pending":
+                return f"Диск базы данных (db-pvc-{db_name}) ещё ожидает привязки (Pending). Подождите несколько секунд и повторите запрос."
+        except Exception:
+            pass
+        phase = getattr(status, "phase", None) or "Pending"
+        return f"Контейнер базы данных ещё не готов ({phase}). Подождите 10–15 секунд и повторите запрос."
+
+    def reconcile_private_db_storage(self, db_name: str, namespace: str = "default") -> bool:
+        """Автоматически переводит неработающую БД со старого класса openebs-lvm на local-path
+        и добавляет PGDATA для PostgreSQL, если initdb падал из-за lost+found."""
+        from app.core.capacity import is_lvm_storage_class, system_storage_class
+
+        core_api = client.CoreV1Api(self.api_client)
+        apps_api = client.AppsV1Api(self.api_client)
+        pvc_name = f"db-pvc-{db_name}"
+        deploy_name = f"db-deploy-{db_name}"
+        target_sc = system_storage_class(settings.STORAGE_CLASS)
+
+        try:
+            deploy = apps_api.read_namespaced_deployment(deploy_name, namespace)
+        except Exception:
+            return False
+
+        ready = getattr(getattr(deploy, "status", None), "ready_replicas", 0) or 0
+        if ready > 0:
+            return False
+
+        pvc = None
+        try:
+            pvc = core_api.read_namespaced_persistent_volume_claim(pvc_name, namespace)
+        except ApiException as e:
+            if e.status != 404:
+                return False
+        except Exception:
+            return False
+
+        pvc_sc = getattr(getattr(pvc, "spec", None), "storage_class_name", None) if pvc else None
+        pvc_phase = getattr(getattr(pvc, "status", None), "phase", None) if pvc else None
+
+        pod_spec = getattr(getattr(getattr(deploy, "spec", None), "template", None), "spec", None)
+        containers = (getattr(pod_spec, "containers", None) if pod_spec else None) or []
+        need_pgdata = False
+        for c in containers:
+            if getattr(c, "name", "") == "db" and "postgres" in (getattr(c, "image", "") or ""):
+                env_list = getattr(c, "env", None) or []
+                if not any(getattr(item, "name", None) == "PGDATA" for item in env_list):
+                    need_pgdata = True
+
+        need_pvc_replace = (pvc is None) or is_lvm_storage_class(pvc_sc)
+        if not need_pvc_replace and not need_pgdata:
+            return False
+
+        logger.info(
+            f"Автовосстановление БД {db_name}: pvc_sc={pvc_sc}, pvc_phase={pvc_phase}, "
+            f"target_sc={target_sc}, need_pvc_replace={need_pvc_replace}, need_pgdata={need_pgdata}"
+        )
+
+        try:
+            if need_pvc_replace:
+                try:
+                    apps_api.patch_namespaced_deployment(deploy_name, namespace, {"spec": {"replicas": 0}})
+                except Exception as e:
+                    logger.warning(f"Не удалось временно остановить {deploy_name}: {e}")
+
+                try:
+                    pods = core_api.list_namespaced_pod(namespace, label_selector=f"app=db-{db_name}")
+                    for pod in pods.items or []:
+                        pod_name = getattr(getattr(pod, "metadata", None), "name", None)
+                        if pod_name:
+                            try:
+                                core_api.delete_namespaced_pod(pod_name, namespace, grace_period_seconds=0)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
+                if pvc is not None:
+                    try:
+                        core_api.delete_namespaced_persistent_volume_claim(pvc_name, namespace)
+                    except ApiException as e:
+                        if e.status != 404:
+                            logger.warning(f"Не удалось удалить старый PVC {pvc_name}: {e}")
+                    for _ in range(20):
+                        try:
+                            core_api.read_namespaced_persistent_volume_claim(pvc_name, namespace)
+                            time.sleep(0.5)
+                        except ApiException as e:
+                            if e.status == 404:
+                                break
+                        except Exception:
+                            break
+
+                pvc_body = {
+                    "apiVersion": "v1",
+                    "kind": "PersistentVolumeClaim",
+                    "metadata": {"name": pvc_name},
+                    "spec": {
+                        "accessModes": ["ReadWriteOnce"],
+                        "storageClassName": target_sc,
+                        "resources": {"requests": {"storage": f"{DB_PVC_SIZE_GB}Gi"}},
+                    },
+                }
+                try:
+                    core_api.create_namespaced_persistent_volume_claim(namespace, pvc_body)
+                except ApiException as e:
+                    if e.status != 409:
+                        logger.warning(f"Не удалось создать PVC {pvc_name} на {target_sc}: {e}")
+        finally:
+            patch_body = {"spec": {"replicas": 1}}
+            if need_pgdata and containers:
+                c = containers[0]
+                env_patch = [
+                    {"name": item.name, "value": item.value}
+                    for item in (getattr(c, "env", None) or [])
+                    if getattr(item, "name", None)
+                ]
+                env_patch.append({"name": "PGDATA", "value": "/var/lib/postgresql/data/pgdata"})
+                patch_body["spec"]["template"] = {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "db",
+                                "env": env_patch,
+                            }
+                        ]
+                    }
+                }
+            try:
+                apps_api.patch_namespaced_deployment(deploy_name, namespace, patch_body)
+            except Exception as e:
+                logger.warning(f"Не удалось перезапустить {deploy_name}: {e}")
+        return True
+
+    def _get_ready_db_pod(self, db_name: str, namespace: str = "default", wait_timeout: float = 20.0):
+        """Находит запущенный и готовый под базы данных (при необходимости лечит зависший PVC и ждёт старта)."""
+        core_api = client.CoreV1Api(self.api_client)
+        pods = core_api.list_namespaced_pod(namespace, label_selector=f"app=db-{db_name}")
+        ready_pod = self._select_ready_db_pod(pods.items if pods else [])
+        if ready_pod is not None:
+            return ready_pod
+
+        try:
+            self.reconcile_private_db_storage(db_name, namespace)
+        except Exception as e:
+            logger.warning(f"Ошибка автовосстановления хранилища БД {db_name}: {e}")
+
+        deadline = time.time() + max(0.0, wait_timeout)
+        while time.time() < deadline:
+            time.sleep(1.0)
+            pods = core_api.list_namespaced_pod(namespace, label_selector=f"app=db-{db_name}")
+            ready_pod = self._select_ready_db_pod(pods.items if pods else [])
+            if ready_pod is not None:
+                return ready_pod
+
+        pods = core_api.list_namespaced_pod(namespace, label_selector=f"app=db-{db_name}")
+        ready_pod = self._select_ready_db_pod(pods.items if pods else [])
+        if ready_pod is not None:
+            return ready_pod
+        raise Exception(self._describe_db_pod_not_ready(db_name, pods.items if pods else [], namespace))
+
     def get_private_db_status(self, db_name: str, namespace: str = "default"):
         """Возвращает статус доступности пода СУБД"""
         apps_api = client.AppsV1Api(self.api_client)
@@ -3204,6 +3431,10 @@ class K8sClient:
             ready = deploy.status.ready_replicas
             if ready and ready > 0:
                 return "Active"
+            try:
+                self.reconcile_private_db_storage(db_name, namespace)
+            except Exception as e:
+                logger.warning(f"Не удалось проверить хранилище БД {db_name}: {e}")
             return "Pending"
         except Exception:
             return "Error"
@@ -3214,42 +3445,72 @@ class K8sClient:
         SQL передаётся в клиент СУБД через STDIN (а не через shell-интерполяцию),
         поэтому обратные кавычки MySQL работают, и невозможна инъекция команд
         через `` `...` `` или `$(...)` в теле запроса."""
-        core_api = client.CoreV1Api(self.api_client)
-
-        # 1. Находим под базы данных
-        pods = core_api.list_namespaced_pod(namespace, label_selector=f"app=db-{db_name}")
-        if not pods.items:
-            raise Exception("Под базы данных не найден или не запущен")
-        pod_name = pods.items[0].metadata.name
+        import shlex
+        import subprocess
 
         # ON_ERROR_STOP/exit-code гарантируют ненулевой код при ошибке SQL
         if engine == "postgresql":
-            shell_cmd = f"PGPASSWORD='{db_password}' psql --csv -v ON_ERROR_STOP=1 -U {db_user} -d {db_name}"
+            shell_cmd = (
+                f"PGPASSWORD={shlex.quote(db_password)} "
+                f"psql --csv -v ON_ERROR_STOP=1 -U {shlex.quote(db_user)} -d {shlex.quote(db_name)}"
+            )
         else:  # mysql / mariadb
-            shell_cmd = f"mysql -B -u {db_user} -p'{db_password}' {db_name}"
+            shell_cmd = (
+                f"export MYSQL_PWD={shlex.quote(db_password)}; "
+                f"if command -v mariadb >/dev/null 2>&1; then db_client=mariadb; else db_client=mysql; fi; "
+                f"\"$db_client\" -B -u {shlex.quote(db_user)} {shlex.quote(db_name)}"
+            )
 
-        import subprocess
-        cmd = ["kubectl", "exec", "-i", "-n", namespace, pod_name, "--", "sh", "-c", shell_cmd]
-        try:
-            p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            stdout, stderr = p.communicate(input=sql if sql.endswith("\n") else sql + "\n", timeout=30)
-        except subprocess.TimeoutExpired:
-            p.kill()
-            raise Exception("Превышено время выполнения запроса (30с)")
-        except Exception as e:
-            raise Exception(f"Ошибка выполнения команды в контейнере: {e}")
+        sql_input = sql if sql.endswith("\n") else sql + "\n"
+        transient_markers = (
+            "unable to upgrade connection: container not found",
+            'container not found ("db")',
+            "the database system is starting up",
+            "the database system is shutting down",
+            "connection to server on socket",
+            "Can't connect to local MySQL server through socket",
+            "Can't connect to local server through socket",
+        )
 
-        if p.returncode != 0:
-            raise Exception((stderr or stdout or "Ошибка выполнения запроса").strip())
-        return stdout
+        last_err = "Ошибка выполнения запроса"
+        for attempt in range(15):
+            pod = self._get_ready_db_pod(db_name, namespace, wait_timeout=20.0 if attempt == 0 else 5.0)
+            pod_name = pod.metadata.name
+            cmd = ["kubectl", "exec", "-i", "-n", namespace, pod_name, "--", "sh", "-c", shell_cmd]
+            try:
+                p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                stdout, stderr = p.communicate(input=sql_input, timeout=30)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                raise Exception("Превышено время выполнения запроса (30с)")
+            except Exception as e:
+                raise Exception(f"Ошибка выполнения команды в контейнере: {e}")
+
+            if p.returncode == 0:
+                return stdout
+
+            last_err = (stderr or stdout or "Ошибка выполнения запроса").strip()
+            if db_password:
+                last_err = last_err.replace(db_password, "[скрыто]")
+            if any(marker in last_err for marker in transient_markers) and attempt < 14:
+                try:
+                    self.reconcile_private_db_storage(db_name, namespace)
+                except Exception:
+                    pass
+                time.sleep(1.0)
+                continue
+            break
+
+        if "unable to upgrade connection: container not found" in last_err or 'container not found ("db")' in last_err:
+            raise Exception(
+                "Контейнер базы данных ещё запускается или перезапускается. Подождите 10–15 секунд и повторите запрос."
+            )
+        raise Exception(last_err)
 
     def get_db_metrics(self, db_name: str, engine: str, db_user: str, db_password: str, namespace: str = "default"):
         """Возвращает метрики потребления ресурсов подом БД и размер базы данных"""
-        core_api = client.CoreV1Api(self.api_client)
-        pods = core_api.list_namespaced_pod(namespace, label_selector=f"app=db-{db_name}")
-        if not pods.items:
-            raise Exception("Под базы данных не найден или не запущен")
-        pod_name = pods.items[0].metadata.name
+        pod = self._get_ready_db_pod(db_name, namespace, wait_timeout=5.0)
+        pod_name = pod.metadata.name
 
         # 1. Получаем размер базы данных через SQL-запрос
         db_size_bytes = 0
@@ -3273,7 +3534,7 @@ class K8sClient:
         uptime_str = "0 мин."
         try:
             from datetime import datetime, timezone
-            creation = pods.items[0].metadata.creation_timestamp
+            creation = getattr(pod.metadata, "creation_timestamp", None)
             if creation:
                 now = datetime.now(timezone.utc)
                 delta = now - creation
@@ -3465,22 +3726,16 @@ class K8sClient:
 
     def execute_db_backup(self, db_name: str, engine: str, db_user: str, db_password: str, namespace: str = "default") -> str:
         """Создает полный SQL-дамп; ошибки процесса не попадают в архив."""
-        core_api = client.CoreV1Api(self.api_client)
-        pods = core_api.list_namespaced_pod(namespace, label_selector=f"app=db-{db_name}")
-        if not pods.items:
-            raise Exception("Под базы данных не найден или не запущен")
-        pod_name = pods.items[0].metadata.name
+        pod = self._get_ready_db_pod(db_name, namespace, wait_timeout=20.0)
+        pod_name = pod.metadata.name
 
         from app.services.db_archives import capture
         return capture(pod_name, namespace, db_name, engine, db_user, db_password)
 
     def execute_db_restore(self, db_name: str, engine: str, db_user: str, db_password: str, sql_content: str, namespace: str = "default"):
         """Заменяет содержимое базы полным дампом с проверкой завершения."""
-        core_api = client.CoreV1Api(self.api_client)
-        pods = core_api.list_namespaced_pod(namespace, label_selector=f"app=db-{db_name}")
-        if not pods.items:
-            raise Exception("Под базы данных не найден или не запущен")
-        pod_name = pods.items[0].metadata.name
+        pod = self._get_ready_db_pod(db_name, namespace, wait_timeout=20.0)
+        pod_name = pod.metadata.name
 
         from app.services.db_archives import restore
         return restore(pod_name, namespace, db_name, engine, db_user, db_password, sql_content)
