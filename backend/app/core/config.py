@@ -1,5 +1,16 @@
 import os
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
+
+
+def resolve_system_storage_class(value: str | None) -> str:
+    """Системные диски ВМ и приватные БД не размещаются в LVM-пуле:
+    LVM используется только для подключаемых сетевых дисков."""
+    cleaned = (value or "").strip()
+    if not cleaned or "lvm" in cleaned.lower() or "vg-" in cleaned.lower():
+        return "local-path"
+    return cleaned
+
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Antigravity VM Hosting"
@@ -15,8 +26,13 @@ class Settings(BaseSettings):
         "KUBECONFIG", 
         os.path.expanduser("~/.kube/config")
     )
-    STORAGE_CLASS: str = os.getenv("STORAGE_CLASS", "local-path")
+    STORAGE_CLASS: str = resolve_system_storage_class(os.getenv("STORAGE_CLASS", "local-path"))
     NETWORK_STORAGE_CLASS: str = os.getenv("NETWORK_STORAGE_CLASS", "openebs-lvm")
+
+    @field_validator("STORAGE_CLASS", mode="before")
+    @classmethod
+    def _normalize_storage_class(cls, value: str | None) -> str:
+        return resolve_system_storage_class(value)
     
     # Настройки CORS. По умолчанию "*" (панель отдаётся тем же хостом и
     # авторизуется токеном в заголовке, не куками). Можно ограничить через

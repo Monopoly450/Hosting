@@ -67,8 +67,7 @@ def test_lvm_free_space_is_clamped_to_sparse_image_backing_fs(monkeypatch):
     }
 
 def test_local_path_routes_to_the_host_disk(monkeypatch):
-    """Настройка по умолчанию — то, что уже наблюдалось на живом сервере:
-    LVM-пул существует, но пуст, потому что STORAGE_CLASS на него не указывает."""
+    """Настройка по умолчанию — системные диски ВМ и БД идут на локальный диск хоста."""
     monkeypatch.setattr(cap, "host_totals", lambda: {
         "cpu": 1, "ram_gb": 1.0, "ram_used_gb": 0.0, "disk_gb": 200.0, "disk_free_gb": 150.0})
 
@@ -80,42 +79,50 @@ def test_local_path_routes_to_the_host_disk(monkeypatch):
     assert result == {"backend": "local", "total_gb": 200.0, "free_gb": 150.0}
 
 
+def test_legacy_lvm_storage_class_still_routes_system_disks_to_host_disk(monkeypatch):
+    """Даже если в старом .env осталось STORAGE_CLASS=openebs-lvm, системные
+    диски ВМ и БД не должны проверяться по LVM-пулу: LVM нужен только для
+    подключаемых сетевых дисков."""
+    monkeypatch.setattr(cap, "host_totals", lambda: {
+        "cpu": 1, "ram_gb": 1.0, "ram_used_gb": 0.0, "disk_gb": 200.0, "disk_free_gb": 150.0})
+    monkeypatch.setattr(cap, "read_lvm_pool_gb", lambda: {"active": True, "total_gb": 20.0, "free_gb": 5.0})
+
+    class Settings:
+        STORAGE_CLASS = "openebs-lvm"
+    monkeypatch.setattr("app.core.config.settings", Settings())
+
+    assert cap.system_storage_class() == "local-path"
+    assert cap.storage_backend_totals() == {"backend": "local", "total_gb": 200.0, "free_gb": 150.0}
+
+
 def test_lvm_backed_class_routes_to_the_pool(monkeypatch):
     monkeypatch.setattr(cap, "read_lvm_pool_gb", lambda: {"active": True, "total_gb": 50.0, "free_gb": 50.0})
 
-    class Settings:
-        STORAGE_CLASS = "openebs-lvmpv"
-    monkeypatch.setattr("app.core.config.settings", Settings())
-
-    result = cap.storage_backend_totals()
+    result = cap.storage_backend_totals("openebs-lvmpv")
     assert result == {"backend": "lvm", "total_gb": 50.0, "free_gb": 50.0}
 
 
 def test_lvm_configured_but_unreachable_fails_closed(monkeypatch):
     """Корневой диск не является запасным backend для openebs-lvm: если VG
-    недоступен, новые PVC должны остановиться, а не пройти чужую ёмкость."""
+    недоступен, новые сетевые PVC должны остановиться, а не пройти чужую ёмкость."""
     monkeypatch.setattr(cap, "read_lvm_pool_gb", lambda: {"active": False, "total_gb": 0.0, "free_gb": 0.0})
     monkeypatch.setattr(cap, "host_totals", lambda: {
         "cpu": 1, "ram_gb": 1.0, "ram_used_gb": 0.0, "disk_gb": 200.0, "disk_free_gb": 150.0})
 
-    class Settings:
-        STORAGE_CLASS = "openebs-lvmpv"
-    monkeypatch.setattr("app.core.config.settings", Settings())
-
-    result = cap.storage_backend_totals()
+    result = cap.storage_backend_totals("openebs-lvmpv")
     assert result == {"backend": "lvm", "total_gb": 0.0, "free_gb": 0.0}
 
 
 # ------------------------------ known_storage_reservations_gb -----------------
 
-def test_reservations_sum_vm_disks_volumes_and_databases():
+def test_reservations_sum_vm_disks_and_databases_without_lvm_network_volumes():
     db = FakeDb(
         vms=[FakeVM(1, 1, 20), FakeVM(1, 1, 30)],
         volumes=[FakeVol(10), FakeVol(5)],
         databases=[FakeDatabase(), FakeDatabase()],
     )
-    # 20 + 30 (диски ВМ) + 10 + 5 (сетевые диски) + 2×5 (базы данных, DB_PVC_SIZE_GB)
-    assert cap.known_storage_reservations_gb(db) == 20 + 30 + 10 + 5 + 2 * 5
+    # 20 + 30 (диски ВМ) + 2×5 (базы данных, DB_PVC_SIZE_GB); сетевые диски в LVM-пуле
+    assert cap.known_storage_reservations_gb(db) == 20 + 30 + 2 * 5
 
 
 def test_reservations_without_k8s_client_skip_backups():

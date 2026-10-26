@@ -231,6 +231,18 @@ detect_host_ip() {
 # для случая, когда .env уже есть и вопросы не задавались вовсе.
 LVM_POOL_GB=""
 
+normalize_env_storage_classes() {
+    local env_file="${PROJECT_DIR}/.env"
+    [ -f "$env_file" ] || return 0
+    if grep -qiE '^STORAGE_CLASS=(openebs-lvm|.*lvm.*|.*vg-.*)$' "$env_file" 2>/dev/null; then
+        log "В .env обнаружен LVM в STORAGE_CLASS — перевожу системные диски ВМ и БД на local-path (LVM используется только для подключаемых сетевых дисков)."
+        sed -i 's/^STORAGE_CLASS=.*/STORAGE_CLASS=local-path/' "$env_file"
+    fi
+    if ! grep -qE '^NETWORK_STORAGE_CLASS=' "$env_file" 2>/dev/null; then
+        echo "NETWORK_STORAGE_CLASS=openebs-lvm" >> "$env_file"
+    fi
+}
+
 generate_env_file() {
     local env_file="${PROJECT_DIR}/.env"
 
@@ -238,6 +250,7 @@ generate_env_file() {
         log "Файл .env уже существует."
         if [ "$AUTO_YES" = true ]; then
             log "Режим --yes: использую существующий .env без изменений."
+            normalize_env_storage_classes
             return
         fi
         if [ "$USE_WHIPTAIL" = true ]; then
@@ -245,6 +258,7 @@ generate_env_file() {
                 "Найден существующий .env.\n\nОставить его без изменений и не спрашивать пароли заново?" \
                 10 70; then
                 log "Использую существующий .env."
+                normalize_env_storage_classes
                 return
             fi
         else
@@ -252,7 +266,7 @@ generate_env_file() {
             read -rp "Оставить его как есть, не спрашивая пароли заново? [Y/n]: " keep
             case "$keep" in
                 [nN]*) ;;
-                *) log "Использую существующий .env."; return ;;
+                *) log "Использую существующий .env."; normalize_env_storage_classes; return ;;
             esac
         fi
     fi
@@ -280,18 +294,15 @@ generate_env_file() {
     minio_user=$(ask_value "Логин объектного хранилища MinIO" "minioadmin")
     minio_password=$(ask_secret "Пароль объектного хранилища MinIO")
     mariadb_password=$(ask_secret "Пароль root служебной MariaDB")
-    # openebs-lvm по умолчанию, а не local-path. Снимки ВМ умеет делать только
-    # CSI-драйвер, а local-path им не является: без него панель создаёт объект
-    # VirtualMachineSnapshot успешно, показывает «создаётся» — и он навсегда
-    # остаётся в Pending, потому что настоящий VolumeSnapshot делать нечем.
-    # Снаружи это выглядит как «снимки не работают», без единой ошибки.
-    # Если установка LVM ниже не удастся, шаг 8 сам вернёт сюда local-path.
-    storage_class=$(ask_value "Класс хранения дисков ВМ (local-path — без снимков; nfs-storage — только для отказоустойчивого кластера)" "openebs-lvm")
-    # Пул LVM — файл-образ, из которого нарезаются диски ВМ. По умолчанию
-    # берём 60% свободного места: остальное нужно образам ОС, слоям Docker и
-    # самой системе. Раньше размер был жёстко зашит в 40 ГБ — на сервере с
-    # терабайтом это означало, что после четырёх ВМ место кончалось.
-    LVM_POOL_GB=$(ask_value "Размер пула LVM под диски ВМ, ГБ (файл-образ разреженный: место занимается по мере записи)" "$(default_lvm_pool_gb)")
+    # Системные диски ВМ и приватные БД размещаются на local-path (или nfs-storage
+    # в кластере), а пул OpenEBS LVM используется только для подключаемых сетевых
+    # дисков (NETWORK_STORAGE_CLASS=openebs-lvm).
+    storage_class=$(ask_value "Класс хранения системных дисков ВМ и БД (local-path — локальный диск хоста; nfs-storage — только для отказоустойчивого кластера)" "local-path")
+    case "${storage_class,,}" in
+        ""|*lvm*|*vg-*) storage_class="local-path" ;;
+    esac
+    # Пул LVM — файл-образ, из которого нарезаются подключаемые сетевые диски.
+    LVM_POOL_GB=$(ask_value "Размер пула LVM под подключаемые сетевые диски, ГБ (файл-образ разреженный: место занимается по мере записи)" "$(default_lvm_pool_gb)")
     registry_port=$(ask_value "Порт приватного реестра образов" "5000")
 
     detected_ip=$(detect_host_ip)
@@ -349,6 +360,7 @@ generate_env_file() {
         echo "MARIADB_ROOT_PASSWORD=${mariadb_password}"
         echo
         echo "STORAGE_CLASS=${storage_class}"
+        echo "NETWORK_STORAGE_CLASS=openebs-lvm"
         echo "REGISTRY_PORT=${registry_port}"
         if [ -n "$host_ip" ]; then
             echo "AEGIS_HOST_IP=${host_ip}"
@@ -790,13 +802,13 @@ log "Prometheus развёрнут в namespace prometheus."
 
 # ============================== 8. LVM-хранилище ==============================
 
-step "Настройка блочного хранилища LVM (снимки и горячая замена дисков)"
-# .env целиком не подключаем: в нём пароли и произвольные строки, а нужно одно
-# значение. Оно же могло прийти из существующего .env, когда вопросы не
-# задавались вовсе.
+step "Настройка блочного хранилища LVM (подключаемые сетевые диски)"
+normalize_env_storage_classes
 STORAGE_CLASS=$(grep -E '^STORAGE_CLASS=' "${PROJECT_DIR}/.env" 2>/dev/null | tail -n1 | cut -d= -f2-)
+NETWORK_STORAGE_CLASS=$(grep -E '^NETWORK_STORAGE_CLASS=' "${PROJECT_DIR}/.env" 2>/dev/null | tail -n1 | cut -d= -f2-)
+[ -z "$NETWORK_STORAGE_CLASS" ] && NETWORK_STORAGE_CLASS="openebs-lvm"
 [ -z "$LVM_POOL_GB" ] && LVM_POOL_GB=$(default_lvm_pool_gb)
-log "Пул LVM: ${LVM_POOL_GB} ГБ, класс дисков ВМ: ${STORAGE_CLASS:-<не задан>}"
+log "Пул LVM для сетевых дисков: ${LVM_POOL_GB} ГБ (${NETWORK_STORAGE_CLASS}), системные диски ВМ и БД: ${STORAGE_CLASS:-local-path}"
 EXPECTED_LVM_CHART_VERSION="${OPEN_EBS_LVM_CHART_VERSION:-1.9.0}"
 LVM_SETUP_OK=false
 if [ -f "${PROJECT_DIR}/scripts/install-openebs-lvm.sh" ]; then
@@ -813,19 +825,16 @@ fi
 
 # Проверяем весь результат, а не только наличие объектов. При upgrade старые
 # StorageClass/VolumeSnapshotClass остаются в кластере даже после неудачного
-# Helm upgrade и раньше маскировали ошибку: установщик объявлял snapshots
-# готовыми, хотя контроллер оставался на версии без restore или в частично
-# обновлённом состоянии.
-if [ "$STORAGE_CLASS" = "openebs-lvm" ]; then
+# Helm upgrade и раньше маскировали ошибку.
+if [ "$NETWORK_STORAGE_CLASS" = "openebs-lvm" ]; then
     if ! kubectl get storageclass openebs-lvm >/dev/null 2>&1; then
-        warn "Класс хранения openebs-lvm в кластере не появился — возвращаю local-path,"
-        warn "иначе ни одна ВМ не создастся. Снимки при этом работать не будут."
-        warn "Починить: sudo bash scripts/install-openebs-lvm.sh, затем в .env"
-        warn "STORAGE_CLASS=openebs-lvm и docker compose up -d --build backend worker"
+        warn "Класс хранения openebs-lvm в кластере не появился — подключаемые сетевые диски будут недоступны до исправления."
+        warn "Системные диски ВМ и БД работают через STORAGE_CLASS=local-path."
+        warn "Починить сетевые диски: sudo bash scripts/install-openebs-lvm.sh"
         sed -i 's/^STORAGE_CLASS=.*/STORAGE_CLASS=local-path/' "${PROJECT_DIR}/.env"
         STORAGE_CLASS="local-path"
     elif [ "$(kubectl get storageclass openebs-lvm -o jsonpath='{.parameters.thinProvision}' 2>/dev/null)" != "yes" ]; then
-        error "StorageClass openebs-lvm остался thick: откат снимков на нём не поддерживается. Удалите старое хранилище по docs/LVM_RESET.md и повторите установку."
+        error "StorageClass openebs-lvm остался thick: требуется thinProvision. Удалите старое хранилище по docs/LVM_RESET.md и повторите установку."
     else
         LVM_VERIFY_OK=true
         CURRENT_SC=$(kubectl get storageclass openebs-lvm \

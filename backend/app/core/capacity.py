@@ -173,6 +173,20 @@ def is_lvm_storage_class(name: str) -> bool:
     return "lvm" in name or "vg-" in name
 
 
+def system_storage_class(storage_class: str | None = None) -> str:
+    """Класс хранения для системных дисков ВМ, приватных БД и архивов.
+    LVM используется только для подключаемых сетевых дисков, поэтому
+    любое LVM-значение STORAGE_CLASS (например, из старого .env) для
+    системных ресурсов приводится к local-path."""
+    from app.core.config import settings
+
+    raw = settings.STORAGE_CLASS if storage_class is None else storage_class
+    cleaned = (raw or "").strip()
+    if not cleaned or is_lvm_storage_class(cleaned):
+        return "local-path"
+    return cleaned
+
+
 # Имя тома LVM жёстко задано инсталлятором (см. scripts/install-openebs-lvm.sh)
 LVM_VG_NAME = "vg-aegis"
 LVM_LOOP_IMAGE = "/var/lib/aegis/lvm-storage.img"
@@ -291,14 +305,12 @@ def read_lvm_pool_gb() -> dict:
 
 
 def storage_backend_totals(storage_class=None) -> dict:
-    """{'backend', 'total_gb', 'free_gb'} — куда РЕАЛЬНО уйдёт новый PVC при
-    выбранном классе хранения: в LVM-пул или на корневой диск хоста.
-    Без аргумента сохраняется прежнее поведение STORAGE_CLASS.
+    """{'backend', 'total_gb', 'free_gb'} — куда РЕАЛЬНО уйдёт новый PVC.
+    LVM используется только для подключаемых сетевых дисков (когда явно
+    передан LVM storage_class). Системные диски ВМ, БД и копии всегда
+    проверяются по локальному диску хоста.
     """
-    from app.core.config import settings
-
-    storage_class = settings.STORAGE_CLASS if storage_class is None else storage_class
-    if is_lvm_storage_class(storage_class):
+    if storage_class is not None and is_lvm_storage_class(storage_class):
         lvm = read_lvm_pool_gb()
         if lvm["active"]:
             return {"backend": "lvm", "total_gb": lvm["total_gb"], "free_gb": lvm["free_gb"]}
@@ -349,16 +361,14 @@ def network_disks_lvm_reserved_gb(db, k8s, *, allocations=None) -> float:
 
 
 def known_storage_reservations_gb(db, k8s=None, *, require_backups: bool = False) -> float:
-    """Сколько ГБ уже обещано на активном бэкенде хранения (см.
-    storage_backend_totals): диски ВМ + сетевые диски + базы данных, и —
-    если передан k8s-клиент — бэкапы. Бэкапы требуют обращения к
-    Kubernetes (для их размеров нет отдельной таблицы в БД), поэтому
-    считаются, только когда клиент передан явно, а не при каждой проверке."""
-    from app.models.models import VMTask, UserVolume, UserDatabase, VMArchive
+    """Сколько ГБ уже обещано на системном бэкенде хранения (local-path /
+    STORAGE_CLASS): системные диски ВМ + базы данных, и — если передан
+    k8s-клиент — бэкапы. Подключаемые сетевые диски (UserVolume) создаются
+    в отдельном LVM-пуле (NETWORK_STORAGE_CLASS) и учитываются отдельно."""
+    from app.models.models import VMTask, UserDatabase, VMArchive
     from app.core.k8s_client import DB_PVC_SIZE_GB
 
     total = sum(vm.disk_gb or 0 for vm in db.query(VMTask).all())
-    total += sum(v.size_gb or 0 for v in db.query(UserVolume).all())
     total += db.query(UserDatabase).count() * DB_PVC_SIZE_GB
     # Резерв существует ещё до создания CDI DataVolume воркером. Во время
     # импорта учитываем консервативно и резерв, и уже появившиеся DV.

@@ -20,15 +20,14 @@ def _lvm_sh():
     return _read("scripts", "install-openebs-lvm.sh")
 
 
-def test_vm_disks_land_on_a_snapshot_capable_class():
-    """local-path по умолчанию означал, что снимки не работают НИКОГДА и
-    молча: панель создаёт VirtualMachineSnapshot, показывает «создаётся», а
-    он навсегда виснет в Pending — делать настоящий VolumeSnapshot нечем,
-    local-path не CSI-драйвер. Пользователь видит «снимки не создаются» без
-    единой ошибки в логах."""
+def test_vm_disks_use_local_path_while_lvm_is_only_for_network_disks():
+    """Системные диски ВМ и БД по умолчанию создаются на local-path, а пул
+    OpenEBS LVM выделяется только для подключаемых сетевых дисков."""
     src = _install_sh()
     line = next(l for l in src.splitlines() if "storage_class=$(ask_value" in l)
-    assert '"openebs-lvm")' in line, "класс дисков ВМ снова по умолчанию без снимков"
+    assert '"local-path")' in line, "системные диски ВМ должны по умолчанию использовать local-path"
+    assert 'NETWORK_STORAGE_CLASS=openebs-lvm' in src, "сетевые диски должны использовать openebs-lvm"
+    assert 'normalize_env_storage_classes' in src, "старый .env с STORAGE_CLASS=openebs-lvm должен переводиться на local-path"
 
 
 def test_failed_lvm_setup_does_not_leave_an_unusable_cluster():

@@ -66,8 +66,6 @@ const HostStats = ({ onMetricsLoaded }) => {
       if (!selectedStorageTab) {
         if (data.shared_disk && data.shared_disk.active) {
           setSelectedStorageTab('nfs');
-        } else if (data.lvm && data.lvm.active) {
-          setSelectedStorageTab('lvm');
         } else {
           setSelectedStorageTab('local');
         }

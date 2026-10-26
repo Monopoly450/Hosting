@@ -141,7 +141,10 @@ def kubernetes_overview():
         pass
 
     import os
-    result["storage_class"] = os.getenv("STORAGE_CLASS", "local-path")
+    from app.core.capacity import system_storage_class
+    from app.core.config import settings
+    result["storage_class"] = system_storage_class(os.getenv("STORAGE_CLASS", "local-path"))
+    result["network_storage_class"] = settings.NETWORK_STORAGE_CLASS
 
     return result
 

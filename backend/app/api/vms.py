@@ -193,10 +193,12 @@ def default_user_for(os_type: str) -> str:
 
 
 def generate_linux_manifest(req: VMCreationRequest, password: str) -> dict:
+    from app.core.capacity import system_storage_class
     from app.services.vm_inputs import cloud_config, merge_cloud_config
     custom_config = cloud_config(req.custom_user_data) if req.custom_user_data else {}
     # Определение базового образа и логина (из централизованной карты)
-    access_mode = "ReadWriteMany" if "nfs" in settings.STORAGE_CLASS.lower() else "ReadWriteOnce"
+    vm_storage_class = system_storage_class(settings.STORAGE_CLASS)
+    access_mode = "ReadWriteMany" if "nfs" in vm_storage_class.lower() else "ReadWriteOnce"
     default_image, default_user = LINUX_CLOUD_IMAGES.get(req.os_type, (DEFAULT_UBUNTU_IMAGE, "ubuntu"))
     image_url = req.iso_url or default_image
 
@@ -516,7 +518,7 @@ local-hostname: {req.name}
                             }
                         },
                         "storage": {
-                            "storageClassName": settings.STORAGE_CLASS,
+                            "storageClassName": vm_storage_class,
                             "accessModes": [
                                 access_mode
                             ],
@@ -549,6 +551,7 @@ local-hostname: {req.name}
     return manifest
 
 def generate_windows_manifest(req: VMCreationRequest) -> dict:
+    from app.core.capacity import system_storage_class
     # У каждой ISO-ОС свой установочный образ
     if req.os_type == "proxmox":
         iso_url = req.iso_url or DEFAULT_PROXMOX_ISO
@@ -561,7 +564,8 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
         host_ip = get_host_ip()
         iso_url = f"http://{host_ip}:8000/static/images/{req.custom_image}"
 
-    access_mode = "ReadWriteMany" if "nfs" in settings.STORAGE_CLASS.lower() else "ReadWriteOnce"
+    vm_storage_class = system_storage_class(settings.STORAGE_CLASS)
+    access_mode = "ReadWriteMany" if "nfs" in vm_storage_class.lower() else "ReadWriteOnce"
 
     return {
         "apiVersion": "kubevirt.io/v1",
@@ -687,7 +691,7 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                             "blank": {}
                         },
                         "storage": {
-                            "storageClassName": settings.STORAGE_CLASS,
+                            "storageClassName": vm_storage_class,
                             "accessModes": [
                                 access_mode
                             ],
@@ -714,7 +718,7 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                             }
                         },
                         "storage": {
-                            "storageClassName": settings.STORAGE_CLASS,
+                            "storageClassName": vm_storage_class,
                             "accessModes": [
                                 access_mode
                             ],

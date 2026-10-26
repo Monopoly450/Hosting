@@ -1373,10 +1373,11 @@ class K8sClient:
             )
                 
             # Размер копируемого диска
+            from app.core.capacity import system_storage_class
             storage_size = orig_pvc.spec.resources.requests["storage"]
             storage_class = (
                 getattr(orig_pvc.spec, "storage_class_name", None)
-                or settings.STORAGE_CLASS
+                or system_storage_class(settings.STORAGE_CLASS)
             )
             
             # Уникальное имя резервной копии
@@ -1897,10 +1898,11 @@ class K8sClient:
             backup_pvc = self.core_api.read_namespaced_persistent_volume_claim(
                 backup_name, namespace
             )
+            from app.core.capacity import system_storage_class
             backup_size = backup_pvc.spec.resources.requests["storage"]
             backup_storage_class = (
                 getattr(backup_pvc.spec, "storage_class_name", None)
-                or settings.STORAGE_CLASS
+                or system_storage_class(settings.STORAGE_CLASS)
             )
 
             vm = self.custom_api.get_namespaced_custom_object(
@@ -2032,12 +2034,13 @@ class K8sClient:
         mem_req = domain.get("resources", {}).get("requests", {}).get("memory", "1Gi")
         
         # Диски
+        from app.core.capacity import system_storage_class
         disks = []
         dvt = spec.get("dataVolumeTemplates", [])
         for dv in dvt:
             dv_spec = dv.get("spec", {})
             size = dv_spec.get("storage", {}).get("resources", {}).get("requests", {}).get("storage", "10Gi")
-            sc = dv_spec.get("storage", {}).get("storageClassName") or settings.STORAGE_CLASS
+            sc = dv_spec.get("storage", {}).get("storageClassName") or system_storage_class(settings.STORAGE_CLASS)
             disks.append({
                 "name": dv["metadata"]["name"],
                 "size": size,
@@ -2455,7 +2458,8 @@ class K8sClient:
 
     def create_pvc(self, name: str, size_gb: int, namespace: str = "default", *, storage_class: str = None):
         """Создает DataVolume в Kubernetes для автоматического создания disk.img и поддержки NFS/LVM"""
-        storage_class = storage_class or settings.STORAGE_CLASS
+        from app.core.capacity import system_storage_class
+        storage_class = storage_class or system_storage_class(settings.STORAGE_CLASS)
         volume_mode = "Block"
         access_mode = "ReadWriteOnce"
         # NFS не поддерживает режим Block и требует ReadWriteMany для живой миграции
@@ -2971,6 +2975,7 @@ class K8sClient:
 
     def create_private_db(self, db_name: str, engine: str, db_user: str, db_password: str, vm_name: str = None, namespace: str = "default"):
         """Создает выделенный приватный под базы данных с диском на СХД и сетевой политикой в K8s"""
+        from app.core.capacity import system_storage_class
         # 1. Создаем PVC под хранилище
         pvc_body = {
             "apiVersion": "v1",
@@ -2980,7 +2985,7 @@ class K8sClient:
             },
             "spec": {
                 "accessModes": ["ReadWriteOnce"],
-                "storageClassName": settings.STORAGE_CLASS,
+                "storageClassName": system_storage_class(settings.STORAGE_CLASS),
                 "resources": {
                     "requests": {
                         "storage": f"{DB_PVC_SIZE_GB}Gi"

@@ -148,14 +148,14 @@ sudo env AEGIS_K3S_MIRROR=rancher bash install.sh --yes
 
 ### Важный выбор хранилища
 
-Для схемы **«системные диски и БД на local-path, LVM только для сетевых дисков»** выберите в мастере:
+По умолчанию используется схема **«системные диски ВМ и БД на local-path, LVM только для подключаемых сетевых дисков»**:
 
 ~~~dotenv
 STORAGE_CLASS=local-path
 NETWORK_STORAGE_CLASS=openebs-lvm
 ~~~
 
-В текущем `install.sh` мастер предлагает `openebs-lvm` для `STORAGE_CLASS`, тогда как [.env.example](.env.example) содержит `local-path`. Поэтому не полагайтесь на значение по умолчанию: выбирайте класс системных дисков явно. Если `NETWORK_STORAGE_CLASS` отсутствует в `.env`, backend использует `openebs-lvm`.
+Установщик `install.sh` и [.env.example](.env.example) задают `STORAGE_CLASS=local-path` для системных дисков ВМ и баз данных, а `NETWORK_STORAGE_CLASS=openebs-lvm` — исключительно для подключаемых сетевых дисков. Если в старом `.env` было указано `STORAGE_CLASS=openebs-lvm`, backend и установщик автоматически переводят системные диски на `local-path`.
 
 Новые S3-снимки и бэкапы работают и с `local-path`: им не требуется CSI VolumeSnapshotClass.
 

@@ -111,3 +111,34 @@ def test_network_metrics_include_pending_lvm_disks_under_local_default(create_en
         db.commit()
         k8s.custom_api.list_namespaced_custom_object.return_value = {"items": [dv("vol-1-pending", "4Gi")]}
         assert cap.network_disks_lvm_reserved_gb(db, k8s) == 4
+
+
+def test_vm_creation_never_uses_or_checks_lvm_pool_even_with_legacy_env(create_env, monkeypatch):
+    """Даже при маленьком LVM-пуле (20 ГБ) и legacy STORAGE_CLASS=openebs-lvm
+    создание ВМ с системным диском 60 ГБ проверяет локальный диск хоста и
+    создаёт системный диск на local-path, а не на LVM."""
+    from app.api.vms import VMCreationRequest, generate_linux_manifest, generate_windows_manifest
+    from app.core.config import Settings
+
+    factory, k8s, _ = create_env
+    monkeypatch.setenv("STORAGE_CLASS", "openebs-lvm")
+    assert Settings().STORAGE_CLASS == "local-path"
+
+    monkeypatch.setattr(settings, "STORAGE_CLASS", "openebs-lvm")
+    monkeypatch.setattr(cap, "read_lvm_pool_gb", lambda: {"active": True, "total_gb": 20.0, "free_gb": 5.0})
+    monkeypatch.setattr(cap, "host_totals", lambda: {
+        "cpu": 8, "ram_gb": 32.0, "ram_used_gb": 4.0, "disk_gb": 500.0, "disk_free_gb": 400.0,
+    })
+    monkeypatch.setattr(cap, "backups_total_gb", lambda *_a, **_kw: 0.0)
+
+    with factory() as db:
+        cap.ensure_storage_capacity(db, extra_gb=60, k8s=k8s)
+
+    req = VMCreationRequest(name="vm60", os_type="ubuntu", cpu_cores=2, memory_gb=2, disk_gb=60)
+    linux_manifest = generate_linux_manifest(req, "secret123")
+    assert linux_manifest["spec"]["dataVolumeTemplates"][0]["spec"]["storage"]["storageClassName"] == "local-path"
+
+    win_req = VMCreationRequest(name="win60", os_type="windows", cpu_cores=2, memory_gb=4, disk_gb=60)
+    win_manifest = generate_windows_manifest(win_req)
+    for dvt in win_manifest["spec"]["dataVolumeTemplates"]:
+        assert dvt["spec"]["storage"]["storageClassName"] == "local-path"

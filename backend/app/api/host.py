@@ -399,20 +399,6 @@ def get_host_metrics(client: K8sClient = Depends(get_k8s_client)):
                 import logging
                 logging.getLogger("app.host").error(f"Не удалось посчитать сетевые диски LVM: {network_err}")
 
-            # Для старой конфигурации с общим LVM-классом учитываем и задачи,
-            # которые ещё не успели создать PVC. Новые сетевые диски выше
-            # учитываются по своему отдельному классу, независимо от STORAGE_CLASS.
-            if _cap.is_lvm_storage_class(settings.STORAGE_CLASS):
-                try:
-                    db_lvm = SessionLocal()
-                    try:
-                        total_lvm_reserved = max(total_lvm_reserved, _cap.known_storage_reservations_gb(db_lvm, k8s=client))
-                    finally:
-                        db_lvm.close()
-                except Exception as res_err:
-                    import logging
-                    logging.getLogger("app.host").error(f"Не удалось посчитать резерв LVM: {res_err}")
-
             # Чтение vgs вынесено в app.core.capacity — тот же nsenter-приём,
             # что и здесь раньше, но теперь в одном месте: этим же кодом
             # пользуется и проверка вместимости при создании дисков.
