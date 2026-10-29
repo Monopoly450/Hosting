@@ -385,7 +385,12 @@ def delete_deployment(dep_id: int, current_user: User = Depends(get_current_user
             try:
                 from app.queue_client import publish_task
                 if dep.vm_id:
-                    publish_task("vm_tasks", {"task_id": dep.vm_id, "action": "delete_vm"})
+                    publish_task("vm_tasks", {
+                        "task_id": dep.vm_id,
+                        "vm_name": dep.vm_name,
+                        "owner_id": dep.owner_id,
+                        "action": "delete_vm",
+                    })
             except Exception as e:
                 logger.error(f"Failed to queue VM delete for deployment {dep.name}: {e}")
 
@@ -393,10 +398,15 @@ def delete_deployment(dep_id: int, current_user: User = Depends(get_current_user
         db.delete(dep)
         db.flush()
 
-        # Затем безопасно удаляем запись ВМ
+        # Затем безопасно удаляем архивы/бэкапы и запись ВМ
         if vm_id_to_delete:
             vmt = db.query(VMTask).filter(VMTask.id == vm_id_to_delete).first()
             if vmt:
+                try:
+                    from app.services.vm_archives import purge_vm_archives
+                    purge_vm_archives(db, vmt.name, vm_id=vmt.id, owner_id=vmt.owner_id)
+                except Exception as arch_err:
+                    logger.warning(f"Failed to purge VM archives for deployment VM {vmt.name}: {arch_err}")
                 db.delete(vmt)
 
         db.commit()

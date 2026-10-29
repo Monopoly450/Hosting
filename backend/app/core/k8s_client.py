@@ -368,14 +368,38 @@ class K8sClient:
                 if e.status != 404:
                     logger.error(f"Не удалось удалить Secret cloud-init для VM {name}: {e}")
                     
-            # 3. Удаляем резервные копии этой VM
+            # 3. Удаляем резервные копии и снимки этой VM
             try:
                 backups = self.list_vm_backups(name, namespace)
                 for backup in backups:
-                    self.delete_vm_backup(backup["name"], namespace)
-                    logger.info(f"Удалена резервная копия: {backup['name']}")
+                    try:
+                        self.delete_vm_backup(backup["name"], namespace)
+                        logger.info(f"Удалена резервная копия: {backup['name']}")
+                    except Exception as b_err:
+                        logger.warning(f"Прямое удаление бэкапа {backup['name']} после ошибки: {b_err}")
+                        try:
+                            self.custom_api.delete_namespaced_custom_object(
+                                group="cdi.kubevirt.io", version="v1beta1",
+                                namespace=namespace, plural="datavolumes", name=backup["name"],
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            self.core_api.delete_namespaced_persistent_volume_claim(backup["name"], namespace)
+                        except Exception:
+                            pass
             except Exception as e:
                 logger.error(f"Не удалось удалить бэкапы при удалении VM {name}: {e}")
+
+            try:
+                for snap in self.list_vm_snapshots(name, namespace):
+                    try:
+                        self.delete_vm_snapshot(snap["name"], namespace)
+                        logger.info(f"Удален снимок: {snap['name']}")
+                    except Exception as snap_err:
+                        logger.warning(f"Не удалось удалить снимок {snap['name']} при удалении VM {name}: {snap_err}")
+            except Exception as e:
+                logger.error(f"Не удалось удалить снимки при удалении VM {name}: {e}")
             
             # 4. Удаляем диски (DataVolume), если они есть в шаблонах
             dvt = vm.get("spec", {}).get("dataVolumeTemplates", [])
@@ -394,9 +418,23 @@ class K8sClient:
                     if e.status != 404:
                         logger.error(f"Не удалось удалить DataVolume {dv_name}: {e}")
             
-            # 5. На всякий случай удаляем связанные PVC
+            # 5. На всякий случай удаляем связанные DataVolume и PVC из volumes (в т.ч. после S3-восстановления)
             vols = vm.get("spec", {}).get("template", {}).get("spec", {}).get("volumes", [])
             for vol in vols:
+                if "dataVolume" in vol and vol["dataVolume"].get("name"):
+                    dv_name = vol["dataVolume"]["name"]
+                    try:
+                        self.custom_api.delete_namespaced_custom_object(
+                            group="cdi.kubevirt.io",
+                            version="v1beta1",
+                            namespace=namespace,
+                            plural="datavolumes",
+                            name=dv_name,
+                        )
+                        logger.info(f"Удален DataVolume из volumes: {dv_name}")
+                    except ApiException as e:
+                        if e.status != 404:
+                            logger.error(f"Не удалось удалить DataVolume {dv_name}: {e}")
                 if "persistentVolumeClaim" in vol:
                     pvc_name = vol["persistentVolumeClaim"]["claimName"]
                     try:

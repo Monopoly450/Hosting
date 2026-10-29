@@ -120,7 +120,17 @@ export default function S3Panel() {
         }
     };
 
+    const isBackupBucket = (b) => Boolean(
+        b && (
+            b.purpose === 'backup' ||
+            (b.bucket_name || '').startsWith('aegis-backups-') ||
+            b.bucket_name === 'database-backups'
+        )
+    );
+
     const handleDeleteBucket = async (bucketId) => {
+        const target = buckets.find(item => item.id === bucketId);
+        if (isBackupBucket(target)) return;
         if (!confirm('Вы уверены, что хотите удалить этот бакет? Все хранящиеся файлы будут стёрты навсегда!')) return;
         try {
             const res = await fetch(`/api/s3/${bucketId}`, {
@@ -138,7 +148,7 @@ export default function S3Panel() {
     };
 
     const uploadFile = async (file) => {
-        if (!file || selectedBucket?.purpose === 'backup') return;
+        if (!file || isBackupBucket(selectedBucket)) return;
         setUploadingFile(true);
         const formData = new FormData();
         formData.append('file', file);
@@ -203,6 +213,7 @@ export default function S3Panel() {
     };
 
     const handleDeleteFile = async (fileName) => {
+        if (isBackupBucket(selectedBucket)) return;
         if (!confirm(`Удалить файл "${fileName}"?`)) return;
         try {
             const res = await fetch(`/api/s3/${selectedBucket.id}/files/${encodeURIComponent(fileName)}`, {
@@ -257,7 +268,7 @@ export default function S3Panel() {
 
     const buildS3Snippet = (b, tab) => {
         const endpoint = getMinioEndpoint();
-        if (b.purpose === 'backup') {
+        if (isBackupBucket(b)) {
             if (tab === 'cli') return `aws configure set aws_access_key_id ${b.access_key}\naws configure set aws_secret_access_key ${b.secret_key}\naws --endpoint-url ${endpoint} s3 ls s3://${b.bucket_name}/ --recursive\naws --endpoint-url ${endpoint} s3 cp s3://${b.bucket_name}/PATH/manifest.json ./manifest.json`;
             if (tab === 'boto3') return `import boto3\ns3 = boto3.client("s3", endpoint_url="${endpoint}",\n    aws_access_key_id="${b.access_key}", aws_secret_access_key="${b.secret_key}")\ns3.download_file("${b.bucket_name}", "PATH/manifest.json", "manifest.json")`;
             return `mc alias set mybucket ${endpoint} ${b.access_key} ${b.secret_key}\nmc ls --recursive mybucket/${b.bucket_name}\nmc cp mybucket/${b.bucket_name}/PATH/manifest.json ./manifest.json`;
@@ -367,7 +378,7 @@ export default function S3Panel() {
                 )}
 
                 {/* Drag & drop upload zone */}
-                {b.purpose === 'backup' ? <div className="alert alert-info" style={{ marginBottom: '20px' }}>
+                {isBackupBucket(b) ? <div className="alert alert-info" style={{ marginBottom: '20px' }}>
                     Личный бакет резервных копий: файлы доступны для чтения. Создание и удаление копий выполняется во вкладках ВМ и баз данных.
                 </div> : <div
                     className="glass-card"
@@ -393,7 +404,7 @@ export default function S3Panel() {
                         <div className="text-muted">или</div>
                         <label className="btn btn-primary" style={{ cursor: 'pointer' }}>
                             <Upload size={16} /> Выберите файл
-                            <input type="file" onChange={handleFileUpload} style={{ display: 'none' }} disabled={uploadingFile || b.purpose === 'backup'} />
+                            <input type="file" onChange={handleFileUpload} style={{ display: 'none' }} disabled={uploadingFile || isBackupBucket(b)} />
                         </label>
                     </div>
                 </div>}
@@ -406,12 +417,13 @@ export default function S3Panel() {
                     <div className="glass-card" style={{ textAlign: 'center', padding: '54px 20px' }}>
                         <FolderOpen size={44} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
                         <h3 className="section-title" style={{ justifyContent: 'center' }}>Бакет пуст</h3>
-                        <p className="text-muted">{b.purpose === 'backup' ? 'Готовые копии появятся здесь после S3-копирования.' : 'Загрузите первый файл — перетащите его в зону выше.'}</p>
+                        <p className="text-muted">{isBackupBucket(b) ? 'Готовые копии появятся здесь после S3-копирования.' : 'Загрузите первый файл — перетащите его в зону выше.'}</p>
                     </div>
                 ) : (
                     <div className="grid-cols-4 stagger">
                         {bucketFiles.map((file, idx) => {
                             const Icon = fileIcon(file.name);
+                            const deleteLocked = isBackupBucket(b);
                             return (
                                 <div key={idx} className="glass-card interactive" style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -422,7 +434,17 @@ export default function S3Panel() {
                                             <button className="btn-icon" onClick={() => handleDownloadFile(file.name)} title="Скачать">
                                                 <Download size={14} />
                                             </button>
-                                            <button className="btn-icon" onClick={() => handleDeleteFile(file.name)} disabled={b.purpose === 'backup'} title="Удалить" style={{ color: 'var(--status-danger)' }}>
+                                            <button
+                                                className="btn-icon"
+                                                onClick={() => !deleteLocked && handleDeleteFile(file.name)}
+                                                disabled={deleteLocked}
+                                                title={deleteLocked ? 'Удаление резервных копий через S3 заблокировано' : 'Удалить'}
+                                                style={{
+                                                    color: deleteLocked ? 'var(--text-muted)' : 'var(--status-danger)',
+                                                    opacity: deleteLocked ? 0.38 : 1,
+                                                    cursor: deleteLocked ? 'not-allowed' : 'pointer',
+                                                }}
+                                            >
                                                 <Trash2 size={14} />
                                             </button>
                                         </div>
@@ -496,9 +518,11 @@ export default function S3Panel() {
                             </tr>
                         </thead>
                         <tbody>
-                            {buckets.map(b => (
+                            {buckets.map(b => {
+                                const backupLocked = isBackupBucket(b);
+                                return (
                                 <tr key={b.id}>
-                                    <td style={{ fontWeight: 'bold' }}>{b.bucket_name}{b.purpose === 'backup' && <small style={{ display: 'block', color: 'var(--text-secondary)' }}>Резервные копии · только чтение</small>}</td>
+                                    <td style={{ fontWeight: 'bold' }}>{b.bucket_name}{backupLocked && <small style={{ display: 'block', color: 'var(--text-secondary)' }}>Резервные копии · только чтение</small>}</td>
                                     <td>
                                         <span style={{ fontFamily: 'monospace', background: 'var(--bg-surface)', padding: '2px 6px', borderRadius: '4px' }}>
                                             {getMinioEndpoint()}
@@ -559,16 +583,23 @@ export default function S3Panel() {
                                             </button>
                                             <button 
                                                 className="btn btn-danger btn-sm" 
-                                                onClick={() => handleDeleteBucket(b.id)}
-                                                disabled={b.purpose === 'backup'}
-                                                style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                                                onClick={() => !backupLocked && handleDeleteBucket(b.id)}
+                                                disabled={backupLocked}
+                                                title={backupLocked ? 'Служебный бакет резервных копий нельзя удалить' : 'Удалить бакет'}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                    ...(backupLocked ? { opacity: 0.45, cursor: 'not-allowed' } : {}),
+                                                }}
                                             >
                                                 <Trash2 size={12} /> Удалить
                                             </button>
                                         </div>
                                     </td>
                                 </tr>
-                            ))}
+                                );
+                            })}
                             {buckets.length === 0 && (
                                 <tr>
                                     <td colSpan="7" style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>

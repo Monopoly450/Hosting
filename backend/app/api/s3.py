@@ -163,6 +163,16 @@ def create_bucket(req: BucketCreateRequest, current_user: User = Depends(get_cur
     finally:
         db.close()
 
+def _is_backup_bucket(bucket: Optional[UserBucket]) -> bool:
+    return bool(
+        bucket and (
+            bucket.purpose == "backup"
+            or (bucket.bucket_name or "").startswith("aegis-backups-")
+            or bucket.bucket_name == "database-backups"
+        )
+    )
+
+
 @router.get("", response_model=List[BucketResponse])
 def list_buckets(current_user: User = Depends(get_current_user)):
     db = SessionLocal()
@@ -191,7 +201,7 @@ def list_buckets(current_user: User = Depends(get_current_user)):
                 secret_key=decrypt_secret(b.secret_key),
                 status="Active",
                 owner_username=owner_name,
-                purpose=b.purpose,
+                purpose="backup" if _is_backup_bucket(b) else b.purpose,
             ))
         return res
     finally:
@@ -206,7 +216,7 @@ def delete_bucket(bucket_id: int, current_user: User = Depends(get_current_user)
             raise HTTPException(status_code=404, detail="Бакет не найден")
         require_access(db, current_user, bucket.owner_id, bucket.project_id, need="editor",
                        message="Доступ запрещён: бакет не ваш и не в вашем проекте.")
-        if bucket.purpose == "backup":
+        if _is_backup_bucket(bucket):
             raise HTTPException(status_code=409, detail="Служебный бакет резервных копий нельзя удалить через S3-панель")
 
         client = get_minio_client()
@@ -252,6 +262,13 @@ def list_bucket_files(bucket_id: int, current_user: User = Depends(get_current_u
         require_access(db, current_user, bucket.owner_id, bucket.project_id, need="viewer",
                        message="Доступ запрещён: бакет не ваш и не в вашем проекте.")
 
+        if _is_backup_bucket(bucket):
+            try:
+                from app.services.vm_archives import cleanup_orphaned_vm_archives
+                cleanup_orphaned_vm_archives(db)
+            except Exception as sweep_err:
+                logger.warning(f"Не удалось очистить осиротевшие копии при чтении бакета {bucket.bucket_name}: {sweep_err}")
+
         client = get_minio_client()
         try:
             if not client.bucket_exists(bucket.bucket_name):
@@ -280,7 +297,7 @@ async def upload_file_to_bucket(bucket_id: int, file: UploadFile = File(...), cu
             raise HTTPException(status_code=404, detail="Бакет не найден")
         require_access(db, current_user, bucket.owner_id, bucket.project_id, need="editor",
                        message="Доступ запрещён: бакет не ваш и не в вашем проекте.")
-        if bucket.purpose == "backup":
+        if _is_backup_bucket(bucket):
             raise HTTPException(status_code=409, detail="Служебный бакет доступен только для чтения")
 
         client = get_minio_client()
@@ -363,7 +380,7 @@ def delete_file_from_bucket(bucket_id: int, filename: str, current_user: User = 
             raise HTTPException(status_code=404, detail="Бакет не найден")
         require_access(db, current_user, bucket.owner_id, bucket.project_id, need="editor",
                        message="Доступ запрещён: бакет не ваш и не в вашем проекте.")
-        if bucket.purpose == "backup":
+        if _is_backup_bucket(bucket):
             raise HTTPException(status_code=409, detail="Удаляйте резервные копии на вкладке бэкапов или снимков")
 
         client = get_minio_client()

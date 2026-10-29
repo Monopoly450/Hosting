@@ -1711,13 +1711,14 @@ def delete_vm(name: str, force: bool = False, client: K8sClient = Depends(get_k8
     check_vm_ownership(name, current_user)
     from app.db import SessionLocal
     from app.models.models import VMTask
-    from app.services.vm_archives import assert_idle
-    with SessionLocal() as archive_db:
-        assert_idle(archive_db, name)
-    try:
-        client.ensure_no_backup_operation(name)
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error))
+    from app.services.vm_archives import assert_idle, purge_vm_archives, cleanup_orphaned_vm_archives
+    if not force:
+        with SessionLocal() as archive_db:
+            assert_idle(archive_db, name)
+        try:
+            client.ensure_no_backup_operation(name)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error))
     try:
         if force:
             try:
@@ -1734,6 +1735,17 @@ def delete_vm(name: str, force: bool = False, client: K8sClient = Depends(get_k8
         db = SessionLocal()
         try:
             db_vm = db.query(VMTask).filter(VMTask.name == name).first()
+            try:
+                purge_vm_archives(
+                    db,
+                    name,
+                    vm_id=db_vm.id if db_vm else None,
+                    owner_id=db_vm.owner_id if db_vm else None,
+                    k8s=client,
+                )
+            except Exception as arch_err:
+                logger.warning(f"Не удалось очистить S3-архивы при удалении ВМ {name}: {arch_err}")
+
             if db_vm:
                 from app.models.models import AppDeployment, UserDatabase, UserVolume, Domain
                 # Отвязываем БД от ВМ (сама БД — отдельный ресурс, не удаляем)
@@ -1779,6 +1791,13 @@ def delete_vm(name: str, force: bool = False, client: K8sClient = Depends(get_k8
                         # конфига не повод возвращать ошибку. Вотчдог Caddy
                         # приведёт конфиг в порядок на следующем тике.
                         logger.warning(f"Не удалось переприменить конфиг Caddy после удаления ВМ {name}: {e}")
+            else:
+                db.commit()
+
+            try:
+                cleanup_orphaned_vm_archives(db)
+            except Exception as sweep_err:
+                logger.warning(f"Не удалось очистить осиротевшие архивы после удаления ВМ {name}: {sweep_err}")
         finally:
             db.close()
 

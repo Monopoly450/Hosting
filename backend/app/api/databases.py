@@ -231,6 +231,25 @@ def delete_database(db_id: int, current_user: User = Depends(get_current_user)):
         except Exception as e:
             logger.error(f"Failed to delete Kubernetes resources for DB {user_db.db_name}: {e}")
 
+        # Удаляем S3-бэкапы и расписания бэкапов этой БД
+        try:
+            from app.api.s3 import get_minio_client
+            from app.services.backup_storage import list_database_objects
+            from app.models.models import BackupSchedule
+            from sqlalchemy import or_
+            s3 = get_minio_client()
+            for _fname, (bname, obj) in list_database_objects(user_db, s3).items():
+                try:
+                    s3.remove_object(bname, obj.object_name)
+                except Exception as s3_err:
+                    logger.warning(f"Failed to delete DB backup object {bname}/{obj.object_name}: {s3_err}")
+            db.query(BackupSchedule).filter(
+                BackupSchedule.target_type == "database",
+                or_(BackupSchedule.target_id == user_db.id, BackupSchedule.target_name == user_db.db_name),
+            ).delete(synchronize_session=False)
+        except Exception as b_err:
+            logger.warning(f"Failed to clean up backups/schedules for DB {user_db.db_name}: {b_err}")
+
         # Удаление из системной БД
         db.delete(user_db)
         db.commit()

@@ -11,6 +11,7 @@ logger = logging.getLogger("app.core.migrations")
 
 MIGRATION_STATEMENTS = [
     "ALTER TABLE user_buckets ADD COLUMN IF NOT EXISTS purpose VARCHAR NOT NULL DEFAULT 'user';",
+    "UPDATE user_buckets SET purpose = 'backup' WHERE (bucket_name LIKE 'aegis-backups-%' OR bucket_name = 'database-backups') AND purpose != 'backup';",
     # vm_tasks
     "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS iso_url VARCHAR;",
     "ALTER TABLE vm_tasks ADD COLUMN IF NOT EXISTS owner_id INTEGER;",

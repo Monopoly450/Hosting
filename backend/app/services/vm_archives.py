@@ -159,6 +159,155 @@ def delete_archive(vm_name, name, kind):
     return {"status": "deleted"}
 
 
+def purge_vm_archives(db, vm_name: str, vm_id=None, owner_id=None, k8s=None):
+    """Удаляет все S3-бэкапы, S3-снимки и расписания бэкапов при удалении ВМ."""
+    from app.models.models import BackupSchedule
+    from app.services.backup_storage import bucket_name as _bucket_name
+
+    conds = []
+    if vm_name:
+        conds.append(VMArchive.vm_name == vm_name)
+    if vm_id is not None:
+        conds.append(VMArchive.prefix.like(f"vms/{vm_id}/%"))
+
+    rows = db.query(VMArchive).filter(or_(*conds)).all() if conds else []
+    if vm_id is not None:
+        seen = {r.name for r in rows}
+        for extra in db.query(VMArchive).all():
+            if extra.name not in seen and (extra.manifest or {}).get("vm_id") == vm_id:
+                rows.append(extra)
+                seen.add(extra.name)
+
+    prefixes = set()
+    buckets = set()
+    for row in rows:
+        if row.bucket and row.prefix:
+            prefixes.add((row.bucket, row.prefix))
+            buckets.add(row.bucket)
+        if k8s is not None:
+            try:
+                k8s.custom_api.delete_namespaced_custom_object(
+                    "export.kubevirt.io", "v1beta1", "default", "virtualmachineexports", row.name
+                )
+            except Exception:
+                pass
+            try:
+                k8s.core_api.delete_namespaced_secret(row.name, "default")
+            except Exception:
+                pass
+            if row.operation:
+                for i in range(len((row.manifest or {}).get("disks", []))):
+                    try:
+                        k8s.custom_api.delete_namespaced_custom_object(
+                            "cdi.kubevirt.io", "v1beta1", "default", "datavolumes", f"{row.operation}-disk-{i}"
+                        )
+                    except Exception:
+                        pass
+
+    if vm_id is not None:
+        if isinstance(owner_id, int) and owner_id > 0:
+            buckets.add(_bucket_name(owner_id))
+        for b in buckets:
+            prefixes.add((b, f"vms/{vm_id}/"))
+
+    if prefixes:
+        try:
+            s3 = s3_client()
+            for bucket, prefix in sorted(prefixes):
+                if not bucket or not prefix:
+                    continue
+                try:
+                    if s3.bucket_exists(bucket):
+                        for item in list(s3.list_objects(bucket, prefix=prefix, recursive=True)):
+                            s3.remove_object(bucket, item.object_name)
+                except Exception as s3_err:
+                    logger.warning("Не удалось очистить S3 %s/%s при удалении ВМ %s: %s", bucket, prefix, vm_name, s3_err)
+        except Exception as s3_conn_err:
+            logger.warning("Не удалось подключиться к S3 при очистке архивов ВМ %s: %s", vm_name, s3_conn_err)
+
+    for row in rows:
+        db.delete(row)
+
+    sched_conds = []
+    if vm_name:
+        sched_conds.append((BackupSchedule.target_type == "vm") & (BackupSchedule.target_name == vm_name))
+    if vm_id is not None:
+        sched_conds.append((BackupSchedule.target_type == "vm") & (BackupSchedule.target_id == vm_id))
+    if sched_conds:
+        db.query(BackupSchedule).filter(or_(*sched_conds)).delete(synchronize_session=False)
+
+
+def cleanup_orphaned_vm_archives(db=None):
+    """Удаляет осиротевшие S3-бэкапы и расписания от ранее удалённых ВМ."""
+    from app.models.models import BackupSchedule, UserBucket
+
+    own_session = db is None
+    db = db or SessionLocal()
+    try:
+        live_rows = db.query(VMTask.id, VMTask.name).all()
+        live_ids = {r[0] for r in live_rows if r[0] is not None}
+        live_names = {r[1] for r in live_rows if r[1]}
+
+        active_vm_ids = set()
+        orphan_rows = []
+        for row in db.query(VMArchive).all():
+            row_vm_id = (row.manifest or {}).get("vm_id")
+            if row.status in ACTIVE or row.operation is not None:
+                if row_vm_id is not None:
+                    active_vm_ids.add(row_vm_id)
+                continue
+            if row_vm_id is not None:
+                is_orphan = row_vm_id not in live_ids
+            else:
+                is_orphan = row.vm_name not in live_names
+            if is_orphan:
+                orphan_rows.append(row)
+
+        s3 = None
+        for row in orphan_rows:
+            if row.bucket and row.prefix:
+                try:
+                    s3 = s3 or s3_client()
+                    if s3.bucket_exists(row.bucket):
+                        for item in list(s3.list_objects(row.bucket, prefix=row.prefix, recursive=True)):
+                            s3.remove_object(row.bucket, item.object_name)
+                except Exception as s3_err:
+                    logger.warning("Не удалось очистить осиротевший архив %s в S3: %s", row.name, s3_err)
+            db.delete(row)
+
+        # Дополнительно проверяем бакеты бэкапов на оставшиеся папки vms/<deleted_id>/
+        backup_buckets = [
+            b.bucket_name for b in db.query(UserBucket).all()
+            if b.purpose == "backup" or (b.bucket_name or "").startswith("aegis-backups-")
+        ]
+        if backup_buckets:
+            try:
+                s3 = s3 or s3_client()
+                for bname in backup_buckets:
+                    if not s3.bucket_exists(bname):
+                        continue
+                    for item in list(s3.list_objects(bname, prefix="vms/", recursive=True)):
+                        parts = (item.object_name or "").split("/")
+                        if len(parts) >= 2 and parts[0] == "vms" and parts[1].isdigit():
+                            vid = int(parts[1])
+                            if vid not in live_ids and vid not in active_vm_ids:
+                                s3.remove_object(bname, item.object_name)
+            except Exception as sweep_err:
+                logger.warning("Не удалось очистить осиротевшие объекты vms/* в S3: %s", sweep_err)
+
+        for sched in db.query(BackupSchedule).filter(BackupSchedule.target_type == "vm").all():
+            if sched.target_id not in live_ids and sched.target_name not in live_names:
+                db.delete(sched)
+
+        db.commit()
+    except Exception as err:
+        db.rollback()
+        logger.warning("Ошибка при очистке осиротевших S3-бэкапов ВМ: %s", err)
+    finally:
+        if own_session:
+            db.close()
+
+
 def enqueue_restore(vm_name, name, kind, k8s):
     with SessionLocal() as db:
         task = get_task(db, vm_name, lock=True)

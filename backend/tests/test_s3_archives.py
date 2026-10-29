@@ -631,3 +631,99 @@ def test_legacy_database_dumps_do_not_leak_a_previous_database():
     db = NS(created_at=datetime(2026, 10, 8))
     assert not _legacy_owned(db, NS(last_modified=datetime(2026, 10, 7, tzinfo=timezone.utc)))
     assert _legacy_owned(db, NS(last_modified=datetime(2026, 10, 9, tzinfo=timezone.utc)))
+
+
+def test_purge_vm_archives_removes_all_backups_snapshots_and_schedules_on_vm_delete(db_env):
+    from app.models.models import BackupSchedule
+    factory, s3 = db_env
+    with factory() as db:
+        db.add(VMTask(id=2, name="vm2", owner_id=1, os_type="ubuntu", disk_gb=2))
+        b1 = VMArchive(
+            name="s3-backup-vm1", vm_name="vm1", owner_id=1, kind="backup",
+            bucket=bucket_name(1), prefix="vms/1/backup/s3-backup-vm1/",
+            status="Succeeded", manifest={"vm_id": 1},
+        )
+        s1 = VMArchive(
+            name="s3-snapshot-vm1", vm_name="vm1", owner_id=1, kind="snapshot",
+            bucket=bucket_name(1), prefix="vms/1/snapshot/s3-snapshot-vm1/",
+            status="Succeeded", manifest={"vm_id": 1},
+        )
+        b2 = VMArchive(
+            name="s3-backup-vm2", vm_name="vm2", owner_id=1, kind="backup",
+            bucket=bucket_name(1), prefix="vms/2/backup/s3-backup-vm2/",
+            status="Succeeded", manifest={"vm_id": 2},
+        )
+        sched1 = BackupSchedule(
+            name="daily-vm1", target_type="vm", target_id=1, target_name="vm1",
+            frequency="daily", hour=3, minute=0, retention=7, enabled=True, owner_id=1,
+        )
+        sched2 = BackupSchedule(
+            name="daily-vm2", target_type="vm", target_id=2, target_name="vm2",
+            frequency="daily", hour=3, minute=0, retention=7, enabled=True, owner_id=1,
+        )
+        db.add_all([b1, s1, b2, sched1, sched2])
+        db.commit()
+
+    s3.objects[(bucket_name(1), "vms/1/backup/s3-backup-vm1/disk-0.img.gz")] = b"vm1-b"
+    s3.objects[(bucket_name(1), "vms/1/backup/s3-backup-vm1/manifest.json")] = b"{}"
+    s3.objects[(bucket_name(1), "vms/1/snapshot/s3-snapshot-vm1/disk-0.img.gz")] = b"vm1-s"
+    s3.objects[(bucket_name(1), "vms/2/backup/s3-backup-vm2/disk-0.img.gz")] = b"vm2-b"
+
+    with factory() as db:
+        archives.purge_vm_archives(db, "vm1", vm_id=1, owner_id=1, k8s=FakeK8s())
+        db.commit()
+        assert db.get(VMArchive, "s3-backup-vm1") is None
+        assert db.get(VMArchive, "s3-snapshot-vm1") is None
+        assert db.get(VMArchive, "s3-backup-vm2") is not None
+        remaining_scheds = [s.target_name for s in db.query(BackupSchedule).all()]
+        assert remaining_scheds == ["vm2"]
+
+    remaining_keys = [key for (_b, key) in s3.objects]
+    assert remaining_keys == ["vms/2/backup/s3-backup-vm2/disk-0.img.gz"]
+
+
+def test_cleanup_orphaned_vm_archives_sweeps_deleted_vms_from_db_and_s3(db_env):
+    from app.models.models import UserBucket
+    factory, s3 = db_env
+    with factory() as db:
+        db.add(UserBucket(bucket_name=bucket_name(1), access_key="ak", secret_key="sk", owner_id=1, purpose="backup"))
+        db.add(VMArchive(
+            name="s3-orphan", vm_name="deleted-vm", owner_id=1, kind="backup",
+            bucket=bucket_name(1), prefix="vms/99/backup/s3-orphan/",
+            status="Succeeded", manifest={"vm_id": 99},
+        ))
+        db.add(VMArchive(
+            name="s3-live", vm_name="vm1", owner_id=1, kind="backup",
+            bucket=bucket_name(1), prefix="vms/1/backup/s3-live/",
+            status="Succeeded", manifest={"vm_id": 1},
+        ))
+        db.commit()
+
+    s3.objects[(bucket_name(1), "vms/99/backup/s3-orphan/disk-0.img.gz")] = b"orphan"
+    s3.objects[(bucket_name(1), "vms/88/backup/unindexed/disk-0.img.gz")] = b"unindexed-orphan"
+    s3.objects[(bucket_name(1), "vms/1/backup/s3-live/disk-0.img.gz")] = b"live"
+    s3.objects[(bucket_name(1), "databases/10/backup.sql")] = b"db"
+
+    archives.cleanup_orphaned_vm_archives()
+
+    with factory() as db:
+        assert db.get(VMArchive, "s3-orphan") is None
+        assert db.get(VMArchive, "s3-live") is not None
+
+    assert sorted(key for (_b, key) in s3.objects) == [
+        "databases/10/backup.sql",
+        "vms/1/backup/s3-live/disk-0.img.gz",
+    ]
+
+
+def test_s3_panel_locks_delete_buttons_for_backup_buckets_and_files():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    s3_panel = (root / "frontend" / "src" / "components" / "S3Panel.jsx").read_text(encoding="utf-8")
+    css = (root / "frontend" / "src" / "index.css").read_text(encoding="utf-8")
+
+    assert "const isBackupBucket =" in s3_panel
+    assert "disabled={deleteLocked}" in s3_panel
+    assert "disabled={backupLocked}" in s3_panel
+    assert ".btn-icon:disabled" in css
+    assert "cursor: not-allowed" in css

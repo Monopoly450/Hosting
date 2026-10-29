@@ -269,10 +269,17 @@ def delete_cluster(cluster_id: int, current_user: User = Depends(get_current_use
         # Получаем все ВМ в кластере
         vms = db.query(VMTask).filter(VMTask.cluster_id == cluster_id).all()
         from app.models.models import UserDatabase, UserVolume, AppDeployment
+        from app.services.vm_archives import purge_vm_archives
         for vm in vms:
+            try:
+                purge_vm_archives(db, vm.name, vm_id=vm.id, owner_id=vm.owner_id)
+            except Exception as arch_err:
+                logger.warning(f"Не удалось очистить архивы ВМ {vm.name} при удалении кластера: {arch_err}")
             # Отправляем задачу на удаление каждой ВМ
             publish_task("vm_tasks", {
                 "task_id": vm.id,
+                "vm_name": vm.name,
+                "owner_id": vm.owner_id,
                 "action": "delete_vm"
             })
             # Отвязываем всё, что ссылается на ВМ по внешнему ключу: иначе

@@ -300,9 +300,19 @@ def callback(ch, method, properties, body):
             elif action == "attach_network":
                 process_attach_network(db, task_id, data.get("network_name"))
             elif action == "delete_vm":
-                task = db.query(VMTask).filter(VMTask.id == task_id).first()
-                if task:
-                    k8s.delete_vm(task.name)
+                task = db.query(VMTask).filter(VMTask.id == task_id).first() if task_id is not None else None
+                vm_name = task.name if task else data.get("vm_name")
+                owner_id = task.owner_id if task else data.get("owner_id")
+                if vm_name or task_id is not None:
+                    try:
+                        from .services.vm_archives import purge_vm_archives
+                        purge_vm_archives(db, vm_name or "", vm_id=task_id, owner_id=owner_id, k8s=k8s)
+                        db.commit()
+                    except Exception as arch_err:
+                        db.rollback()
+                        logger.warning(f"Не удалось очистить архивы ВМ {vm_name or task_id} в worker: {arch_err}")
+                if vm_name:
+                    k8s.delete_vm(vm_name)
             elif action == "delete_cluster_env":
                 cluster = db.query(Cluster).filter(Cluster.id == task_id).first()
                 if cluster:
@@ -426,8 +436,10 @@ def scheduled_backup_daemon():
     и запускает бэкапы ВМ/БД, у которых наступил срок, с ротацией старых копий."""
     logger.info("Starting scheduled backup daemon thread...")
     from .services.scheduled_backups import run_due_backups
+    from .services.vm_archives import cleanup_orphaned_vm_archives
     while True:
         try:
+            cleanup_orphaned_vm_archives()
             run_due_backups(k8s)
         except Exception as e:
             logger.error(f"Error in scheduled backup daemon loop: {e}")
