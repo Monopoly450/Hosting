@@ -740,7 +740,7 @@ cat <<EOF > /etc/dnsmasq.d/aegis-dhcp.conf
 port=0
 interface=br-vms
 except-interface=lo
-bind-dynamic
+bind-interfaces
 dhcp-range=172.20.0.231,172.20.0.250,12h
 dhcp-option=option:router,172.20.0.1
 dhcp-option=option:dns-server,8.8.8.8,1.1.1.1
@@ -761,10 +761,17 @@ cat <<EOF > /etc/systemd/system/dnsmasq.service.d/aegis-order.conf
 [Unit]
 Wants=aegis-network.service
 After=aegis-network.service
+
+[Service]
+Restart=on-failure
+RestartSec=3s
 EOF
 systemctl daemon-reload
 systemctl enable dnsmasq
-systemctl restart dnsmasq
+if ! systemctl restart dnsmasq; then
+    warn "Не удалось перезапустить dnsmasq (возможно порт 67 уже занят другим DHCP-сервером). Диагностика:"
+    journalctl -u dnsmasq -n 20 --no-pager || true
+fi
 
 cat <<EOF | kubectl apply -f -
 apiVersion: "k8s.cni.cncf.io/v1"
