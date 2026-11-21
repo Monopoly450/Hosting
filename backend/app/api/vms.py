@@ -1063,7 +1063,7 @@ def dnat_rules_present(prerouting: str, vm_ip: str, ports: list) -> bool:
     return True
 
 
-def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_config: str = None, firewall_rules: str = None, os_type: str = "linux", old_ip: Optional[str] = None):
+def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_config: str = None, firewall_rules: str = None, os_type: str = "linux", old_ip: Optional[str] = None, cloud_init_template: Optional[str] = None):
     """Настраивает проброс портов и правила доступа для ВМ с помощью iptables на хосте.
 
     old_ip — прежний адрес этой же ВМ, если он изменился (перезагрузка сменила
@@ -1124,7 +1124,7 @@ def reconcile_vm_firewall_rules(vm_ip: str, vm_id: Optional[int] = None, ports_c
         if old_ip and old_ip != vm_ip:
             clear_iptables_rules_for_ip(old_ip)
 
-        ports = resolve_vm_ports(vm_ip, vm_id, ports_config, os_type)
+        ports = resolve_vm_ports(vm_ip, vm_id, ports_config, os_type, cloud_init_template)
 
         # Очищаем старые правила DNAT для каждого из портов, чтобы они не указывали на прошлые IP-адреса
         for p in ports:

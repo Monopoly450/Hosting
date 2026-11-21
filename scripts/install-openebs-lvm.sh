@@ -110,13 +110,13 @@ log "Настройка службы автоподключения loop-уст�
 cat <<'EOF' > /etc/systemd/system/aegis-lvm-loop.service
 [Unit]
 Description=Setup loop device for Aegis LVM Storage
-Before=lvm2-monitor.service k3s.service docker.service
+Before=lvm2-monitor.service containerd.service k3s.service docker.service
 After=local-fs.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/bash -c "(losetup -j /var/lib/aegis/lvm-storage.img | grep -q . || losetup -fP --direct-io=on /var/lib/aegis/lvm-storage.img || losetup -fP /var/lib/aegis/lvm-storage.img) && udevadm settle && (vgchange -ay vg-aegis || true)"
+ExecStart=/bin/bash -c "(losetup -j /var/lib/aegis/lvm-storage.img | grep -q . || losetup -fP --direct-io=on /var/lib/aegis/lvm-storage.img || losetup -fP /var/lib/aegis/lvm-storage.img) && udevadm settle && (command -v lvmdevices >/dev/null 2>&1 && lvmdevices --update >/dev/null 2>&1 || true) && (pvscan --cache >/dev/null 2>&1 || true) && (vgchange -ay vg-aegis || true)"
 ExecStop=/bin/bash -c 'if vgs vg-aegis >/dev/null 2>&1; then vgchange -an vg-aegis || exit 1; fi; LOOP_DEV=$$(losetup -j /var/lib/aegis/lvm-storage.img | cut -d: -f1 | head -n1); if [ -n "$$LOOP_DEV" ]; then losetup -d "$$LOOP_DEV"; fi'
 
 [Install]
@@ -153,6 +153,9 @@ fi
 
 systemctl daemon-reload
 systemctl enable --now aegis-lvm-loop.service
+(command -v lvmdevices >/dev/null 2>&1 && lvmdevices --update >/dev/null 2>&1 || true)
+(pvscan --cache >/dev/null 2>&1 || true)
+(vgchange -ay "$VG" >/dev/null 2>&1 || true)
 
 LOOP_LINES=$(losetup -j "$IMAGE")
 LOOP_COUNT=$(printf '%s\n' "$LOOP_LINES" | awk -F: 'NF {count++} END {print count+0}')

@@ -21,6 +21,7 @@ services:
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: hosting-rabbitmq
+    hostname: rabbitmq
     ports:
       # Только localhost: очередью пользуются только backend и worker на этом же хосте
       - "127.0.0.1:5672:5672"
@@ -71,13 +72,14 @@ services:
       rabbitmq:
         condition: service_healthy
     volumes:
-      - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
+      - /etc/rancher/k3s:/etc/rancher/k3s:ro
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - ./data:/app/data:rw
       - .:/app/repo:rw
       - /var/lib/aegis:/var/lib/aegis:rw
       - /run/lvm:/run/lvm:rw
     environment:
+      - KUBECONFIG=/etc/rancher/k3s/k3s.yaml
       - PORT=8000
       - HOST=0.0.0.0
       - IMAGES_DIR=/app/data/images
@@ -136,13 +138,14 @@ services:
       rabbitmq:
         condition: service_healthy
     volumes:
-      - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
+      - /etc/rancher/k3s:/etc/rancher/k3s:ro
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - ./data:/app/data:rw
       - .:/app/repo:rw
       - /var/lib/aegis:/var/lib/aegis:rw
       - /run/lvm:/run/lvm:rw
     environment:
+      - KUBECONFIG=/etc/rancher/k3s/k3s.yaml
       - IMAGES_DIR=/app/data/images
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}
       - RABBITMQ_URL=${RABBITMQ_URL:?RABBITMQ_URL не задан в .env — задайте его (openssl rand -hex 24), см. .env.example}

@@ -38,9 +38,18 @@ async def startup_event():
     from sqlalchemy import select
 
     logger.info("Инициализация таблиц базы данных...")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await apply_migrations(conn)
+    import asyncio as _asyncio_db
+    for _db_attempt in range(20):
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+                await apply_migrations(conn)
+            break
+        except Exception as _db_err:
+            if _db_attempt == 19:
+                raise
+            logger.warning(f"Ожидание готовности PostgreSQL ({_db_attempt + 1}/20): {_db_err}")
+            await _asyncio_db.sleep(2)
     logger.info("Таблицы базы данных успешно проверены/созданы.")
     
     # Заполнение начальными данными при пустой БД

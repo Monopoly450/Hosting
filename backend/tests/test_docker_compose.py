@@ -115,3 +115,15 @@ def test_mandatory_secrets_still_fail_fast():
     compose = _compose_text()
     for var in ("POSTGRES_PASSWORD", "ADMIN_TOKEN", "RABBITMQ_USER"):
         assert f"{{{var}:?" in compose, f"{var} должен быть обязательным"
+
+
+def test_kubeconfig_uses_directory_mount_to_survive_k3s_reboot():
+    """Одиночный bind-mount файла k3s.yaml привязывается к старому inode при
+    перезапуске K3s и ротации сертификатов; монтируем каталог /etc/rancher/k3s."""
+    services = _compose()["services"]
+    for name in ("backend", "worker"):
+        vols = services[name]["volumes"]
+        env = dict(entry.split("=", 1) for entry in services[name]["environment"])
+        assert "/etc/rancher/k3s:/etc/rancher/k3s:ro" in vols
+        assert "/etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro" not in vols
+        assert env.get("KUBECONFIG") == "/etc/rancher/k3s/k3s.yaml"

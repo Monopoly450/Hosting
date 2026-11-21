@@ -132,6 +132,7 @@ if [ -e /etc/nginx/sites-enabled/default ]; then
     rm -f /etc/nginx/sites-enabled/default
     nginx -t &>/dev/null && systemctl reload nginx || true
 fi
+systemctl enable --now nginx &>/dev/null || true
 
 log "Проверка и установка Docker & Docker Compose..."
 if ! command -v docker &> /dev/null; then
@@ -704,20 +705,21 @@ iptables -C FORWARD -i br-vms -j ACCEPT &>/dev/null || \
     iptables -I FORWARD 1 -i br-vms -j ACCEPT
 iptables -C FORWARD -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || \
     iptables -I FORWARD 1 -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT
-# Защищаем трафик подов и сервисов K3s (10.42.0.0/16 и 10.43.0.0/16) от политики FORWARD DROP в Docker
+# Защищаем трафик подов и сервисов K3s (10.42.0.0/16 и 10.43.0.0/16) от политики FORWARD DROP в Docker,
+# не обходя правила белого списка IP на входящие порты ВМ
 iptables -C FORWARD -s 10.42.0.0/16 -j ACCEPT &>/dev/null || \
     iptables -I FORWARD 1 -s 10.42.0.0/16 -j ACCEPT
-iptables -C FORWARD -d 10.42.0.0/16 -j ACCEPT &>/dev/null || \
-    iptables -I FORWARD 1 -d 10.42.0.0/16 -j ACCEPT
+iptables -C FORWARD -d 10.42.0.0/16 -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || \
+    iptables -I FORWARD 1 -d 10.42.0.0/16 -m state --state RELATED,ESTABLISHED -j ACCEPT
 iptables -C FORWARD -s 10.43.0.0/16 -j ACCEPT &>/dev/null || \
     iptables -I FORWARD 1 -s 10.43.0.0/16 -j ACCEPT
-iptables -C FORWARD -d 10.43.0.0/16 -j ACCEPT &>/dev/null || \
-    iptables -I FORWARD 1 -d 10.43.0.0/16 -j ACCEPT
+iptables -C FORWARD -d 10.43.0.0/16 -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || \
+    iptables -I FORWARD 1 -d 10.43.0.0/16 -m state --state RELATED,ESTABLISHED -j ACCEPT
 if iptables -L DOCKER-USER -n &>/dev/null; then
     iptables -C DOCKER-USER -s 10.42.0.0/16 -j ACCEPT &>/dev/null || iptables -I DOCKER-USER 1 -s 10.42.0.0/16 -j ACCEPT
-    iptables -C DOCKER-USER -d 10.42.0.0/16 -j ACCEPT &>/dev/null || iptables -I DOCKER-USER 1 -d 10.42.0.0/16 -j ACCEPT
+    iptables -C DOCKER-USER -d 10.42.0.0/16 -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || iptables -I DOCKER-USER 1 -d 10.42.0.0/16 -m state --state RELATED,ESTABLISHED -j ACCEPT
     iptables -C DOCKER-USER -i br-vms -j ACCEPT &>/dev/null || iptables -I DOCKER-USER 1 -i br-vms -j ACCEPT
-    iptables -C DOCKER-USER -o br-vms -j ACCEPT &>/dev/null || iptables -I DOCKER-USER 1 -o br-vms -j ACCEPT
+    iptables -C DOCKER-USER -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || iptables -I DOCKER-USER 1 -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT
 fi
 
 if dpkg -l | grep -q iptables-persistent; then
@@ -738,7 +740,7 @@ cat <<EOF > /etc/dnsmasq.d/aegis-dhcp.conf
 port=0
 interface=br-vms
 except-interface=lo
-bind-interfaces
+bind-dynamic
 dhcp-range=172.20.0.231,172.20.0.250,12h
 dhcp-option=option:router,172.20.0.1
 dhcp-option=option:dns-server,8.8.8.8,1.1.1.1
@@ -754,6 +756,13 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y dnsmasq || true
 grep -q '^DNSMASQ_EXCEPT=' /etc/default/dnsmasq 2>/dev/null && \
     sed -i 's/^DNSMASQ_EXCEPT=.*/DNSMASQ_EXCEPT="lo"/' /etc/default/dnsmasq || \
     echo 'DNSMASQ_EXCEPT="lo"' >> /etc/default/dnsmasq
+mkdir -p /etc/systemd/system/dnsmasq.service.d
+cat <<EOF > /etc/systemd/system/dnsmasq.service.d/aegis-order.conf
+[Unit]
+Wants=aegis-network.service
+After=aegis-network.service
+EOF
+systemctl daemon-reload
 systemctl enable dnsmasq
 systemctl restart dnsmasq
 
@@ -998,9 +1007,14 @@ ip link show br-vms &>/dev/null || ip link add br-vms type bridge
 ip addr show dev br-vms | grep -q "172.20.0.1/24" || ip addr add 172.20.0.1/24 dev br-vms
 ip link set br-vms up
 
-/sbin/sysctl -w net.ipv4.ip_forward=1
+/sbin/sysctl -w net.ipv4.ip_forward=1 >/dev/null
 
-ACTIVE_IFACE=$(/sbin/ip route | grep default | awk '{print $5}' | head -n1)
+ACTIVE_IFACE=""
+for _ in {1..15}; do
+    ACTIVE_IFACE=$(/sbin/ip route | awk '/^default/ {print $5; exit}')
+    [ -n "$ACTIVE_IFACE" ] && break
+    sleep 2
+done
 if [ -n "$ACTIVE_IFACE" ]; then
     /sbin/iptables -t nat -C POSTROUTING -s 172.20.0.0/24 -o "$ACTIVE_IFACE" -j MASQUERADE &>/dev/null || \
         /sbin/iptables -t nat -A POSTROUTING -s 172.20.0.0/24 -o "$ACTIVE_IFACE" -j MASQUERADE
@@ -1012,17 +1026,17 @@ if [ -n "$ACTIVE_IFACE" ]; then
         /sbin/iptables -I FORWARD 1 -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT
     /sbin/iptables -C FORWARD -s 10.42.0.0/16 -j ACCEPT &>/dev/null || \
         /sbin/iptables -I FORWARD 1 -s 10.42.0.0/16 -j ACCEPT
-    /sbin/iptables -C FORWARD -d 10.42.0.0/16 -j ACCEPT &>/dev/null || \
-        /sbin/iptables -I FORWARD 1 -d 10.42.0.0/16 -j ACCEPT
+    /sbin/iptables -C FORWARD -d 10.42.0.0/16 -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || \
+        /sbin/iptables -I FORWARD 1 -d 10.42.0.0/16 -m state --state RELATED,ESTABLISHED -j ACCEPT
     /sbin/iptables -C FORWARD -s 10.43.0.0/16 -j ACCEPT &>/dev/null || \
         /sbin/iptables -I FORWARD 1 -s 10.43.0.0/16 -j ACCEPT
-    /sbin/iptables -C FORWARD -d 10.43.0.0/16 -j ACCEPT &>/dev/null || \
-        /sbin/iptables -I FORWARD 1 -d 10.43.0.0/16 -j ACCEPT
+    /sbin/iptables -C FORWARD -d 10.43.0.0/16 -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || \
+        /sbin/iptables -I FORWARD 1 -d 10.43.0.0/16 -m state --state RELATED,ESTABLISHED -j ACCEPT
     if /sbin/iptables -L DOCKER-USER -n &>/dev/null; then
         /sbin/iptables -C DOCKER-USER -s 10.42.0.0/16 -j ACCEPT &>/dev/null || /sbin/iptables -I DOCKER-USER 1 -s 10.42.0.0/16 -j ACCEPT
-        /sbin/iptables -C DOCKER-USER -d 10.42.0.0/16 -j ACCEPT &>/dev/null || /sbin/iptables -I DOCKER-USER 1 -d 10.42.0.0/16 -j ACCEPT
+        /sbin/iptables -C DOCKER-USER -d 10.42.0.0/16 -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || /sbin/iptables -I DOCKER-USER 1 -d 10.42.0.0/16 -m state --state RELATED,ESTABLISHED -j ACCEPT
         /sbin/iptables -C DOCKER-USER -i br-vms -j ACCEPT &>/dev/null || /sbin/iptables -I DOCKER-USER 1 -i br-vms -j ACCEPT
-        /sbin/iptables -C DOCKER-USER -o br-vms -j ACCEPT &>/dev/null || /sbin/iptables -I DOCKER-USER 1 -o br-vms -j ACCEPT
+        /sbin/iptables -C DOCKER-USER -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || /sbin/iptables -I DOCKER-USER 1 -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT
     fi
 fi
 EOF
@@ -1032,7 +1046,8 @@ cat <<EOF > /etc/systemd/system/aegis-network.service
 [Unit]
 Description=Aegis VM Network Bridge Setup
 Before=k3s.service docker.service dnsmasq.service
-After=network.target
+Wants=network-online.target
+After=network.target network-online.target
 
 [Service]
 Type=oneshot
@@ -1044,31 +1059,27 @@ WantedBy=multi-user.target
 EOF
 
 # Requires только на docker: без него docker compose действительно не выполнить.
-# k3s и мост — Wants: панель обязана подниматься, даже если кластер сломан, —
+# k3s, мост и LVM — Wants: панель обязана подниматься, даже если кластер сломан, —
 # именно через неё смотрят логи и разбираются, почему он сломан. С Requires=
 # любой сбой k3s тихо оставлял сервер вообще без веб-интерфейса.
 #
-# ExecStop намеренно нет. Раньше здесь был `docker compose down`: systemd
-# выполнял его при каждом выключении, УДАЛЯЯ контейнеры. У всех сервисов в
-# docker-compose.yml стоит restart: unless-stopped — Docker сам поднимает при
-# старте демона те контейнеры, что работали на момент остановки, но удалённые
-# восстанавливать нечему. То есть ExecStop своими руками убирал независимый
-# путь восстановления, и запуск после перезагрузки держался ровно на одном
-# этом юните: не сработал он — панели нет. Без ExecStop путей два.
-# Остановить панель вручную: docker compose down в каталоге проекта.
+# ExecStartPost повторно запускает aegis-network-setup.sh ПОСЛЕ старта Docker и
+# создания бридж-сетей compose, чтобы цепочки FORWARD и DOCKER-USER всегда
+# содержали правила для br-vms и K3s даже после полной перезагрузки сервера.
 cat <<EOF > /etc/systemd/system/aegis-hosting.service
 [Unit]
 Description=Aegis Cloud Engine hosting control panel
 Requires=docker.service
-Wants=k3s.service aegis-network.service
-After=docker.service k3s.service aegis-network.service
+Wants=k3s.service aegis-network.service aegis-lvm-loop.service
+After=docker.service k3s.service aegis-network.service aegis-lvm-loop.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory="${PROJECT_DIR}"
 ExecStart=/usr/bin/docker compose up -d
-ExecReload=/usr/bin/docker compose restart
+ExecStartPost=-/usr/local/bin/aegis-network-setup.sh
+ExecReload=/bin/sh -c '/usr/bin/docker compose restart && /usr/local/bin/aegis-network-setup.sh'
 
 [Install]
 WantedBy=multi-user.target

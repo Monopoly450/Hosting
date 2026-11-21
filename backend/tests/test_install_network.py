@@ -145,5 +145,37 @@ def test_installer_uses_cni_1_0_0_and_dhcp_only_dnsmasq():
     assert '"cniVersion": "0.3.1"' not in source.split("multus-daemonset-thick.yml", 1)[1].split("EOF", 2)[1]
     assert '"cniVersion": "1.0.0"' in source
     assert "port=0" in source
+    assert "bind-dynamic" in source
     assert 'DNSMASQ_EXCEPT="lo"' in source
     assert source.index("/etc/dnsmasq.d/aegis-dhcp.conf") < source.index("apt-get install -y dnsmasq")
+
+
+def test_reboot_units_restore_iptables_lvm_and_cluster_bridges(monkeypatch):
+    from unittest.mock import MagicMock
+    from app.core.k8s_client import K8sClient
+
+    source = _source()
+    lvm_source = (ROOT / "scripts" / "install-openebs-lvm.sh").read_text()
+    assert "ExecStartPost=-/usr/local/bin/aegis-network-setup.sh" in source
+    assert "Wants=network-online.target" in source
+    assert "lvmdevices --update" in lvm_source
+    assert "pvscan --cache" in lvm_source
+
+    run_calls = []
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda cmd, **kw: (run_calls.append(cmd[-1]), MagicMock(returncode=0, stdout=""))[1],
+    )
+    k8s = K8sClient.__new__(K8sClient)
+    k8s.custom_api = MagicMock()
+    k8s.custom_api.list_namespaced_custom_object.return_value = {
+        "items": [
+            {"spec": {"config": '{"cniVersion":"1.0.0","type":"bridge","bridge":"br-vms"}'}},
+            {"spec": {"config": '{"cniVersion":"1.0.0","type":"bridge","bridge":"br-net-cl1"}'}},
+        ]
+    }
+    k8s.reconcile_host_networks("default")
+    joined = "\n".join(run_calls)
+    assert "/usr/local/bin/aegis-network-setup.sh" in joined
+    assert "ip link add br-net-cl1 type bridge" in joined
+    assert "192.168.100.1/24 dev br-net-cl1" in joined

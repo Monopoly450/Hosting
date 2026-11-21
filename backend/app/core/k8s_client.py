@@ -86,23 +86,35 @@ class K8sClient:
 
     def load_config(self):
         """Загрузка kubeconfig: пытается использовать ~/.kube/config, /etc/rancher/k3s/k3s.yaml или in-cluster config"""
-        try:
-            if os.path.exists(settings.KUBECONFIG_PATH):
-                logger.info(f"Загрузка kubeconfig из {settings.KUBECONFIG_PATH}")
-                config.load_kube_config(config_file=settings.KUBECONFIG_PATH)
-            elif os.path.exists(os.path.expanduser("~/.kube/config")):
-                logger.info("Загрузка kubeconfig из ~/.kube/config")
-                config.load_kube_config()
-            elif os.path.exists("/etc/rancher/k3s/k3s.yaml"):
-                logger.info("Загрузка kubeconfig из /etc/rancher/k3s/k3s.yaml")
-                config.load_kube_config(config_file="/etc/rancher/k3s/k3s.yaml")
-            else:
-                logger.info("Попытка загрузки in-cluster config...")
-                config.load_incluster_config()
-            logger.info("Kubernetes API клиент успешно инициализирован.")
-        except Exception as e:
-            logger.error(f"Ошибка инициализации Kubernetes клиента: {e}")
-            raise e
+        candidates = (
+            settings.KUBECONFIG_PATH,
+            os.path.expanduser("~/.kube/config"),
+            "/etc/rancher/k3s/k3s.yaml",
+        )
+        max_attempts = 5 if any(p and os.path.exists(p) for p in candidates) else 1
+        last_err = None
+        for attempt in range(max_attempts):
+            try:
+                if os.path.exists(settings.KUBECONFIG_PATH):
+                    logger.info(f"Загрузка kubeconfig из {settings.KUBECONFIG_PATH}")
+                    config.load_kube_config(config_file=settings.KUBECONFIG_PATH)
+                elif os.path.exists(os.path.expanduser("~/.kube/config")):
+                    logger.info("Загрузка kubeconfig из ~/.kube/config")
+                    config.load_kube_config()
+                elif os.path.exists("/etc/rancher/k3s/k3s.yaml"):
+                    logger.info("Загрузка kubeconfig из /etc/rancher/k3s/k3s.yaml")
+                    config.load_kube_config(config_file="/etc/rancher/k3s/k3s.yaml")
+                else:
+                    logger.info("Попытка загрузки in-cluster config...")
+                    config.load_incluster_config()
+                logger.info("Kubernetes API клиент успешно инициализирован.")
+                return
+            except Exception as e:
+                last_err = e
+                if attempt + 1 < max_attempts:
+                    time.sleep(1)
+        logger.error(f"Ошибка инициализации Kubernetes клиента: {last_err}")
+        raise last_err
 
     def get_api_server_info(self):
         """Возвращает хост и параметры авторизации API-сервера для Websocket VNC соединения"""
@@ -2420,6 +2432,47 @@ class K8sClient:
                 raise e
             # Убедимся, что правила изоляции применены даже если NAD уже существовал
             self.ensure_network_isolation()
+
+    def reconcile_host_networks(self, namespace: str = "default"):
+        """Восстанавливает хостовые мосты (br-vms и кластерные br-*), правила NAT/DOCKER-USER
+        и L3-изоляцию после полной перезагрузки сервера, когда K3s и Docker уже запущены."""
+        import re
+        import subprocess
+
+        nsenter_prefix = ["nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "sh", "-c"]
+        try:
+            subprocess.run(
+                nsenter_prefix + ["[ -x /usr/local/bin/aegis-network-setup.sh ] && /usr/local/bin/aegis-network-setup.sh || true"],
+                capture_output=True, text=True, timeout=35,
+            )
+        except Exception as e:
+            logger.debug(f"reconcile_host_networks (aegis-network-setup): {e}")
+
+        try:
+            nads = self.custom_api.list_namespaced_custom_object(
+                "k8s.cni.cncf.io", "v1", namespace, "network-attachment-definitions"
+            )
+            cluster_bridges = []
+            for nad in (nads or {}).get("items", []) or []:
+                nad_cfg = (nad.get("spec") or {}).get("config", "")
+                try:
+                    cfg_obj = json.loads(nad_cfg)
+                except Exception:
+                    continue
+                br = (cfg_obj.get("bridge") or "").strip()
+                if br and br != "br-vms" and re.fullmatch(r"br-[a-zA-Z0-9_-]{1,12}", br):
+                    cluster_bridges.append(br)
+
+            for idx, br in enumerate(cluster_bridges):
+                create_cmd = f"ip link show {br} >/dev/null 2>&1 || ip link add {br} type bridge; ip link set {br} up"
+                subprocess.run(nsenter_prefix + [create_cmd], capture_output=True, text=True, timeout=5)
+                if idx == 0:
+                    add_ip = f"ip addr show dev {br} | grep -q 192.168.100.1 || ip addr add 192.168.100.1/24 dev {br}"
+                    subprocess.run(nsenter_prefix + [add_ip], capture_output=True, text=True, timeout=5)
+        except Exception as e:
+            logger.debug(f"reconcile_host_networks (cluster bridges): {e}")
+
+        self.ensure_network_isolation()
 
     def query_prometheus(self, prom_query: str, start_time: int = None, end_time: int = None, step: str = "30s"):
         """Выполняет запрос к Prometheus: сначала пытается напрямую по ClusterIP, затем через прокси API Kubernetes"""

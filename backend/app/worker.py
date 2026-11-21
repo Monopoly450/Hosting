@@ -418,7 +418,10 @@ def apply_firewall_reconcile_daemon():
                             reason = "правила пропали из iptables"
 
                     if reason:
-                        reconcile_vm_firewall_rules(ip, vm["id"], vm["ports_config"], vm["firewall_rules"], vm["os_type"], old_ip=prev_ip)
+                        reconcile_vm_firewall_rules(
+                            ip, vm["id"], vm["ports_config"], vm["firewall_rules"], vm["os_type"],
+                            old_ip=prev_ip, cloud_init_template=vm.get("cloud_init_template"),
+                        )
                         last_ip[vm["name"]] = ip
                         logger.info(f"Firewall re-applied for {vm['name']} -> {ip}: {reason}")
                 except Exception as ve:
@@ -566,6 +569,23 @@ def snapshot_restart_daemon():
         time.sleep(20)
 
 
+def boot_reconcile_daemon():
+    """После перезагрузки сервера Docker поднимает контейнеры раньше, чем K3s API
+    (:6443) успевает стартовать. Этот поток дожидается готовности K3s и гарантированно
+    восстанавливает хостовые мосты (br-vms, br-*), правила iptables/DOCKER-USER,
+    L3-изоляцию и конфигурацию CDI/Multus."""
+    for attempt in range(60):
+        try:
+            k8s.core_api.get_api_resources(_request_timeout=5)
+            k8s.reconcile_host_networks()
+            k8s.reconcile_cdi_storage()
+            logger.info("Boot reconciliation (host networks & CDI/Multus) completed.")
+            return
+        except Exception as e:
+            logger.debug(f"Waiting for K3s API in boot_reconcile_daemon ({attempt + 1}/60): {e}")
+            time.sleep(5)
+
+
 def main():
     logger.info("Starting worker...")
 
@@ -575,10 +595,7 @@ def main():
     # `relation "domains" does not exist` и не поднимал прокси доменов.
     wait_for_schema(engine)
 
-    try:
-        k8s.reconcile_cdi_storage()
-    except Exception as e:
-        logger.debug(f"reconcile_cdi_storage at worker startup: {e}")
+    threading.Thread(target=boot_reconcile_daemon, daemon=True).start()
 
     # Очистка ограничений, сохранённых до удаления этой функции из панели.
     disk_cleanup_thread = threading.Thread(target=clear_legacy_disk_limits_daemon, daemon=True)
