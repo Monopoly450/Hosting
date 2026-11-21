@@ -437,7 +437,7 @@ ethernets:
                     "domain": {
                         "cpu": {
                             "cores": req.cpu_cores,
-                            "model": "host-passthrough"
+                            **({"model": "host-passthrough"} if os.path.exists("/dev/kvm") else {}),
                         },
                         "resources": {
                             "requests": {
@@ -619,7 +619,7 @@ def generate_windows_manifest(req: VMCreationRequest) -> dict:
                     "domain": {
                         "cpu": {
                             "cores": req.cpu_cores,
-                            "model": "host-passthrough"
+                            **({"model": "host-passthrough"} if os.path.exists("/dev/kvm") else {}),
                         },
                         "resources": {
                             "requests": {
@@ -1747,9 +1747,17 @@ def delete_vm(name: str, force: bool = False, client: K8sClient = Depends(get_k8
                 logger.warning(f"Не удалось очистить S3-архивы при удалении ВМ {name}: {arch_err}")
 
             if db_vm:
-                from app.models.models import AppDeployment, UserDatabase, UserVolume, Domain
-                # Отвязываем БД от ВМ (сама БД — отдельный ресурс, не удаляем)
+                from app.models.models import AppDeployment, UserDatabase, UserVolume, Domain, AlertRule
+                from sqlalchemy import or_
+                # Отвязываем БД и подключаемые сетевые диски от ВМ (сами ресурсы независимы и не удаляются)
                 db.query(UserDatabase).filter(UserDatabase.associated_vm_id == db_vm.id).update({"associated_vm_id": None})
+                db.query(UserVolume).filter(UserVolume.attached_vm_id == db_vm.id).update(
+                    {"attached_vm_id": None, "status": "Available"}
+                )
+                db.query(AlertRule).filter(
+                    AlertRule.target_type == "vm",
+                    or_(AlertRule.target_id == db_vm.id, AlertRule.target_name == name),
+                ).delete(synchronize_session=False)
 
                 # Домены, которые вели на эту ВМ или на её деплой, удаляем
                 # вместе с ней. Без этого запись оставалась в базе и в конфиге
@@ -1767,13 +1775,6 @@ def delete_vm(name: str, force: bool = False, client: K8sClient = Depends(get_k8
 
                 # Если ВМ была частью деплоя приложения — удаляем и запись деплоя
                 db.query(AppDeployment).filter(AppDeployment.vm_id == db_vm.id).delete()
-                # Каскад: удаляем привязанные к ВМ сетевые диски (PVC + запись)
-                for vol in db.query(UserVolume).filter(UserVolume.attached_vm_id == db_vm.id).all():
-                    try:
-                        client.delete_pvc(vol.name)
-                    except Exception as e:
-                        logger.warning(f"Не удалось удалить PVC {vol.name} при удалении ВМ {name}: {e}")
-                    db.delete(vol)
                 db.flush()
 
                 db.delete(db_vm)

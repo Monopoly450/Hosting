@@ -142,3 +142,35 @@ def test_vm_creation_never_uses_or_checks_lvm_pool_even_with_legacy_env(create_e
     win_manifest = generate_windows_manifest(win_req)
     for dvt in win_manifest["spec"]["dataVolumeTemplates"]:
         assert dvt["spec"]["storage"]["storageClassName"] == "local-path"
+
+
+def test_network_disk_datavolume_requests_immediate_binding_and_short_name_resolves(create_env):
+    from app.services import vm_network_disks
+    from app.api.vms import VMCreationRequest
+
+    factory, k8s, user = create_env
+    volumes.create_volume(volumes.VolumeCreateRequest(name="data1", size_gb=3), k8s, user)
+    body = k8s.custom_api.create_namespaced_custom_object.call_args.kwargs["body"]
+    assert body["metadata"]["annotations"]["cdi.kubevirt.io/storage.bind.immediate.requested"] == "true"
+
+    k8s.core_api.read_namespaced_persistent_volume_claim.side_effect = ApiException(status=404)
+    k8s.custom_api.list_namespaced_custom_object.side_effect = lambda group, version, ns, plural: (
+        {"items": [{"metadata": {"name": "vol-1-data1"}}]} if plural == "datavolumes" else {"items": []}
+    )
+    with factory() as db:
+        req = VMCreationRequest(name="vm-short", os_type="ubuntu", network_drives="data1")
+        selected = vm_network_disks.validate_network_disks(db, k8s, NS(id=1, role="student"), [req])
+        assert len(selected["vm-short"]) == 1
+        assert req.network_drives == "vol-1-data1"
+
+
+def test_vm_manifest_omits_host_passthrough_without_kvm(monkeypatch):
+    from app.api.vms import VMCreationRequest, generate_linux_manifest, generate_windows_manifest
+    import os
+
+    real_exists = os.path.exists
+    monkeypatch.setattr(os.path, "exists", lambda p: False if p == "/dev/kvm" else real_exists(p))
+    linux_m = generate_linux_manifest(VMCreationRequest(name="emul-lin", os_type="ubuntu"), "pw123456")
+    win_m = generate_windows_manifest(VMCreationRequest(name="emul-win", os_type="windows"))
+    assert "model" not in linux_m["spec"]["template"]["spec"]["domain"]["cpu"]
+    assert "model" not in win_m["spec"]["template"]["spec"]["domain"]["cpu"]

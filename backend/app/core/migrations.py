@@ -73,7 +73,8 @@ async def apply_migrations(conn):
     """Применяет миграции в рамках открытого async-соединения SQLAlchemy."""
     for stmt in MIGRATION_STATEMENTS:
         try:
-            await conn.execute(text(stmt))
+            async with conn.begin_nested():
+                await conn.execute(text(stmt))
         except Exception as e:
             logger.warning(f"Миграция не применилась ({stmt.splitlines()[0]}...): {e}")
 

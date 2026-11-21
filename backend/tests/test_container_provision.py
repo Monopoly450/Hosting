@@ -45,6 +45,12 @@ class FakeImages:
         self.pulled.append(name)
         self.present.add(name)
 
+    def build(self, path=None, tag=None, rm=True, **kwargs):
+        if tag:
+            self.pulled.append(tag)
+            self.present.add(tag)
+        return object(), []
+
 
 # ----------------------------- ensure_image ---------------------------------
 

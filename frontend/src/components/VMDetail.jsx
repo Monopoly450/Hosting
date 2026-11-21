@@ -189,8 +189,6 @@ const VMDetail = ({ vmName, onClose, onActionSuccess }) => {
 
   useEffect(() => {
     fetchSshDetails();
-    const interval = setInterval(fetchSshDetails, 6000);
-    return () => clearInterval(interval);
   }, [vmName, vm?.status, vm?.ssh_access?.web_terminal_enabled]);
 
   useEffect(() => {

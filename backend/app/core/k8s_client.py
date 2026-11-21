@@ -418,11 +418,15 @@ class K8sClient:
                     if e.status != 404:
                         logger.error(f"Не удалось удалить DataVolume {dv_name}: {e}")
             
-            # 5. На всякий случай удаляем связанные DataVolume и PVC из volumes (в т.ч. после S3-восстановления)
+            # 5. На всякий случай удаляем связанные собственные DataVolume и PVC из volumes
+            # (подключаемые сетевые диски vol-* пользователя НЕ удаляем — они живут отдельно от ВМ)
+            dvt_names = {dv["metadata"]["name"] for dv in dvt if dv.get("metadata", {}).get("name")}
             vols = vm.get("spec", {}).get("template", {}).get("spec", {}).get("volumes", [])
             for vol in vols:
                 if "dataVolume" in vol and vol["dataVolume"].get("name"):
                     dv_name = vol["dataVolume"]["name"]
+                    if dv_name.startswith("vol-"):
+                        continue
                     try:
                         self.custom_api.delete_namespaced_custom_object(
                             group="cdi.kubevirt.io",
@@ -437,6 +441,13 @@ class K8sClient:
                             logger.error(f"Не удалось удалить DataVolume {dv_name}: {e}")
                 if "persistentVolumeClaim" in vol:
                     pvc_name = vol["persistentVolumeClaim"]["claimName"]
+                    is_own_disk = (
+                        pvc_name in dvt_names
+                        or pvc_name in {f"{name}-disk", f"{name}-hd", f"{name}-iso"}
+                        or pvc_name.startswith("restore-")
+                    )
+                    if not is_own_disk or pvc_name.startswith("vol-") or vol["persistentVolumeClaim"].get("hotpluggable"):
+                        continue
                     try:
                         self.core_api.delete_namespaced_persistent_volume_claim(pvc_name, namespace)
                         logger.info(f"Удален PVC: {pvc_name}")
@@ -2336,11 +2347,12 @@ class K8sClient:
             # Добавляем правила заново
             logger.info("Настройка правил iptables для L3 изоляции мостов Multus с поддержкой локального бриджинга")
             
-            # 1. Сначала добавляем запрещающее правило в начало FORWARD
+            # 1. Сначала добавляем запрещающее правило между разными мостами
             add_reject = "iptables -I FORWARD -i br-+ -o br-+ -j REJECT --reject-with icmp-port-unreachable"
             subprocess.run(nsenter_prefix + [add_reject], capture_output=True, text=True, timeout=5)
             
-            # 2. Затем добавляем разрешающее правило для локального трафика внутри одного моста в самую первую позицию (сдвигая REJECT на вторую)
+            # 2. Разрешаем трафик внутри br-vms и локальный бриджинг (без зависимости только от xt_physdev)
+            subprocess.run(nsenter_prefix + ["iptables -I FORWARD -i br-vms -o br-vms -j ACCEPT"], capture_output=True, text=True, timeout=5)
             add_accept = "iptables -I FORWARD -i br-+ -o br-+ -m physdev --physdev-is-bridged -j ACCEPT"
             subprocess.run(nsenter_prefix + [add_accept], capture_output=True, text=True, timeout=5)
             
@@ -2349,8 +2361,9 @@ class K8sClient:
             block_br = "iptables -I INPUT -i br-+ -p tcp -m multiport --dports 5432,5672,15672,8000,8001 -j REJECT --reject-with icmp-port-unreachable"
             subprocess.run(nsenter_prefix + [block_br], capture_output=True, text=True, timeout=5)
             
-            block_flannel = "iptables -I INPUT -s 10.244.0.0/16 -p tcp -m multiport --dports 5432,5672,15672,8000,8001 -j REJECT --reject-with icmp-port-unreachable"
-            subprocess.run(nsenter_prefix + [block_flannel], capture_output=True, text=True, timeout=5)
+            for pod_cidr in ("10.244.0.0/16", "10.42.0.0/16"):
+                block_flannel = f"iptables -C INPUT -s {pod_cidr} -p tcp -m multiport --dports 5432,5672,15672,8000,8001 -j REJECT --reject-with icmp-port-unreachable 2>/dev/null || iptables -I INPUT -s {pod_cidr} -p tcp -m multiport --dports 5432,5672,15672,8000,8001 -j REJECT --reject-with icmp-port-unreachable"
+                subprocess.run(nsenter_prefix + [block_flannel], capture_output=True, text=True, timeout=5)
             
             # Сохраняем правила
             subprocess.run(nsenter_prefix + ["netfilter-persistent save"], capture_output=True, text=True, timeout=5)
@@ -2386,7 +2399,7 @@ class K8sClient:
                 # Без IPAM: CNI не назначает адрес — каждая ВМ прописывает свой
                 # СТАТИЧЕСКИЙ IP (192.168.100.x) через cloud-init, поэтому адрес
                 # стабилен и не меняется при перезагрузке ВМ.
-                "config": '{ "cniVersion": "0.3.1", "type": "bridge", "bridge": "br-' + name[:11] + '", "isGateway": false, "ipam": {} }'
+                "config": '{ "cniVersion": "1.0.0", "type": "bridge", "bridge": "br-' + name[:11] + '", "isGateway": false, "ipam": {} }'
             }
         }
         try:
@@ -2514,7 +2527,10 @@ class K8sClient:
             "kind": "DataVolume",
             "metadata": {
                 "name": name,
-                "namespace": namespace
+                "namespace": namespace,
+                "annotations": {
+                    "cdi.kubevirt.io/storage.bind.immediate.requested": "true"
+                },
             },
             "spec": {
                 "source": {
@@ -3214,7 +3230,14 @@ class K8sClient:
                                     "vm.kubevirt.io/name": vm_name
                                 }
                             }
-                        }
+                        },
+                        {
+                            "podSelector": {
+                                "matchLabels": {
+                                    "kubevirt.io/domain": vm_name
+                                }
+                            }
+                        },
                     ]
                 }
             ]
@@ -3349,7 +3372,7 @@ class K8sClient:
                 if not any(getattr(item, "name", None) == "PGDATA" for item in env_list):
                     need_pgdata = True
 
-        need_pvc_replace = (pvc is None) or is_lvm_storage_class(pvc_sc)
+        need_pvc_replace = (pvc is None) or (is_lvm_storage_class(pvc_sc) and pvc_phase != "Bound")
         if not need_pvc_replace and not need_pgdata:
             return False
 
@@ -3453,26 +3476,66 @@ class K8sClient:
         except Exception as e:
             logger.debug(f"reconcile_cdi_storage (cdi patch): {e}")
 
-        # 2. Патчим StorageProfile local-path для корректного режима ReadWriteOnce/Filesystem
-        try:
-            self.custom_api.patch_cluster_custom_object(
-                "cdi.kubevirt.io", "v1beta1", "storageprofiles", target_sc,
-                {
-                    "spec": {
-                        "claimPropertySets": [
-                            {"accessModes": ["ReadWriteOnce"], "volumeMode": "Filesystem"}
-                        ]
-                    }
-                },
-            )
-        except Exception as e:
-            logger.debug(f"reconcile_cdi_storage (storageprofile patch): {e}")
+        # 2. Патчим StorageProfile local-path и openebs-lvm для корректного режима ReadWriteOnce/Filesystem
+        for sp_name in {target_sc, settings.NETWORK_STORAGE_CLASS}:
+            if not sp_name:
+                continue
+            try:
+                self.custom_api.patch_cluster_custom_object(
+                    "cdi.kubevirt.io", "v1beta1", "storageprofiles", sp_name,
+                    {
+                        "spec": {
+                            "claimPropertySets": [
+                                {"accessModes": ["ReadWriteOnce"], "volumeMode": "Filesystem"}
+                            ]
+                        }
+                    },
+                )
+            except Exception as e:
+                logger.debug(f"reconcile_cdi_storage (storageprofile {sp_name} patch): {e}")
 
         # 3. Разрешаем расширение томов на local-path
         try:
             self.storage_api.patch_storage_class(target_sc, {"allowVolumeExpansion": True})
         except Exception as e:
             logger.debug(f"reconcile_cdi_storage (storageclass patch): {e}")
+
+        # 3b. Автоисправление cniVersion 0.3.1 -> 1.0.0 в Multus и NetworkAttachmentDefinition (для K3s v1.36+ / containerd 2.x)
+        try:
+            cm = self.core_api.read_namespaced_config_map("multus-daemon-config", "kube-system")
+            cm_data = getattr(cm, "data", None) or {}
+            daemon_cfg = cm_data.get("daemon-config.json", "")
+            if '"cniVersion": "0.3.1"' in daemon_cfg:
+                cm_data["daemon-config.json"] = daemon_cfg.replace('"cniVersion": "0.3.1"', '"cniVersion": "1.0.0"')
+                self.core_api.patch_namespaced_config_map("multus-daemon-config", "kube-system", {"data": cm_data})
+                apps_api = client.AppsV1Api(self.api_client)
+                apps_api.patch_namespaced_daemon_set(
+                    "kube-multus-ds",
+                    "kube-system",
+                    {"spec": {"template": {"metadata": {"annotations": {"aegis.io/cni-upgraded": "1.0.0"}}}}},
+                )
+                logger.info("Обновлен cniVersion -> 1.0.0 в multus-daemon-config и перезапущен kube-multus-ds")
+                changed = True
+        except Exception as e:
+            logger.debug(f"reconcile_cdi_storage (multus config check): {e}")
+
+        try:
+            nads = self.custom_api.list_namespaced_custom_object(
+                "k8s.cni.cncf.io", "v1", namespace, "network-attachment-definitions"
+            )
+            for nad in (nads or {}).get("items", []) or []:
+                nad_name = (nad.get("metadata") or {}).get("name")
+                nad_cfg = (nad.get("spec") or {}).get("config", "")
+                if nad_name and '"0.3.1"' in nad_cfg:
+                    new_cfg = nad_cfg.replace('"0.3.1"', '"1.0.0"')
+                    self.custom_api.patch_namespaced_custom_object(
+                        "k8s.cni.cncf.io", "v1", namespace, "network-attachment-definitions", nad_name,
+                        {"spec": {"config": new_cfg}},
+                    )
+                    logger.info(f"Обновлен cniVersion -> 1.0.0 в NetworkAttachmentDefinition/{nad_name}")
+                    changed = True
+        except Exception as e:
+            logger.debug(f"reconcile_cdi_storage (nad cniVersion check): {e}")
 
         # 4. Удаляем зависшие в Pending scratch-PVC на openebs-lvm, чтобы CDI пересоздал их на local-path
         try:
@@ -3652,12 +3715,18 @@ class K8sClient:
         )
 
         last_err = "Ошибка выполнения запроса"
+        exec_env = os.environ.copy()
+        if settings.KUBECONFIG_PATH and os.path.exists(settings.KUBECONFIG_PATH):
+            exec_env.setdefault("KUBECONFIG", settings.KUBECONFIG_PATH)
         for attempt in range(15):
             pod = self._get_ready_db_pod(db_name, namespace, wait_timeout=20.0 if attempt == 0 else 5.0)
             pod_name = pod.metadata.name
-            cmd = ["kubectl", "exec", "-i", "-n", namespace, pod_name, "--", "sh", "-c", shell_cmd]
+            cmd = ["kubectl", "exec", "-i", "-n", namespace, pod_name, "-c", "db", "--", "sh", "-c", shell_cmd]
             try:
-                p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                p = subprocess.Popen(
+                    cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, env=exec_env,
+                )
                 stdout, stderr = p.communicate(input=sql_input, timeout=30)
             except subprocess.TimeoutExpired:
                 p.kill()

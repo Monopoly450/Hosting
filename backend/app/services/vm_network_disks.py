@@ -99,14 +99,23 @@ def validate_network_disks(db, client, user, requests):
     selected = set()
     for req in requests:
         rows = []
-        for name in (req.network_drives or "").split(","):
-            name = name.strip()
-            if not name or ":/" in name:
+        normalized_names = []
+        for raw_item in (req.network_drives or "").split(","):
+            name = raw_item.strip()
+            if not name:
                 continue
+            if ":/" in name:
+                normalized_names.append(name)
+                continue
+            row = db.query(UserVolume).filter(UserVolume.name == name).with_for_update().first()
+            if row is None and getattr(user, "id", None) is not None and not name.startswith("vol-"):
+                prefixed = f"vol-{user.id}-{name}"
+                row = db.query(UserVolume).filter(UserVolume.name == prefixed).with_for_update().first()
+                if row is not None:
+                    name = row.name
             if name in selected:
                 raise HTTPException(400, "Один PVC нельзя подключить сразу к нескольким создаваемым ВМ.")
             selected.add(name)
-            row = db.query(UserVolume).filter(UserVolume.name == name).with_for_update().first()
             if row is None or (user.role != "admin" and row.owner_id != user.id):
                 raise HTTPException(400, "Сетевой диск не найден или недоступен. Укажите точное имя своего PVC из раздела «Сетевые диски».")
             if row.attached_vm_id is not None or row.status != "Available":
@@ -121,6 +130,16 @@ def validate_network_disks(db, client, user, requests):
                 pvc = client.core_api.read_namespaced_persistent_volume_claim(name, "default")
                 if pvc.metadata.deletion_timestamp or pvc.status.phase == "Lost":
                     raise HTTPException(400, f"Диск {name} удаляется или потерян; выберите другой PVC.")
+            except ApiException as error:
+                if error.status == 404:
+                    dvs = client.custom_api.list_namespaced_custom_object(
+                        "cdi.kubevirt.io", "v1beta1", "default", "datavolumes"
+                    ).get("items", [])
+                    if not any((dv.get("metadata") or {}).get("name") == name for dv in dvs):
+                        raise HTTPException(400, f"PVC {name} отсутствует в кластере.") from None
+                else:
+                    raise HTTPException(503, "Не удалось проверить доступность PVC; повторите позже.") from None
+            try:
                 # VM manifests created via this same form were not historically
                 # reflected in UserVolume.attached_vm_id. Check actual consumers.
                 for plural in ("virtualmachines", "virtualmachineinstances"):
@@ -132,10 +151,16 @@ def validate_network_disks(db, client, user, requests):
                         if any(vol.get("persistentVolumeClaim", {}).get("claimName") == name or
                                vol.get("dataVolume", {}).get("name") == name for vol in volumes):
                             raise HTTPException(400, f"Диск {name} уже используется другой ВМ. Сначала отключите его.")
-            except ApiException as error:
-                if error.status == 404:
-                    raise HTTPException(400, f"PVC {name} отсутствует в кластере.") from None
+            except HTTPException:
+                raise
+            except ApiException:
                 raise HTTPException(503, "Не удалось проверить доступность PVC; повторите позже.") from None
             rows.append(row)
+            normalized_names.append(name)
+        if normalized_names and hasattr(req, "network_drives"):
+            try:
+                req.network_drives = ", ".join(normalized_names)
+            except Exception:
+                pass
         reservations[req.name] = rows
     return reservations

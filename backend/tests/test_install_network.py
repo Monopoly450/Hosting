@@ -137,3 +137,13 @@ def test_multus_patching_preserves_json_and_host_mounts(tmp_path, cni_dir):
     assert "/host" + cni_dir in init["command"]
     assert any(m["mountPath"] == "/host/var/lib/rancher/k3s/data"
                for m in init["volumeMounts"])
+    assert config["cniVersion"] == "1.0.0"
+
+
+def test_installer_uses_cni_1_0_0_and_dhcp_only_dnsmasq():
+    source = _source()
+    assert '"cniVersion": "0.3.1"' not in source.split("multus-daemonset-thick.yml", 1)[1].split("EOF", 2)[1]
+    assert '"cniVersion": "1.0.0"' in source
+    assert "port=0" in source
+    assert 'DNSMASQ_EXCEPT="lo"' in source
+    assert source.index("/etc/dnsmasq.d/aegis-dhcp.conf") < source.index("apt-get install -y dnsmasq")

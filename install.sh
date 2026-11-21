@@ -517,8 +517,12 @@ install_k3s() (
     chmod 755 "$temp_dir/$binary"
     timeout --kill-after=5s 15s "$temp_dir/$binary" --version || error "Загруженный K3s не запускается."
     install -m 755 "$temp_dir/$binary" /usr/local/bin/k3s
+    local k3s_exec="--disable traefik --disable servicelb"
+    if [ -s /run/systemd/resolve/resolv.conf ]; then
+        k3s_exec="$k3s_exec --resolv-conf /run/systemd/resolve/resolv.conf"
+    fi
     INSTALL_K3S_VERSION="$version" INSTALL_K3S_SKIP_DOWNLOAD=true \
-        INSTALL_K3S_EXEC="--disable traefik --disable servicelb" \
+        INSTALL_K3S_EXEC="$k3s_exec" \
         timeout --kill-after=10s 180s sh "$temp_dir/install.sh" || error "Не удалось настроить или запустить K3s. Проверьте: journalctl -u k3s -n 100 --no-pager"
 )
 
@@ -527,7 +531,14 @@ if ! command -v k3s &> /dev/null || [ ! -s /etc/systemd/system/k3s.service ] || 
     log "K3s установлен."
 else
     log "K3s уже установлен."
-    timeout --kill-after=10s 180s systemctl enable --now k3s || error "Не удалось запустить K3s. Проверьте: journalctl -u k3s -n 100 --no-pager"
+    if [ -s /run/systemd/resolve/resolv.conf ] && ! grep -q 'resolv-conf' /etc/systemd/system/k3s.service /etc/rancher/k3s/config.yaml 2>/dev/null; then
+        log "Настройка upstream DNS (/run/systemd/resolve/resolv.conf) для K3s..."
+        mkdir -p /etc/rancher/k3s
+        echo 'resolv-conf: "/run/systemd/resolve/resolv.conf"' >> /etc/rancher/k3s/config.yaml
+        timeout --kill-after=10s 180s systemctl restart k3s || error "Не удалось перезапустить K3s. Проверьте: journalctl -u k3s -n 100 --no-pager"
+    else
+        timeout --kill-after=10s 180s systemctl enable --now k3s || error "Не удалось запустить K3s. Проверьте: journalctl -u k3s -n 100 --no-pager"
+    fi
 fi
 
 log "Настройка доступа к Kubernetes API (kubeconfig)..."
@@ -598,8 +609,23 @@ ensure_cni_plugins() {
     done
 }
 log "Проверка CNI-плагинов из установленного K3s..."
-ensure_cni_plugins "$CNI_BIN_DIR" /var/lib/rancher/k3s/data/current/bin
+BUNDLED_CNI_DIR="/var/lib/rancher/k3s/data/current/bin"
+if [ ! -d "$BUNDLED_CNI_DIR" ]; then
+    for cand in /var/lib/rancher/k3s/data/*/bin; do
+        if [ -d "$cand" ]; then
+            BUNDLED_CNI_DIR="$cand"
+            break
+        fi
+    done
+fi
+ensure_cni_plugins "$CNI_BIN_DIR" "$BUNDLED_CNI_DIR"
 log "CNI-плагины готовы."
+
+log "Ожидание первичного конфига Flannel CNI в K3s..."
+for _ in {1..30}; do
+    [ -s "${CNI_CONF_DIR}/10-flannel.conflist" ] && break
+    sleep 2
+done
 
 MANIFEST_DIR="${PROJECT_DIR}/manifests/installer"
 log "Проверка локальных манифестов Kubernetes..."
@@ -610,6 +636,7 @@ MULTUS_IMAGE=$(jq -er '.multus_image' "$MANIFEST_DIR/sources.json")
 
 log "Настройка локального манифеста Multus CNI..."
 cat "$MANIFEST_DIR/multus-daemonset-thick.yml" | \
+sed 's|"cniVersion": "0.3.1"|"cniVersion": "1.0.0"|g' | \
 sed "s|/etc/cni/net.d|${CNI_CONF_DIR}|g" | \
 sed "s|/opt/cni/bin|${CNI_BIN_DIR}|g" | \
 sed "s|mountPath: ${CNI_CONF_DIR}/multus.d|mountPath: /etc/cni/net.d/multus.d|g" | \
@@ -626,8 +653,18 @@ rm -f /tmp/multus-k3s.yml
 kubectl patch daemonset kube-multus-ds -n kube-system --type='strategic' \
     -p='{"spec":{"template":{"spec":{"containers":[{"name":"kube-multus","resources":{"limits":{"memory":"500Mi"},"requests":{"memory":"100Mi"}}}]}}}}' || true
 
+if grep -q '0\.3\.1' "${CNI_CONF_DIR}/00-multus.conf" 2>/dev/null; then
+    log "Обновление устаревшего 00-multus.conf до CNI 1.0.0..."
+    rm -f "${CNI_CONF_DIR}/00-multus.conf"
+    kubectl rollout restart daemonset/kube-multus-ds -n kube-system || true
+fi
+
 log "Ожидание запуска Multus CNI..."
 kubectl rollout status daemonset/kube-multus-ds -n kube-system --timeout=120s
+for _ in {1..30}; do
+    [ -s "${CNI_CONF_DIR}/00-multus.conf" ] && break
+    sleep 2
+done
 
 # ============================== 5. Мост br-vms ==============================
 
@@ -661,34 +698,62 @@ EOF
 
 iptables -t nat -C POSTROUTING -s 172.20.0.0/24 -o "${ACTIVE_IFACE}" -j MASQUERADE &>/dev/null || \
     iptables -t nat -A POSTROUTING -s 172.20.0.0/24 -o "${ACTIVE_IFACE}" -j MASQUERADE
+iptables -t nat -C POSTROUTING -s 10.42.0.0/16 -o "${ACTIVE_IFACE}" -j MASQUERADE &>/dev/null || \
+    iptables -t nat -A POSTROUTING -s 10.42.0.0/16 -o "${ACTIVE_IFACE}" -j MASQUERADE
 iptables -C FORWARD -i br-vms -j ACCEPT &>/dev/null || \
-    iptables -A FORWARD -i br-vms -j ACCEPT
+    iptables -I FORWARD 1 -i br-vms -j ACCEPT
 iptables -C FORWARD -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || \
-    iptables -A FORWARD -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT
+    iptables -I FORWARD 1 -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT
+# Защищаем трафик подов и сервисов K3s (10.42.0.0/16 и 10.43.0.0/16) от политики FORWARD DROP в Docker
+iptables -C FORWARD -s 10.42.0.0/16 -j ACCEPT &>/dev/null || \
+    iptables -I FORWARD 1 -s 10.42.0.0/16 -j ACCEPT
+iptables -C FORWARD -d 10.42.0.0/16 -j ACCEPT &>/dev/null || \
+    iptables -I FORWARD 1 -d 10.42.0.0/16 -j ACCEPT
+iptables -C FORWARD -s 10.43.0.0/16 -j ACCEPT &>/dev/null || \
+    iptables -I FORWARD 1 -s 10.43.0.0/16 -j ACCEPT
+iptables -C FORWARD -d 10.43.0.0/16 -j ACCEPT &>/dev/null || \
+    iptables -I FORWARD 1 -d 10.43.0.0/16 -j ACCEPT
+if iptables -L DOCKER-USER -n &>/dev/null; then
+    iptables -C DOCKER-USER -s 10.42.0.0/16 -j ACCEPT &>/dev/null || iptables -I DOCKER-USER 1 -s 10.42.0.0/16 -j ACCEPT
+    iptables -C DOCKER-USER -d 10.42.0.0/16 -j ACCEPT &>/dev/null || iptables -I DOCKER-USER 1 -d 10.42.0.0/16 -j ACCEPT
+    iptables -C DOCKER-USER -i br-vms -j ACCEPT &>/dev/null || iptables -I DOCKER-USER 1 -i br-vms -j ACCEPT
+    iptables -C DOCKER-USER -o br-vms -j ACCEPT &>/dev/null || iptables -I DOCKER-USER 1 -o br-vms -j ACCEPT
+fi
 
 if dpkg -l | grep -q iptables-persistent; then
     netfilter-persistent save
 else
     log "Установка iptables-persistent..."
-    echo iptables-persistent iptables-persistent/italy select false | debconf-set-selections
-    echo iptables-persistent iptables-persistent/sec select false | debconf-set-selections
+    echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
+    echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
     DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent
     netfilter-persistent save
 fi
 
 log "Установка и настройка DHCP (dnsmasq) на br-vms..."
-apt-get install -y dnsmasq
-# Диапазон DHCP намеренно НЕ пересекается со статическим пулом ВМ
-# (172.20.0.30-229, см. compute_static_ip в backend/app/api/vms.py) — иначе
-# устройство, попросившее адрес по DHCP, могло бы получить тот же IP, что уже
-# статически прописан в cloud-init другой ВМ.
+# Прописываем DHCP-only конфиг (port=0) ДО установки пакета, чтобы postinst
+# dnsmasq не конфликтовал с systemd-resolved на 53 порту и не ломал /etc/resolv.conf.
+mkdir -p /etc/dnsmasq.d
 cat <<EOF > /etc/dnsmasq.d/aegis-dhcp.conf
+port=0
 interface=br-vms
+except-interface=lo
 bind-interfaces
 dhcp-range=172.20.0.231,172.20.0.250,12h
 dhcp-option=option:router,172.20.0.1
 dhcp-option=option:dns-server,8.8.8.8,1.1.1.1
 EOF
+if [ -f /etc/default/dnsmasq ]; then
+    grep -q '^DNSMASQ_EXCEPT=' /etc/default/dnsmasq && \
+        sed -i 's/^DNSMASQ_EXCEPT=.*/DNSMASQ_EXCEPT="lo"/' /etc/default/dnsmasq || \
+        echo 'DNSMASQ_EXCEPT="lo"' >> /etc/default/dnsmasq
+else
+    echo 'DNSMASQ_EXCEPT="lo"' > /etc/default/dnsmasq
+fi
+DEBIAN_FRONTEND=noninteractive apt-get install -y dnsmasq || true
+grep -q '^DNSMASQ_EXCEPT=' /etc/default/dnsmasq 2>/dev/null && \
+    sed -i 's/^DNSMASQ_EXCEPT=.*/DNSMASQ_EXCEPT="lo"/' /etc/default/dnsmasq || \
+    echo 'DNSMASQ_EXCEPT="lo"' >> /etc/default/dnsmasq
 systemctl enable dnsmasq
 systemctl restart dnsmasq
 
@@ -700,7 +765,7 @@ metadata:
   namespace: default
 spec:
   config: '{
-      "cniVersion": "0.3.1",
+      "cniVersion": "1.0.0",
       "name": "bridge-network",
       "type": "bridge",
       "bridge": "br-vms",
@@ -731,11 +796,13 @@ else
 fi
 
 log "Ожидание запуска KubeVirt (может занять пару минут)..."
-kubectl rollout status deployment/virt-operator -n kubevirt --timeout=180s
-for i in {1..30}; do
+kubectl rollout status deployment/virt-operator -n kubevirt --timeout=300s
+KUBEVIRT_DEPLOYED=false
+for i in {1..60}; do
     STATUS=$(kubectl get kubevirt kubevirt -n kubevirt -o jsonpath='{.status.phase}' 2>/dev/null || echo "Waiting")
     if [ "$STATUS" = "Deployed" ]; then
         log "KubeVirt развёрнут."
+        KUBEVIRT_DEPLOYED=true
         if [ "$KVM_SUPPORTED" = false ]; then
             kubectl patch kubevirt kubevirt -n kubevirt --type merge -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true}}}}' || true
         fi
@@ -744,22 +811,26 @@ for i in {1..30}; do
     log "Статус KubeVirt: $STATUS..."
     sleep 10
 done
+[ "$KUBEVIRT_DEPLOYED" = true ] || error "KubeVirt не перешёл в состояние Deployed за 10 минут. Проверьте: kubectl get pods -n kubevirt"
 
 log "Установка CDI ${CDI_VERSION}..."
 kubectl apply -f "$MANIFEST_DIR/cdi-operator.yaml"
 kubectl apply -f "$MANIFEST_DIR/cdi-cr.yaml"
 
 log "Ожидание готовности CDI..."
-kubectl rollout status deployment/cdi-operator -n cdi --timeout=120s
-for i in {1..30}; do
+kubectl rollout status deployment/cdi-operator -n cdi --timeout=300s
+CDI_DEPLOYED=false
+for i in {1..60}; do
     STATUS=$(kubectl get cdi cdi -n cdi -o jsonpath='{.status.phase}' 2>/dev/null || echo "Waiting")
     if [ "$STATUS" = "Deployed" ]; then
         log "CDI развёрнут."
+        CDI_DEPLOYED=true
         break
     fi
     log "Статус CDI: $STATUS..."
     sleep 10
 done
+[ "$CDI_DEPLOYED" = true ] || error "CDI не перешёл в состояние Deployed за 10 минут. Проверьте: kubectl get pods -n cdi"
 for _ in {1..15}; do
     kubectl get storageprofile local-path &>/dev/null && break
     sleep 2
@@ -824,7 +895,7 @@ if [ ! -e /var/lib/aegis/lvm-storage.img ] && [[ "$LVM_POOL_GB" =~ ^[0-9]+$ ]]; 
     CURRENT_FREE_GB=$(df -BG --output=avail /var/lib 2>/dev/null | tail -n1 | tr -dc '0-9')
     if [ -n "$CURRENT_FREE_GB" ]; then
         CURRENT_MAX_LVM_GB=$(( CURRENT_FREE_GB * 80 / 100 ))
-        if [ "$LVM_POOL_GB" -gt "$CURRENT_MAX_LVM_GB" ] && [ "$CURRENT_MAX_LVM_GB" -ge 10 ]; then
+        if [ "$LVM_POOL_GB" -gt "$CURRENT_MAX_LVM_GB" ] && [ "$CURRENT_MAX_LVM_GB" -ge 5 ]; then
             warn "После загрузки образов K3s/KubeVirt свободное место в /var/lib уменьшилось — корректирую размер LVM-пула с ${LVM_POOL_GB} до ${CURRENT_MAX_LVM_GB} ГБ."
             LVM_POOL_GB="$CURRENT_MAX_LVM_GB"
         fi
@@ -933,10 +1004,26 @@ ACTIVE_IFACE=$(/sbin/ip route | grep default | awk '{print $5}' | head -n1)
 if [ -n "$ACTIVE_IFACE" ]; then
     /sbin/iptables -t nat -C POSTROUTING -s 172.20.0.0/24 -o "$ACTIVE_IFACE" -j MASQUERADE &>/dev/null || \
         /sbin/iptables -t nat -A POSTROUTING -s 172.20.0.0/24 -o "$ACTIVE_IFACE" -j MASQUERADE
+    /sbin/iptables -t nat -C POSTROUTING -s 10.42.0.0/16 -o "$ACTIVE_IFACE" -j MASQUERADE &>/dev/null || \
+        /sbin/iptables -t nat -A POSTROUTING -s 10.42.0.0/16 -o "$ACTIVE_IFACE" -j MASQUERADE
     /sbin/iptables -C FORWARD -i br-vms -j ACCEPT &>/dev/null || \
-        /sbin/iptables -A FORWARD -i br-vms -j ACCEPT
+        /sbin/iptables -I FORWARD 1 -i br-vms -j ACCEPT
     /sbin/iptables -C FORWARD -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT &>/dev/null || \
-        /sbin/iptables -A FORWARD -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT
+        /sbin/iptables -I FORWARD 1 -o br-vms -m state --state RELATED,ESTABLISHED -j ACCEPT
+    /sbin/iptables -C FORWARD -s 10.42.0.0/16 -j ACCEPT &>/dev/null || \
+        /sbin/iptables -I FORWARD 1 -s 10.42.0.0/16 -j ACCEPT
+    /sbin/iptables -C FORWARD -d 10.42.0.0/16 -j ACCEPT &>/dev/null || \
+        /sbin/iptables -I FORWARD 1 -d 10.42.0.0/16 -j ACCEPT
+    /sbin/iptables -C FORWARD -s 10.43.0.0/16 -j ACCEPT &>/dev/null || \
+        /sbin/iptables -I FORWARD 1 -s 10.43.0.0/16 -j ACCEPT
+    /sbin/iptables -C FORWARD -d 10.43.0.0/16 -j ACCEPT &>/dev/null || \
+        /sbin/iptables -I FORWARD 1 -d 10.43.0.0/16 -j ACCEPT
+    if /sbin/iptables -L DOCKER-USER -n &>/dev/null; then
+        /sbin/iptables -C DOCKER-USER -s 10.42.0.0/16 -j ACCEPT &>/dev/null || /sbin/iptables -I DOCKER-USER 1 -s 10.42.0.0/16 -j ACCEPT
+        /sbin/iptables -C DOCKER-USER -d 10.42.0.0/16 -j ACCEPT &>/dev/null || /sbin/iptables -I DOCKER-USER 1 -d 10.42.0.0/16 -j ACCEPT
+        /sbin/iptables -C DOCKER-USER -i br-vms -j ACCEPT &>/dev/null || /sbin/iptables -I DOCKER-USER 1 -i br-vms -j ACCEPT
+        /sbin/iptables -C DOCKER-USER -o br-vms -j ACCEPT &>/dev/null || /sbin/iptables -I DOCKER-USER 1 -o br-vms -j ACCEPT
+    fi
 fi
 EOF
 chmod +x /usr/local/bin/aegis-network-setup.sh
@@ -998,6 +1085,9 @@ log "Автозапуск настроен: мост поднимется и п�
 step "Сборка и запуск панели управления"
 chmod 600 "${PROJECT_DIR}/.env" 2>/dev/null || true
 docker compose up -d --build
+# После создания бридж-сетей Docker повторно закрепляем правила FORWARD/DOCKER-USER для K3s и br-vms
+/usr/local/bin/aegis-network-setup.sh || true
+netfilter-persistent save &>/dev/null || true
 log "Панель запущена."
 
 # Ждём, пока бэкенд реально поднимется, а не просто «контейнер создан».

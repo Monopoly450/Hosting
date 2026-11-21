@@ -167,11 +167,16 @@ export default function DeploymentsPanel() {
             const res = await fetch(`/api/vms/${vmName}/metrics/history`, { headers: headers() });
             if (!res.ok) throw new Error('Ошибка получения истории метрик');
             const data = await res.json();
-            const formatted = data.map(item => ({
-                time: new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-                cpu: parseFloat(item.cpu_usage_percent.toFixed(1)),
-                memory: parseFloat(item.memory_usage_percent.toFixed(1)),
-            }));
+            const formatted = data.map(item => {
+                const tsMs = item.timestamp > 1e12 ? item.timestamp : item.timestamp * 1000;
+                const cpuVal = Number(item.cpu_usage_percent ?? item.cpu ?? 0);
+                const memVal = Number(item.memory_usage_percent ?? item.memory_mb ?? 0);
+                return {
+                    time: new Date(tsMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    cpu: parseFloat(cpuVal.toFixed(1)),
+                    memory: parseFloat(memVal.toFixed(1)),
+                };
+            });
             setMetricsHistory(formatted);
         } catch (err) {
             console.error(err);

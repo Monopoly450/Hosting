@@ -116,7 +116,7 @@ After=local-fs.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/bash -c "(losetup -j /var/lib/aegis/lvm-storage.img | grep -q . || losetup -fP --direct-io=on /var/lib/aegis/lvm-storage.img) && udevadm settle && (vgchange -ay vg-aegis || true)"
+ExecStart=/bin/bash -c "(losetup -j /var/lib/aegis/lvm-storage.img | grep -q . || losetup -fP --direct-io=on /var/lib/aegis/lvm-storage.img || losetup -fP /var/lib/aegis/lvm-storage.img) && udevadm settle && (vgchange -ay vg-aegis || true)"
 ExecStop=/bin/bash -c 'if vgs vg-aegis >/dev/null 2>&1; then vgchange -an vg-aegis || exit 1; fi; LOOP_DEV=$$(losetup -j /var/lib/aegis/lvm-storage.img | cut -d: -f1 | head -n1); if [ -n "$$LOOP_DEV" ]; then losetup -d "$$LOOP_DEV"; fi'
 
 [Install]
@@ -137,7 +137,7 @@ else
     case "$POOL_GB" in
         ''|*[!0-9]*) error "AEGIS_LVM_POOL_GB должен быть целым числом гигабайт, получено: '$POOL_GB'." ;;
     esac
-    [ "$POOL_GB" -lt 10 ] && error "Пул меньше 10 ГБ бесполезен: на нём не поместится ни одна ВМ."
+    [ "$POOL_GB" -lt 5 ] && error "Пул меньше 5 ГБ бесполезен: недостаточно места под сетевые диски."
     FREE_GB=$(df -BG --output=avail /var/lib | tail -n1 | tr -dc '0-9')
     [ -n "$FREE_GB" ] || error "Не удалось определить свободное место в /var/lib."
     MAX_POOL_GB=$((FREE_GB * 80 / 100))
@@ -259,7 +259,7 @@ timeout --kill-after=10s 600s helm upgrade --install openebs-lvm openebs-lvm/lvm
   --namespace openebs-lvm \
   --create-namespace \
   --atomic \
-  --timeout 180s \
+  --timeout 300s \
   --set crds.csi.volumeSnapshots.enabled=false
 
 log "Ожидание готовности подов OpenEBS LVM..."
@@ -325,6 +325,10 @@ EOF
 # Filesystem — это реальный volumeMode DataVolume-шаблонов Linux,
 # Windows и ISO этой панели. Клон между Block и Filesystem CDI не делает.
 log "Настройка StorageProfile для openebs-lvm..."
+for _ in {1..10}; do
+    kubectl get storageprofile openebs-lvm &>/dev/null && break
+    sleep 2
+done
 kubectl patch storageprofile openebs-lvm --type=merge -p \
   '{"spec": {"claimPropertySets": [{"accessModes": ["ReadWriteOnce"], "volumeMode": "Filesystem"}]}}' \
   || log "StorageProfile openebs-lvm ещё не создан CDI — панель задаёт режимы явно, это не помешает."

@@ -347,6 +347,11 @@ def get_database_metrics(db_id: int, current_user: User = Depends(get_current_us
                 "cpu_load": 0.0,
                 "memory_usage": 0.0,
                 "active_sessions": 0,
+                "tps": 0.0,
+                "read_iops": 0.0,
+                "write_iops": 0.0,
+                "slow_queries": 0,
+                "uptime": "0 мин.",
                 "error": str(e)
             }
     finally:

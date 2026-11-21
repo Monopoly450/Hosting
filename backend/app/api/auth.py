@@ -240,11 +240,33 @@ async def delete_user(user_id: int, admin: User = Depends(check_admin), db: Asyn
     if active.first():
         raise HTTPException(status_code=409, detail="Дождитесь завершения S3-операций пользователя")
 
-    # Каскадно удаляем записи всех ресурсов пользователя, иначе внешние ключи
-    # (owner_id) не дадут удалить пользователя и оставят «осиротевшие» строки.
-    # ВНИМАНИЕ: реальные ресурсы в Kubernetes (ВМ, БД-поды, бакеты) при этом
-    # не удаляются — их нужно снять отдельно перед удалением пользователя.
-    for model in (VMArchive, VMTask, UserDatabase, UserBucket, UserVolume, UserMailbox, Cluster, AppDeployment):
+    # Каскадно удаляем записи всех ресурсов пользователя в корректном порядке FK.
+    from app.models.models import (
+        ApiToken, BackupSchedule, Project, ProjectMember, Domain,
+        NotificationChannel, AlertRule,
+    )
+    from sqlalchemy import update
+    user_projects_res = await db.execute(select(Project.id).where(Project.owner_id == user.id))
+    user_project_ids = [row[0] for row in user_projects_res.all()]
+    if user_project_ids:
+        for proj_model in (VMTask, UserDatabase, AppDeployment, UserBucket):
+            await db.execute(update(proj_model).where(proj_model.project_id.in_(user_project_ids)).values(project_id=None))
+        await db.execute(delete(ProjectMember).where(ProjectMember.project_id.in_(user_project_ids)))
+    await db.execute(delete(ProjectMember).where(ProjectMember.user_id == user.id))
+    await db.execute(delete(AlertRule).where(AlertRule.owner_id == user.id))
+    await db.execute(delete(NotificationChannel).where(NotificationChannel.owner_id == user.id))
+    await db.execute(delete(BackupSchedule).where(BackupSchedule.owner_id == user.id))
+    await db.execute(delete(ApiToken).where(ApiToken.owner_id == user.id))
+    await db.execute(delete(Domain).where(Domain.owner_id == user.id))
+
+    user_vms_res = await db.execute(select(VMTask.id).where(VMTask.owner_id == user.id))
+    user_vm_ids = [row[0] for row in user_vms_res.all()]
+    if user_vm_ids:
+        await db.execute(update(UserDatabase).where(UserDatabase.associated_vm_id.in_(user_vm_ids)).values(associated_vm_id=None))
+        await db.execute(update(UserVolume).where(UserVolume.attached_vm_id.in_(user_vm_ids)).values(attached_vm_id=None))
+        await db.execute(update(AppDeployment).where(AppDeployment.vm_id.in_(user_vm_ids)).values(vm_id=None))
+
+    for model in (VMArchive, AppDeployment, UserDatabase, UserBucket, UserVolume, UserMailbox, VMTask, Cluster, Project):
         await db.execute(delete(model).where(model.owner_id == user.id))
 
     await db.delete(user)

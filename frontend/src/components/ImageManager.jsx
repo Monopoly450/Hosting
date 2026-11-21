@@ -56,6 +56,14 @@ const ImageManager = ({ onImagesChanged }) => {
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/images/upload', true);
+    const token = localStorage.getItem('aegis_admin_token');
+    if (token) {
+      if (token.includes('.')) {
+        xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+      } else {
+        xhr.setRequestHeader('X-Admin-Token', token);
+      }
+    }
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {

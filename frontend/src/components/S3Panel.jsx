@@ -184,12 +184,15 @@ export default function S3Panel() {
         }
     };
 
+    const encodeS3ObjectPath = (fileName) =>
+        String(fileName || '').split('/').map(encodeURIComponent).join('/');
+
     const handleDownloadFile = async (fileName) => {
         // Через fetch, а не <a href>: эндпоинт требует заголовок авторизации,
         // а обычная ссылка его не отправит и вернёт 401.
         try {
             const res = await fetch(
-                `/api/s3/${selectedBucket.id}/files/${encodeURIComponent(fileName)}/download`,
+                `/api/s3/${selectedBucket.id}/files/${encodeS3ObjectPath(fileName)}/download`,
                 { headers: getHeaders() }
             );
             if (!res.ok) {
@@ -216,7 +219,7 @@ export default function S3Panel() {
         if (isBackupBucket(selectedBucket)) return;
         if (!confirm(`Удалить файл "${fileName}"?`)) return;
         try {
-            const res = await fetch(`/api/s3/${selectedBucket.id}/files/${encodeURIComponent(fileName)}`, {
+            const res = await fetch(`/api/s3/${selectedBucket.id}/files/${encodeS3ObjectPath(fileName)}`, {
                 method: 'DELETE',
                 headers: getHeaders()
             });
@@ -238,7 +241,18 @@ export default function S3Panel() {
     };
 
     const copyToClipboard = (text, key = null) => {
-        navigator.clipboard.writeText(text);
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).catch(() => {});
+        } else {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch { /* ignore */ }
+            ta.remove();
+        }
         if (key) {
             setCopiedKey(key);
             setTimeout(() => setCopiedKey(c => (c === key ? null : c)), 1400);
@@ -250,11 +264,12 @@ export default function S3Panel() {
     };
 
     const formatBytes = (bytes) => {
-        if (bytes === 0) return '0 Bytes';
+        const n = Number(bytes) || 0;
+        if (n <= 0) return '0 Bytes';
         const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
+        const i = Math.min(sizes.length - 1, Math.floor(Math.log(n) / Math.log(k)));
+        return parseFloat((n / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
 
     const fileIcon = (name) => {

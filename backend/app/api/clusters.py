@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional
@@ -9,6 +10,7 @@ from app.api.vms import VMCreationRequest
 from app.core.auth import get_current_user
 
 router = APIRouter()
+logger = logging.getLogger("app.api.clusters")
 
 class ClusterCreateRequest(BaseModel):
     name: str = Field(..., description="Имя кластера")
@@ -295,6 +297,7 @@ def delete_cluster(cluster_id: int, current_user: User = Depends(get_current_use
         # Удаляем сетевое окружение кластера через воркер
         publish_task("vm_tasks", {
             "task_id": cluster.id,
+            "network_name": cluster.network_name,
             "action": "delete_cluster_env"
         })
         

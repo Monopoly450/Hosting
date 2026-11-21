@@ -453,7 +453,6 @@ func handleAWSSecurityGroups(w http.ResponseWriter, r *http.Request) {
 			awsState.SecurityGroups = append(awsState.SecurityGroups, sg)
 		case "update_rules":
 			if err := ValidateSecurityGroupRules(req.Rules); err != nil {
-				awsState.mu.Unlock()
 				http.Error(w, fmt.Sprintf("Invalid security group rules: %v", err), http.StatusBadRequest)
 				return
 			}

@@ -269,19 +269,24 @@ const VMCard = ({ vm, onActionSuccess, onOpenDetail }) => {
           >
             <Copy size={14} />
           </button>
-          <button
-            className="btn btn-secondary btn-icon"
-            onClick={handleDelete}
-            disabled={vm.status !== 'Stopped' || actionLoading !== null}
-            title="Удалить можно только выключенную ВМ"
-            style={{ 
-              color: vm.status !== 'Stopped' ? 'var(--text-muted)' : '#ef4444', 
-              borderColor: vm.status !== 'Stopped' ? 'var(--border-subtle)' : '#fee2e2',
-              cursor: vm.status !== 'Stopped' ? 'not-allowed' : 'pointer'
-            }}
-          >
-            {actionLoading === 'delete' ? <span className="spinner"/> : <Trash2 size={14}/>}
-          </button>
+          {(() => {
+            const canDeleteVm = vm.status !== 'Running' && vm.status !== 'Starting' && vm.status !== 'Stopping';
+            return (
+              <button
+                className="btn btn-secondary btn-icon"
+                onClick={handleDelete}
+                disabled={!canDeleteVm || actionLoading !== null}
+                title={canDeleteVm ? 'Удалить ВМ' : 'Сначала выключите работающую ВМ перед удалением'}
+                style={{ 
+                  color: !canDeleteVm ? 'var(--text-muted)' : '#ef4444', 
+                  borderColor: !canDeleteVm ? 'var(--border-subtle)' : '#fee2e2',
+                  cursor: !canDeleteVm ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {actionLoading === 'delete' ? <span className="spinner"/> : <Trash2 size={14}/>}
+              </button>
+            );
+          })()}
           {vm.status !== 'Running' ? (
             <button 
               className="btn btn-primary"

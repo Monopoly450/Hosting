@@ -120,12 +120,11 @@ def process_vm_task(db: Session, task_id: int):
                     "macAddress": generate_mac_address(task.name + "-lan")
                 })
 
-        # Режим дискового I/O (не ограничение скорости).
+        # Режим дискового I/O (io="native" в QEMU допустим только при cache="none"/"directsync").
         manifest["spec"]["template"]["spec"]["domain"]["ioThreadsPolicy"] = "shared"
         for disk in manifest["spec"]["template"]["spec"]["domain"]["devices"]["disks"]:
-            if "disk" in disk:
-                if disk.get("cache") != "writeback":
-                    disk["disk"]["io"] = "native"
+            if "disk" in disk and disk.get("cache") in ("none", "directsync"):
+                disk["disk"]["io"] = "native"
             
         # KubeVirt не принимает inline cloud-init больше 2048 байт —
         # выносим его в Secret до создания ВМ.
@@ -200,10 +199,10 @@ def process_clone_task(db: Session, task_id: int, source_name: str):
         if not swapped:
             raise Exception(f"Не найден целевой диск {tgt_dvt} для клонирования")
 
-        # Режим дискового I/O, как при обычном создании.
+        # Режим дискового I/O, как при обычном создании (io="native" только при cache="none"/"directsync").
         manifest["spec"]["template"]["spec"]["domain"]["ioThreadsPolicy"] = "shared"
         for disk in manifest["spec"]["template"]["spec"]["domain"]["devices"]["disks"]:
-            if "disk" in disk and disk.get("cache") != "writeback":
+            if "disk" in disk and disk.get("cache") in ("none", "directsync"):
                 disk["disk"]["io"] = "native"
 
         # KubeVirt не принимает inline cloud-init больше 2048 байт —
@@ -314,9 +313,20 @@ def callback(ch, method, properties, body):
                 if vm_name:
                     k8s.delete_vm(vm_name)
             elif action == "delete_cluster_env":
-                cluster = db.query(Cluster).filter(Cluster.id == task_id).first()
+                cluster = db.query(Cluster).filter(Cluster.id == task_id).first() if task_id is not None else None
+                net_name = data.get("network_name") or (cluster.network_name if cluster else None)
+                if net_name:
+                    try:
+                        k8s.custom_api.delete_namespaced_custom_object(
+                            "k8s.cni.cncf.io", "v1", "default", "network-attachment-definitions", net_name
+                        )
+                    except Exception:
+                        pass
                 if cluster:
-                    k8s.delete_cluster_env(str(cluster.id))
+                    try:
+                        k8s.delete_cluster_env(str(cluster.id))
+                    except Exception:
+                        pass
             else:
                 logger.warning(f"Unknown action: {action}")
         finally:

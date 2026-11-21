@@ -123,6 +123,11 @@ services:
     security_opt:
       - apparmor:unconfined
     pid: host
+    device_cgroup_rules:
+      - "c 10:236 rwm"
+      - "b 7:* rwm"
+      - "b 253:* rwm"
+      - "b 254:* rwm"
     restart: unless-stopped
     command: ["python", "-m", "app.worker"]
     depends_on:
@@ -283,6 +288,8 @@ services:
       - ROUNDCUBEMAIL_DEFAULT_HOST=mailserver
       - ROUNDCUBEMAIL_SMTP_SERVER=mailserver
       - ROUNDCUBEMAIL_SMTP_PORT=587
+    volumes:
+      - roundcube_db:/var/roundcube/db
     depends_on:
       - mailserver
     restart: unless-stopped
@@ -331,3 +338,4 @@ volumes:
   minio_data:
   mail_data:
   mail_state:
+  roundcube_db:
