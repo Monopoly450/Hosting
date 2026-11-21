@@ -459,6 +459,12 @@ const App = () => {
           return;
         }
 
+        if (response.status >= 500) {
+          setFormLoading(false);
+          alert(`Сервер API ещё запускается или временно недоступен (HTTP ${response.status}). Подождите 15–30 секунд и попробуйте снова.`);
+          return;
+        }
+
         // Если API авторизации вернул ошибку, пробуем старый способ (проверка X-Admin-Token напрямую)
         // Это полезно для обратной совместимости или входа по прямому токену
         const legacyResponse = await fetch('/api/host/metrics', {
@@ -472,8 +478,12 @@ const App = () => {
           localStorage.setItem('aegis_username', 'admin');
           setAuthenticated(true);
           window.location.reload();
+        } else if (legacyResponse.status >= 500) {
+          setFormLoading(false);
+          alert(`Сервер API ещё запускается или временно недоступен (HTTP ${legacyResponse.status}). Подождите 15–30 секунд и попробуйте снова.`);
         } else {
-          alert('Неверные учетные данные или ключ доступа.');
+          setFormLoading(false);
+          alert(detail || 'Неверные учетные данные или ключ доступа.');
         }
       }
     } catch (err) {

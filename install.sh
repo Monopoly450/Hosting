@@ -112,6 +112,16 @@ if [ "$KVM_SUPPORTED" = true ]; then
     fi
 fi
 
+# На Ubuntu 25.10 / 26.04 ("resolute") ядро по умолчанию включает
+# kernel.apparmor_restrict_unprivileged_unconfined=1, из-за чего AppArmor
+# блокирует отправку сигналов между процессами внутри контейнеров Docker и K3s
+# (postgres:15-alpine, mariadb, rabbitmq, virt-launcher/libvirtd зависают навечно).
+if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_unconfined ]; then
+    log "Отключение блокировки межпроцессных сигналов AppArmor для контейнеров (Ubuntu 25.10+/26.04)..."
+    sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0 >/dev/null 2>&1 || true
+    echo "kernel.apparmor_restrict_unprivileged_unconfined=0" > /etc/sysctl.d/99-aegis-apparmor.conf
+fi
+
 step "Определение активного сетевого интерфейса"
 ACTIVE_IFACE=$(ip route | grep default | awk '{print $5}' | head -n1)
 if [ -z "$ACTIVE_IFACE" ]; then
@@ -1015,6 +1025,9 @@ ip addr show dev br-vms | grep -q "172.20.0.1/24" || ip addr add 172.20.0.1/24 d
 ip link set br-vms up
 
 /sbin/sysctl -w net.ipv4.ip_forward=1 >/dev/null
+if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_unconfined ]; then
+    /sbin/sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0 >/dev/null 2>&1 || true
+fi
 
 ACTIVE_IFACE=""
 for _ in {1..15}; do
@@ -1155,6 +1168,29 @@ if [ "$DB_HEALTHY" != true ]; then
     docker logs --tail=50 aegis-db || true
     error "Превышено время ожидания инициализации PostgreSQL (aegis-db)."
 fi
+PG_PASS_ENV=$(grep -E '^POSTGRES_PASSWORD=' "${PROJECT_DIR}/.env" 2>/dev/null | tail -n1 | cut -d= -f2-)
+if [ -n "$PG_PASS_ENV" ]; then
+    docker exec -i aegis-db psql -U postgres -d postgres -v ON_ERROR_STOP=1 -v pw="$PG_PASS_ENV" <<'EOSQL' >/dev/null 2>&1 || true
+ALTER USER postgres WITH PASSWORD :'pw';
+EOSQL
+    if ! docker exec -i aegis-db psql -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='aegis'" 2>/dev/null | grep -q 1; then
+        log "Создание системной базы данных 'aegis' в PostgreSQL..."
+        docker exec -i aegis-db psql -U postgres -d postgres -c "CREATE DATABASE aegis OWNER postgres;" >/dev/null 2>&1 || true
+    fi
+    if ! docker exec -e PGPASSWORD="$PG_PASS_ENV" aegis-db psql -h 127.0.0.1 -U postgres -d aegis -tAc "SELECT 1" 2>/dev/null | grep -q 1; then
+        if ! docker exec -i aegis-db psql -U postgres -d aegis -tAc "SELECT 1 FROM information_schema.tables WHERE table_name='vm_tasks'" 2>/dev/null | grep -q 1; then
+            warn "Том PostgreSQL был оставлен в нерабочем состоянии прерванной инициализацией — пересоздаю чистый том..."
+            PG_VOL=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' aegis-db 2>/dev/null || true)
+            docker rm -f aegis-db >/dev/null 2>&1 || true
+            [ -n "$PG_VOL" ] && docker volume rm "$PG_VOL" >/dev/null 2>&1 || true
+            docker compose up -d db
+            for _ in $(seq 1 60); do
+                docker exec -e PGPASSWORD="$PG_PASS_ENV" aegis-db psql -h 127.0.0.1 -U postgres -d aegis -tAc "SELECT 1" 2>/dev/null | grep -q 1 && break
+                sleep 2
+            done
+        fi
+    fi
+fi
 log "СУБД PostgreSQL готова. Запуск остальных сервисов панели..."
 if ! docker compose up -d; then
     warn "Сбой запуска контейнеров docker compose. Текущее состояние:"
@@ -1190,8 +1226,9 @@ done
 if [ "$BACKEND_READY" = true ]; then
     log "Бэкенд отвечает, схема базы данных создана."
 else
-    warn "Бэкенд не ответил за 5 минут. Установка продолжится, но проверьте:"
-    warn "  docker compose logs backend --tail=80"
+    warn "Бэкенд не ответил за 5 минут. Диагностика контейнера backend:"
+    docker compose ps || true
+    docker compose logs backend --tail=60 || true
 fi
 
 # Образ Caddy собираем ЗДЕСЬ, а не оставляем на первый тик вотчдога.

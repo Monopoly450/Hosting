@@ -3174,6 +3174,11 @@ class K8sClient:
                                 "volumeMounts": [
                                     volume_mount
                                 ],
+                                "securityContext": {
+                                    "appArmorProfile": {
+                                        "type": "Unconfined"
+                                    }
+                                },
                                 "resources": {
                                     "requests": {
                                         "cpu": "100m",

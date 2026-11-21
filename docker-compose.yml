@@ -2,6 +2,8 @@ services:
   db:
     image: postgres:15-alpine
     container_name: aegis-db
+    security_opt:
+      - apparmor:unconfined
     ports:
       # Только localhost: снаружи системная БД не нужна (бэкенд работает в host-сети)
       - "127.0.0.1:5432:5432"
@@ -23,6 +25,8 @@ services:
     image: rabbitmq:3-management-alpine
     container_name: hosting-rabbitmq
     hostname: rabbitmq
+    security_opt:
+      - apparmor:unconfined
     ports:
       # Только localhost: очередью пользуются только backend и worker на этом же хосте
       - "127.0.0.1:5672:5672"
@@ -183,6 +187,8 @@ services:
       dockerfile: Dockerfile
     container_name: hosting-frontend
     network_mode: host
+    security_opt:
+      - apparmor:unconfined
     restart: unless-stopped
     depends_on:
       - backend
@@ -198,6 +204,8 @@ services:
       dockerfile: Dockerfile
     container_name: aegis-orchestrator
     network_mode: host
+    security_opt:
+      - apparmor:unconfined
     restart: unless-stopped
     depends_on:
       db:
@@ -217,6 +225,8 @@ services:
   mariadb:
     image: mariadb:10.11-jammy
     container_name: aegis-mariadb
+    security_opt:
+      - apparmor:unconfined
     ports:
       # Только localhost: пользовательские БД теперь живут в изолированных K8s-подах
       - "127.0.0.1:3306:3306"
@@ -238,6 +248,8 @@ services:
     image: aegis-minio:RELEASE.2025-09-07T16-13-09Z
     pull_policy: build
     container_name: aegis-minio
+    security_opt:
+      - apparmor:unconfined
     ports:
       # S3 API остаётся публичным: к нему подключаются ВМ и внешние клиенты
       - "9000:9000"
@@ -260,6 +272,8 @@ services:
   mailserver:
     image: mailserver/docker-mailserver:12.1.0
     container_name: aegis-mailserver
+    security_opt:
+      - apparmor:unconfined
     ports:
       - "25:25"
       - "143:143"
@@ -289,6 +303,8 @@ services:
   webmail:
     image: roundcube/roundcubemail:latest
     container_name: aegis-webmail
+    security_opt:
+      - apparmor:unconfined
     ports:
       - "8082:80"
     environment:
