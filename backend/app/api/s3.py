@@ -4,7 +4,7 @@ import json
 import logging
 from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 from minio import Minio
 from app.db import SessionLocal
 from app.models.models import User, UserBucket

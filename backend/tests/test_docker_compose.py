@@ -139,3 +139,80 @@ def test_stateful_services_have_generous_start_period_for_hdd_initdb():
         start_sec = int(str(hc.get("start_period", "0s")).rstrip("s"))
         assert start_sec >= 60, f"{name} должен иметь start_period >= 60s для HDD"
         assert int(hc["retries"]) >= 12, f"{name} должен иметь retries >= 12"
+
+
+def test_all_backend_modules_have_valid_python311_eager_annotations_and_systemd_working_dir():
+    """Контейнер backend работает на Python 3.11 (где аннотации параметров
+    вычисляются сразу при импорте, в отличие от Python 3.14 PEP 649), а systemd
+    отклоняет кавычки в WorkingDirectory=."""
+    import ast
+    import glob
+
+    install_src = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read()
+    assert 'WorkingDirectory="' not in install_src, "systemd не допускает кавычки в WorkingDirectory="
+    assert "WorkingDirectory=${PROJECT_DIR}" in install_src
+
+    builtins_set = set(dir(__import__("builtins")))
+    errors = []
+    for path in sorted(glob.glob(os.path.join(ROOT, "backend", "app", "**", "*.py"), recursive=True)):
+        src = open(path, encoding="utf-8").read()
+        tree = ast.parse(src, filename=path)
+        if any(
+            isinstance(n, ast.ImportFrom) and n.module == "__future__" and any(a.name == "annotations" for a in n.names)
+            for n in tree.body
+        ):
+            continue
+        defined = set(builtins_set) | {"__name__", "__file__", "__doc__", "__package__"}
+
+        def check_expr(expr, scope_names, lineno):
+            if expr is None:
+                return
+            for sub in ast.walk(expr):
+                if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load):
+                    if sub.id not in scope_names and "*" not in scope_names:
+                        errors.append(f"{path}:{getattr(sub, 'lineno', lineno)}: undefined {sub.id!r}")
+
+        def walk_body(stmts, outer_names):
+            local = set(outer_names)
+            for stmt in stmts:
+                if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                    for alias in stmt.names:
+                        local.add("*" if alias.name == "*" else (alias.asname or alias.name).split(".")[0])
+                elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    for dec in stmt.decorator_list:
+                        check_expr(dec, local, stmt.lineno)
+                    for a in stmt.args.posonlyargs + stmt.args.args + stmt.args.kwonlyargs:
+                        check_expr(a.annotation, local, stmt.lineno)
+                    for d in stmt.args.defaults + [x for x in stmt.args.kw_defaults if x is not None]:
+                        check_expr(d, local, stmt.lineno)
+                    check_expr(stmt.returns, local, stmt.lineno)
+                    local.add(stmt.name)
+                elif isinstance(stmt, ast.ClassDef):
+                    for dec in stmt.decorator_list:
+                        check_expr(dec, local, stmt.lineno)
+                    for b in stmt.bases:
+                        check_expr(b, local, stmt.lineno)
+                    local.add(stmt.name)
+                    walk_body(stmt.body, local)
+                elif isinstance(stmt, ast.Assign):
+                    for t in stmt.targets:
+                        if isinstance(t, ast.Name):
+                            local.add(t.id)
+                elif isinstance(stmt, ast.AnnAssign):
+                    check_expr(stmt.annotation, local, stmt.lineno)
+                    if isinstance(stmt.target, ast.Name):
+                        local.add(stmt.target.id)
+                elif isinstance(stmt, (ast.Try, ast.If, ast.For, ast.With)):
+                    for attr in ("body", "orelse", "finalbody"):
+                        sub_body = getattr(stmt, attr, None)
+                        if sub_body:
+                            local |= walk_body(sub_body, local)
+                    if isinstance(stmt, ast.Try):
+                        for h in stmt.handlers:
+                            h_names = set(local) | ({h.name} if h.name else set())
+                            local |= walk_body(h.body, h_names)
+            return local
+
+        walk_body(tree.body, defined)
+
+    assert not errors, f"Неопределённые имена в аннотациях для Python 3.11: {errors}"

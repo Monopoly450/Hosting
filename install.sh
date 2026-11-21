@@ -1086,6 +1086,7 @@ EOF
 # ExecStartPost повторно запускает aegis-network-setup.sh ПОСЛЕ старта Docker и
 # создания бридж-сетей compose, чтобы цепочки FORWARD и DOCKER-USER всегда
 # содержали правила для br-vms и K3s даже после полной перезагрузки сервера.
+DOCKER_BIN=$(command -v docker || echo /usr/bin/docker)
 cat <<EOF > /etc/systemd/system/aegis-hosting.service
 [Unit]
 Description=Aegis Cloud Engine hosting control panel
@@ -1096,10 +1097,10 @@ After=docker.service k3s.service aegis-network.service aegis-lvm-loop.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory="${PROJECT_DIR}"
-ExecStart=/usr/bin/docker compose up -d
+WorkingDirectory=${PROJECT_DIR}
+ExecStart=${DOCKER_BIN} compose up -d
 ExecStartPost=-/usr/local/bin/aegis-network-setup.sh
-ExecReload=/bin/sh -c '/usr/bin/docker compose restart && /usr/local/bin/aegis-network-setup.sh'
+ExecReload=/bin/sh -c '${DOCKER_BIN} compose restart && /usr/local/bin/aegis-network-setup.sh'
 
 [Install]
 WantedBy=multi-user.target
