@@ -127,3 +127,15 @@ def test_kubeconfig_uses_directory_mount_to_survive_k3s_reboot():
         assert "/etc/rancher/k3s:/etc/rancher/k3s:ro" in vols
         assert "/etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro" not in vols
         assert env.get("KUBECONFIG") == "/etc/rancher/k3s/k3s.yaml"
+
+
+def test_stateful_services_have_generous_start_period_for_hdd_initdb():
+    """На HDD первичная инициализация PostgreSQL/MariaDB/RabbitMQ/MinIO легко
+    превышает 25 секунд (5 * 5s), из-за чего docker compose падал на 35.8s с
+    `dependency failed to start: container aegis-db is unhealthy`."""
+    services = _compose()["services"]
+    for name in ("db", "rabbitmq", "mariadb", "minio"):
+        hc = services[name]["healthcheck"]
+        start_sec = int(str(hc.get("start_period", "0s")).rstrip("s"))
+        assert start_sec >= 60, f"{name} должен иметь start_period >= 60s для HDD"
+        assert int(hc["retries"]) >= 12, f"{name} должен иметь retries >= 12"

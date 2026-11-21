@@ -39,16 +39,16 @@ async def startup_event():
 
     logger.info("Инициализация таблиц базы данных...")
     import asyncio as _asyncio_db
-    for _db_attempt in range(20):
+    for _db_attempt in range(60):
         try:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
                 await apply_migrations(conn)
             break
         except Exception as _db_err:
-            if _db_attempt == 19:
+            if _db_attempt == 59:
                 raise
-            logger.warning(f"Ожидание готовности PostgreSQL ({_db_attempt + 1}/20): {_db_err}")
+            logger.warning(f"Ожидание готовности PostgreSQL ({_db_attempt + 1}/60): {_db_err}")
             await _asyncio_db.sleep(2)
     logger.info("Таблицы базы данных успешно проверены/созданы.")
     

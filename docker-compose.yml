@@ -15,7 +15,8 @@ services:
       test: ["CMD-SHELL", "pg_isready -U postgres -d aegis"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 24
+      start_period: 90s
     restart: unless-stopped
 
   rabbitmq:
@@ -33,7 +34,8 @@ services:
       test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 12
+      start_period: 60s
     restart: unless-stopped
 
   backend:
@@ -226,7 +228,8 @@ services:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 12
+      start_period: 90s
     restart: unless-stopped
 
   minio:
@@ -250,7 +253,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 12
+      start_period: 60s
     restart: unless-stopped
 
   mailserver:

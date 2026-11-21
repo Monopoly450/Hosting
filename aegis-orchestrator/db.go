@@ -19,8 +19,8 @@ func initDB() {
 	}
 
 	var err error
-	// Retry database connection a few times in case Postgres is starting up
-	for i := 0; i < 10; i++ {
+	// Retry database connection in case Postgres is starting up or running initdb on HDD
+	for i := 0; i < 40; i++ {
 		dbPool, err = pgxpool.New(context.Background(), connStr)
 		if err == nil {
 			err = dbPool.Ping(context.Background())
@@ -28,7 +28,7 @@ func initDB() {
 				break
 			}
 		}
-		log.Printf("[DB] Ожидание запуска базы данных... Попытка %d/10. Ошибка: %v", i+1, err)
+		log.Printf("[DB] Ожидание запуска базы данных... Попытка %d/40. Ошибка: %v", i+1, err)
 		time.Sleep(3 * time.Second)
 	}
 

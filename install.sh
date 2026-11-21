@@ -1095,7 +1095,67 @@ log "Автозапуск настроен: мост поднимется и п�
 
 step "Сборка и запуск панели управления"
 chmod 600 "${PROJECT_DIR}/.env" 2>/dev/null || true
-docker compose up -d --build
+docker compose build
+log "Запуск системной СУБД PostgreSQL и очереди RabbitMQ (первичная инициализация на HDD может занять 1-2 минуты)..."
+docker compose up -d db rabbitmq
+DB_HEALTHY=false
+DB_RECOVERED_PARTIAL=false
+for _ in $(seq 1 90); do
+    DB_STATE=$(docker inspect -f '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.RestartCount}}' aegis-db 2>/dev/null || echo "missing||0")
+    case "$DB_STATE" in
+        running\|healthy\|*)
+            DB_HEALTHY=true
+            break
+            ;;
+        exited\|*|dead\|*)
+            DB_LOGS=$(docker logs --tail=50 aegis-db 2>&1 || true)
+            if [ "$DB_RECOVERED_PARTIAL" = false ] && printf '%s\n' "$DB_LOGS" | grep -q 'initdb:.*exists but is not empty'; then
+                warn "Обнаружена прерванная первичная инициализация тома PostgreSQL (данных нет) — пересоздаю пустой том..."
+                DB_RECOVERED_PARTIAL=true
+                PG_VOL=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' aegis-db 2>/dev/null || true)
+                docker rm -f aegis-db >/dev/null 2>&1 || true
+                [ -n "$PG_VOL" ] && docker volume rm "$PG_VOL" >/dev/null 2>&1 || true
+                docker compose up -d db
+                sleep 3
+                continue
+            fi
+            warn "Контейнер aegis-db завершился с ошибкой. Последние строки лога:"
+            printf '%s\n' "$DB_LOGS"
+            error "Не удалось запустить системную БД PostgreSQL (aegis-db)."
+            ;;
+    esac
+    DB_RESTARTS="${DB_STATE##*|}"
+    if [ "${DB_RESTARTS:-0}" -ge 3 ]; then
+        DB_LOGS=$(docker logs --tail=50 aegis-db 2>&1 || true)
+        if [ "$DB_RECOVERED_PARTIAL" = false ] && printf '%s\n' "$DB_LOGS" | grep -q 'initdb:.*exists but is not empty'; then
+            warn "Обнаружена прерванная первичная инициализация тома PostgreSQL (данных нет) — пересоздаю пустой том..."
+            DB_RECOVERED_PARTIAL=true
+            PG_VOL=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' aegis-db 2>/dev/null || true)
+            docker rm -f aegis-db >/dev/null 2>&1 || true
+            [ -n "$PG_VOL" ] && docker volume rm "$PG_VOL" >/dev/null 2>&1 || true
+            docker compose up -d db
+            sleep 3
+            continue
+        fi
+        warn "Контейнер aegis-db перезапускается в цикле (RestartCount=${DB_RESTARTS}). Последние строки лога:"
+        printf '%s\n' "$DB_LOGS"
+        error "Системная БД PostgreSQL (aegis-db) не смогла инициализироваться."
+    fi
+    sleep 2
+done
+if [ "$DB_HEALTHY" != true ]; then
+    warn "aegis-db не перешёл в состояние healthy за 3 минуты. Последние строки лога:"
+    docker logs --tail=50 aegis-db || true
+    error "Превышено время ожидания инициализации PostgreSQL (aegis-db)."
+fi
+log "СУБД PostgreSQL готова. Запуск остальных сервисов панели..."
+if ! docker compose up -d; then
+    warn "Сбой запуска контейнеров docker compose. Текущее состояние:"
+    docker compose ps || true
+    docker logs --tail=40 aegis-db || true
+    docker logs --tail=40 hosting-rabbitmq || true
+    error "Не удалось поднять все сервисы панели через docker compose up -d."
+fi
 # После создания бридж-сетей Docker повторно закрепляем правила FORWARD/DOCKER-USER для K3s и br-vms
 /usr/local/bin/aegis-network-setup.sh || true
 netfilter-persistent save &>/dev/null || true
