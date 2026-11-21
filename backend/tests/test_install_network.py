@@ -180,3 +180,44 @@ def test_reboot_units_restore_iptables_lvm_and_cluster_bridges(monkeypatch):
     assert "/usr/local/bin/aegis-network-setup.sh" in joined
     assert "ip link add br-net-cl1 type bridge" in joined
     assert "192.168.100.1/24 dev br-net-cl1" in joined
+
+
+def test_installer_never_sources_env_and_sanitizes_pasted_commands(tmp_path):
+    """`source .env` выполнял случайно вставленную в .env строку вида
+    `AEGIS_HOST_IP=sudo ./install.sh`, запуская install.sh по бесконечному кругу."""
+    source = _source()
+    assert 'source "${PROJECT_DIR}/.env"' not in source
+    assert "AEGIS_INSTALL_RUNNING" in source
+    assert source.rstrip().endswith("exit 0")
+
+    fn_start = source.index("get_env_var() {")
+    fn_end = source.index("\ngenerate_env_file() {", fn_start)
+    fn_code = source[fn_start:fn_end]
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "POSTGRES_PASSWORD=cleanpass\n"
+        "ADMIN_TOKEN=sudo ./install.sh -y\n"
+        "AEGIS_HOST_IP=sudo ./install.sh\n"
+        "sudo ./install.sh\n"
+        "STORAGE_CLASS=openebs-lvm\n",
+        encoding="utf-8",
+    )
+    script = f"""
+set -e
+PROJECT_DIR={shlex.quote(str(tmp_path))}
+log() {{ :; }}
+warn() {{ :; }}
+{fn_code}
+normalize_env_storage_classes
+"""
+    subprocess.run(["bash", "-c", script], check=True)
+    cleaned = env_file.read_text(encoding="utf-8")
+    assert "./install.sh" not in "\n".join(
+        l for l in cleaned.splitlines() if not l.lstrip().startswith("#")
+    )
+    assert "STORAGE_CLASS=local-path" in cleaned
+    assert "NETWORK_STORAGE_CLASS=openebs-lvm" in cleaned
+    admin_lines = [l for l in cleaned.splitlines() if l.startswith("ADMIN_TOKEN=")]
+    assert len(admin_lines) == 1
+    assert len(admin_lines[0].split("=", 1)[1]) == 48

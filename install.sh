@@ -43,6 +43,12 @@ step() {
     echo -e "\n${CYAN}=== $1 ===${NC}"
 }
 
+if [ "${AEGIS_INSTALL_RUNNING:-0}" = "1" ]; then
+    warn "Повторный вложенный вызов install.sh предотвращён."
+    exit 0
+fi
+export AEGIS_INSTALL_RUNNING=1
+
 AUTO_YES=false
 for arg in "$@"; do
     case "$arg" in
@@ -246,18 +252,56 @@ detect_host_ip() {
 # для случая, когда .env уже есть и вопросы не задавались вовсе.
 LVM_POOL_GB=""
 
+get_env_var() {
+    grep -E "^$1=" "${PROJECT_DIR}/.env" 2>/dev/null | tail -n1 | cut -d= -f2-
+}
+
 normalize_env_storage_classes() {
     local env_file="${PROJECT_DIR}/.env"
     [ -f "$env_file" ] || return 0
+    # Удаляем случайно вставленные команды оболочки или оборванные строки без KEY=
+    local tmp_env
+    tmp_env=$(mktemp)
+    awk '
+        /^[[:space:]]*$/ || /^[[:space:]]*#/ { print; next }
+        /^[A-Za-z_][A-Za-z0-9_]*=/ {
+            val = substr($0, index($0, "=") + 1)
+            if (val ~ /(\.\/install\.sh|bash[[:space:]]+install\.sh|git[[:space:]]+pull|sudo[[:space:]])/) {
+                key = substr($0, 1, index($0, "=") - 1)
+                print "# " key "=  — очищена случайно вставленная команда"
+                next
+            }
+            print
+            next
+        }
+        { print "# [удалена некорректная строка] " $0 }
+    ' "$env_file" > "$tmp_env" && mv "$tmp_env" "$env_file"
+
+    local cur_admin
+    cur_admin=$(get_env_var ADMIN_TOKEN)
+    if [ -z "$cur_admin" ] || [[ "$cur_admin" =~ [[:space:]] ]] || [ "$cur_admin" = "aegis-admin-secret-key-2026" ]; then
+        local new_admin
+        new_admin=$(openssl rand -hex 24)
+        tmp_env=$(mktemp)
+        awk -v tok="$new_admin" '
+            /^#?[[:space:]]*ADMIN_TOKEN=/ && !done { print "ADMIN_TOKEN=" tok; done=1; next }
+            { print }
+            END { if (!done) print "ADMIN_TOKEN=" tok }
+        ' "$env_file" > "$tmp_env" && mv "$tmp_env" "$env_file"
+        warn "В .env был пустой или некорректный ADMIN_TOKEN — сгенерирован новый токен администратора."
+    fi
+
     if grep -qiE '^STORAGE_CLASS=(openebs-lvm|.*lvm.*|.*vg-.*)$' "$env_file" 2>/dev/null; then
         log "В .env обнаружен LVM в STORAGE_CLASS — перевожу системные диски ВМ и БД на local-path (LVM используется только для подключаемых сетевых дисков)."
-        sed -i 's/^STORAGE_CLASS=.*/STORAGE_CLASS=local-path/' "$env_file"
+        tmp_env=$(mktemp)
+        awk '/^STORAGE_CLASS=/ { print "STORAGE_CLASS=local-path"; next } { print }' "$env_file" > "$tmp_env" && mv "$tmp_env" "$env_file"
     elif ! grep -qE '^STORAGE_CLASS=' "$env_file" 2>/dev/null; then
         echo "STORAGE_CLASS=local-path" >> "$env_file"
     fi
     if ! grep -qE '^NETWORK_STORAGE_CLASS=' "$env_file" 2>/dev/null; then
         echo "NETWORK_STORAGE_CLASS=openebs-lvm" >> "$env_file"
     fi
+    chmod 600 "$env_file" 2>/dev/null || true
 }
 
 generate_env_file() {
@@ -1263,7 +1307,15 @@ systemctl start aegis-hosting.service || warn "Не удалось синхро�
 
 # ============================== Готово ==============================
 
-source "${PROJECT_DIR}/.env" 2>/dev/null || true
+# Никогда не делаем `source .env`: если при первом интерактивном вводе в .env
+# случайно попала команда вида `VAR=sudo ./install.sh`, `source` выполнит её и
+# запустит установщик рекурсивно по кругу. Читаем только значения ключей.
+ADMIN_TOKEN=$(get_env_var ADMIN_TOKEN)
+PANEL_DOMAIN=$(get_env_var PANEL_DOMAIN)
+MAIL_DOMAIN=$(get_env_var MAIL_DOMAIN)
+STORAGE_DOMAIN=$(get_env_var STORAGE_DOMAIN)
+RABBITMQ_DOMAIN=$(get_env_var RABBITMQ_DOMAIN)
+TIMEWEB_DNS_API_TOKEN=$(get_env_var TIMEWEB_DNS_API_TOKEN)
 FINAL_IP=$(detect_host_ip)
 
 # Проверяем автозапуск фактически, а не считаем настроенным по факту вызова
@@ -1329,3 +1381,4 @@ if [ -n "$PANEL_DOMAIN$MAIL_DOMAIN$STORAGE_DOMAIN$RABBITMQ_DOMAIN" ]; then
     fi
 fi
 echo -e "${GREEN}==========================================================${NC}"
+exit 0
